@@ -138,3 +138,57 @@ substantive changed, say so in the session summary instead.
   whoever will maintain the system. This is now the single highest-value unblock.
 - **Verified:** `npm run check` green — typecheck clean, lint clean, formatting clean,
   32/32 tests passing. Committed as `2666417` with no `node_modules` and no secrets staged.
+
+## 2026-08-01 — Ownership answered; event store on real Postgres
+
+- **Open → Resolved:** Q-03 (who maintains this) and Q-05 (who formally owns this), both
+  answered together: **the district administration — the DC office and/or the AC
+  Headquarter office.** Source: project owner. Notable for a reason worth recording — it is
+  an *office, not a person*, so it survives transfers, which is the same logic as ADR-0004.
+- **Changed:** `docs/05-stack.md` status from *proposed* to **confirmed**. DC/AC office IT
+  is precisely the small-team profile the stack was chosen for, so the answer validates the
+  existing choice rather than changing it.
+- **Open:** two practical items carried forward to M5 handover rather than treated as
+  answered — whether a **named technical person** exists or must be designated (P-07), and
+  **hosting budget and its source** (P-08), which decides cloud VM versus on-premise.
+  Building so either works.
+- **Added:** local PostgreSQL 17.10, portable binaries under `%LOCALAPPDATA%\dnc-postgres`
+  on port 5433. Not a Windows service, no elevation, removable by deleting one folder.
+  `scripts/dev-db.ps1` starts, stops and inspects it. The winget package was tried first
+  and failed — EnterpriseDB returns HTTP 403 to the automated installer download.
+- **Added:** `app/db/migrations/0001_event_store.sql` — the event table with **append-only
+  enforced by database triggers**. UPDATE, DELETE and TRUNCATE all raise, so a future
+  maintainer writing a well-intentioned UPDATE hits a wall rather than a code review.
+- **Added:** `app/src/db/pool.ts` — connection pool, ISO-string timestamp parsing, and a
+  deliberately minimal forward-only migration runner. No rollback, no checksums, no
+  framework: a mistake is corrected by writing the next migration, the same discipline the
+  event log itself follows.
+- **Added:** `app/src/db/eventStore.ts` — idempotent append, incident load, sync cursor,
+  late-arrival query. **No update method and no delete method exist.** That is the interface
+  making ADR-0001 hard to violate by accident.
+- **Decided:** [ADR-0008](docs/adr/ADR-0008-causal-event-ordering.md) — events carry a
+  causal sequence, not just timestamps. **This came from a real bug an integration test
+  caught, and it is the most valuable thing to happen this session.** The original
+  comparator ordered by `(occurred_at, recorded_at, event_id)`. An offline batch shares a
+  millisecond, and Postgres `now()` is transaction-time so `recorded_at` ties across one
+  INSERT — leaving a random UUID to decide order. Four events stored as
+  `acknowledged, overridden, reported, triaged`; `triaged` folded after `overridden` and
+  silently discarded a district override. The comparator was deterministic, had a passing
+  shuffle test, and was wrong. Determinism was never the hard part.
+- **Added:** `app/db/migrations/0002_event_ordering.sql` — `client_seq` for causal order
+  within a device's batch, `seq` for arrival order. Forward-only: 0001 was not edited.
+- **Changed:** the sync cursor from a timestamp to `seq`. Same root cause wearing a
+  different hat — a timestamp cursor silently skips every event sharing a `recorded_at`, so
+  a client resuming mid-batch would lose the remainder permanently and invisibly.
+- **Changed:** `compareEvents` and the SQL `ORDER BY` are now tested against each other
+  directly, because a silent divergence between them would be very hard to spot.
+- **Added:** 17 integration tests against real PostgreSQL, including a regression test that
+  reproduces the ordering bug exactly. Total 49 tests, verified stable across four
+  consecutive runs (the original failure was intermittent).
+- **Changed:** `backlog/todos.md` — M0-02, M0-06, M0-07, M0-09 now `DONE`; new M0-40 for the
+  ordering fix; P-01, P-02, P-03, P-05 closed; P-07 and P-08 added for M5 handover.
+  Nothing in M0 is `BLOCKED` any more.
+- **Changed:** `CLAUDE.md` — environment setup instructions, updated repository map, ADR-0008
+  in the index, and a standing warning to read ADR-0008 before touching event ordering.
+- **Verified:** `npm run check` green — typecheck, lint, formatting, 49/49 tests. Committed
+  as `8b4d6e5`. `app/.env` confirmed unstaged.

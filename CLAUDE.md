@@ -97,6 +97,7 @@ onboarded — challenge them now, not later.
 | [0005](docs/adr/ADR-0005-silence-is-a-signal.md) | Absence of reports is never rendered as "normal" | Accepted |
 | [0006](docs/adr/ADR-0006-report-vs-incident.md) | One incident, many reports — dedup is a domain concept | Accepted |
 | [0007](docs/adr/ADR-0007-boring-stack.md) | Boring, single-node, operable by one person at 02:00 | Accepted |
+| [0008](docs/adr/ADR-0008-causal-event-ordering.md) | Events carry a causal sequence, not just timestamps | Accepted |
 
 ## 4. Invariants — what must never happen
 
@@ -116,9 +117,16 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · *domain core done, persistence blocked*
-- **Phase:** Implementation begun. `app/` builds and all checks pass.
+- **Milestone:** M0 — The Spine · *domain core and event store done; offline outbox next*
+- **Phase:** Implementation. `app/` builds, 49 tests pass against real PostgreSQL.
 - **Last updated:** 2026-08-01
+
+**Getting a working environment**
+```
+.\scripts\dev-db.ps1 start     # portable Postgres 17 on port 5433, no elevation needed
+cd app && npm install && npm run check
+```
+Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 
 **What exists**
 - Planning and architecture documents in `docs/` (thesis, invariants, connectivity
@@ -133,27 +141,38 @@ that blocks release on failure.
   - `src/domain/incident.ts` — the fold, deterministic ordering, override provenance
   - `src/domain/authority.ts` — the policy table as data, break-glass, conflict resolution
   - `src/domain/sla.ts` — response deadlines, late-arrival grace, honest measurement
-  - 32 tests passing, including permanent tests for INV-04, INV-06, INV-07 and INV-08
-  - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
+- **`app/db` and `app/src/db` — the event store, on real PostgreSQL:**
+  - `db/migrations/0001_event_store.sql` — the table, with **append-only enforced by
+    database triggers**. UPDATE, DELETE and TRUNCATE all raise. Not trusted to code.
+  - `db/migrations/0002_event_ordering.sql` — causal ordering (`ADR-0008`)
+  - `src/db/eventStore.ts` — idempotent append, incident load, sync cursor, late arrivals.
+    **There is no update method and no delete method. That is the interface, not an omission.**
+- **49 tests passing**, including permanent tests for INV-04, INV-06, INV-07, INV-08 and
+  17 integration tests against a real database.
+- `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
 **What does not exist yet**
-- Any persistence. No database, no schema, no migrations — see below.
+- The offline outbox and client sync (M0-12 to M0-17) — the next piece.
 - Any API, client, or user interface.
+- The lifecycle endpoints (intake, triage, routing, acknowledgement).
 - Verified domain research (department structures, contacts, seat hierarchies) —
   see `docs/06-open-questions.md`. Everything domain-specific in these documents is
   currently **assumption, not verified fact**.
 - The Place gazetteer for Bannu.
 
-**Why the domain core was built before the blockers were resolved**
-Deliberate, and recorded. Q-03, Q-04 and Q-05 are organisational questions whose answers
-take weeks, and waiting produces nothing. The domain core was written as pure logic with
-no database, no framework and no hosting assumption precisely so that **no answer to any
-of those three can invalidate it**. What stays gated: choosing a deployment target,
-provisioning a database, touching real citizen data, and finalising the authority table.
+**Do not fake the database.** Tests run against real PostgreSQL, never a stub. The
+properties under test are durability and genuine immutability, and an in-memory fake
+cannot demonstrate either — it would let INV-01 be marked proven while proving nothing. If
+`TEST_DATABASE_URL` is missing, the integration suite says so loudly rather than skipping
+quietly.
 
-**Do not fake the database.** An in-memory stub would let the remaining M0 tasks be marked
-done while proving nothing about durability — and INV-01 is exactly the claim that nothing
-is ever lost. Honest `BLOCKED` rows beat a meaningless green board.
+**A lesson already paid for — read `ADR-0008` before touching event ordering.** The first
+comparator ordered by `(occurred_at, recorded_at, event_id)`. It was deterministic, had a
+passing shuffle test, and was **causally wrong**: an offline batch shares a millisecond,
+`now()` is transaction-time so `recorded_at` ties too, and ordering fell to a random UUID.
+`triaged` folded after `overridden` and silently discarded a district override. Determinism
+was never the hard part. Events now carry `clientSeq`, and the SQL `ORDER BY` and the
+TypeScript comparator are tested against each other directly.
 
 **Settled — do not reopen without the owner**
 - **No integration with government-issued systems.** The district runs this platform
@@ -165,10 +184,13 @@ is ever lost. Honest `BLOCKED` rows beat a meaningless green board.
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. Resolve the remaining blocking questions in `docs/06-open-questions.md` — Q-03 (who
-   maintains this after handover), Q-04 (legal basis for citizen data), Q-05 (formal owner).
-2. Confirm the technology choice in `docs/05-stack.md` with whoever will maintain it.
-3. Begin M0: the offline emergency spine. Tasks are decomposed in `backlog/todos.md`.
+1. **M0-12 to M0-17 — the offline outbox.** The event store is ready to receive a synced
+   batch; nothing produces one yet. This is the riskiest remaining piece and the reason
+   the project exists.
+2. M0-24 to M0-32 — the lifecycle: intake that never rejects, triage, routing to a duty
+   seat, acknowledgement, and the server-side SLA job that actually fires.
+3. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
+   build. Nothing before M4 touches real citizen data.
 
 ## 6. Repository map
 
@@ -195,15 +217,21 @@ Build with Claude/
 ├── app/                       ← the application
 │   ├── package.json           ← `npm run check` = typecheck + lint + format + test
 │   ├── tsconfig.json          ← strict, including noUncheckedIndexedAccess
+│   ├── vitest.config.ts       ← db tests run serially against one cluster
 │   ├── eslint.config.js
 │   ├── .prettierrc.json
-│   ├── .env.example           ← nothing live yet; copy to .env, never commit .env
-│   └── src/domain/
-│       ├── events.ts          ← the event catalog (ADR-0001)
-│       ├── incident.ts        ← the fold: events → state, with provenance
-│       ├── authority.ts       ← the policy table as data (ADR-0003)
-│       ├── sla.ts             ← deadlines and the occurred/recorded split (ADR-0002)
-│       └── __tests__/         ← incident, authority, and the invariant suite
+│   ├── .env.example           ← copy to .env; .env is gitignored, never commit it
+│   ├── db/migrations/         ← forward-only SQL. Correct a mistake by writing the next one
+│   └── src/
+│       ├── domain/            ← pure logic, no database, no framework
+│       │   ├── events.ts      ← the event catalog (ADR-0001)
+│       │   ├── incident.ts    ← the fold: events → state, with provenance
+│       │   ├── authority.ts   ← the policy table as data (ADR-0003)
+│       │   └── sla.ts         ← deadlines and the occurred/recorded split (ADR-0002)
+│       ├── db/                ← pool, migration runner, event store
+│       └── testing/           ← test setup (loads .env)
+├── scripts/
+│   └── dev-db.ps1             ← start/stop the local Postgres
 ├── backlog/
 │   ├── milestones.md          ← M0–M5 with pass/fail gates
 │   └── todos.md               ← live task list

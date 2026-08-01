@@ -20,6 +20,7 @@ exists and is honest about its trade-offs.
 | [0005](ADR-0005-silence-is-a-signal.md) | Absence of reports is never rendered as "normal" | Accepted | Medium — projection semantics |
 | [0006](ADR-0006-report-vs-incident.md) | One incident, many reports | Accepted | High — core entity split |
 | [0007](ADR-0007-boring-stack.md) | Boring, single-node, operable at 02:00 | Accepted | Medium — replaceable per layer |
+| [0008](ADR-0008-causal-event-ordering.md) | Events carry a causal sequence, not just timestamps | Accepted | Medium — only before real data exists |
 
 ---
 

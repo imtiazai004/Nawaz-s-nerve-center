@@ -14,12 +14,14 @@ work. See `docs/06-open-questions.md`.
 
 | # | Task | Status | Notes |
 |---|---|---|---|
-| P-01 | Confirm who formally owns this system (Q-05) | `TODO` | Determines whether departments will accept central override at all |
-| P-02 | Establish who maintains it after handover, and what they can run (Q-03) | `TODO` | **Blocks stack confirmation, and therefore M0** |
-| P-03 | Find out whether Rescue 1122 already runs a dispatch system (Q-01) | `TODO` | Blocks M1. Integration beats replacement |
-| P-04 | Establish legal basis for holding citizen emergency data (Q-04) | `TODO` | Blocks the pilot |
-| P-05 | Map what each department already reports upward (Q-02) | `TODO` | Blocks M2 onboarding design |
+| P-01 | Confirm who formally owns this system (Q-05) | `DONE` | District administration — DC office and/or AC HQ office. An office, not a person, so it survives transfers |
+| P-02 | Establish who maintains it after handover (Q-03) | `DONE` | Same answer. Confirms `05-stack.md` rather than changing it |
+| P-03 | Find out whether Rescue 1122 already runs a dispatch system (Q-01) | `DONE` | Yes, and it does not matter — the district runs independently |
+| P-04 | Establish legal basis for holding citizen emergency data (Q-04) | `TODO` | Blocks the **pilot**, not the build. Nothing before M4 touches real citizen data |
+| P-05 | Map what each department already reports upward (Q-02) | `DONE` | Reframed as an export target, collected during M1/M2 onboarding |
 | P-06 | Ask whether a Bannu place gazetteer already exists (Q-08) | `TODO` | Weeks of work vs a phone call |
+| P-07 | Identify a **named technical person** in the DC/AC office, or designate one | `TODO` | M5 handover. The office owning it and someone able to restore a backup at 02:00 are different facts |
+| P-08 | Hosting budget and its source | `TODO` | Decides cloud VM vs on-premise. Built so either works, so it is a deployment-time fork |
 
 ---
 
@@ -37,21 +39,22 @@ the spine.
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
 | M0-01 | Repository scaffold, TypeScript, lint, format, test tooling | `DONE` | — | `npm run check` green: typecheck, lint, format, 32 tests |
-| M0-02 | Postgres + migration framework + local dev setup | `BLOCKED` | Q-03 | Postgres not installed on this machine; gated on who maintains it |
+| M0-02 | Postgres + migration framework + local dev setup | `DONE` | — | Portable PG 17.10 on :5433, `scripts/dev-db.ps1`, forward-only migration runner |
 | M0-03 | Structured logging with correlation ids; health endpoint | `TODO` | M0-02 | Health endpoint returns dependency status |
 | M0-04 | CI: lint, typecheck, test on every commit | `TODO` | M0-01 | Red build blocks merge |
-| M0-05 | Secret handling: env template, secret store, nothing in repo | `DOING` | M0-01 | `.env.example` + `.gitignore` done; secret store pending M0-02 |
+| M0-05 | Secret handling: env template, secret store, nothing in repo | `DOING` | M0-01 | `.env.example`, `.env` gitignored and verified unstaged. Real secret store pending deployment |
 
 ### The event core — `ADR-0001`
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M0-06 | `IncidentEvent` table: append-only, client UUID, dual timestamps | `BLOCKED` | M0-02 | Insert-only enforced at DB level, not just in code. **Types and catalog done** in `app/src/domain/events.ts` |
-| M0-07 | Event append API with idempotency on `event_id` | `BLOCKED` | M0-06 | Same event twice = one row, no error. **Fold-level idempotency done and tested** |
-| M0-08 | `incident_current` projection + fold logic | `DONE` | — | `app/src/domain/incident.ts`; every event type covered; order-independent |
-| M0-09 | Projection rebuild from log | `DONE` | M0-08 | Fold is pure and deterministic across 4 shuffle seeds. **DB-level rebuild still owed once M0-02 lands** |
-| M0-10 | Point-in-time replay — state as of any timestamp | `DONE` | M0-08 | Both `knownAt` (what we saw) and `happenedBy` (what was true) implemented and tested |
-| M0-11 | Event payload versioning from the start | `TODO` | M0-06 | v1 events readable after a v2 is introduced |
+| M0-06 | `IncidentEvent` table: append-only, client UUID, dual timestamps | `DONE` | — | **UPDATE, DELETE and TRUNCATE all raise at the database.** Tested |
+| M0-07 | Event append API with idempotency on `event_id` | `DONE` | M0-06 | Same event twice = one row, no error. Partially-synced batches append only what is missing |
+| M0-08 | `incident_current` projection + fold logic | `DONE` | — | `app/src/domain/incident.ts`; every event type covered |
+| M0-09 | Projection rebuild from log | `DONE` | M0-08 | State from the database matches state folded in memory, override provenance included |
+| M0-10 | Point-in-time replay — state as of any timestamp | `DONE` | M0-08 | Both `knownAt` (what we saw) and `happenedBy` (what was true) |
+| M0-11 | Event payload versioning from the start | `DOING` | M0-06 | `payload_version` column exists; no v2 reader yet |
+| M0-40 | **Causal event ordering** — `clientSeq` + `seq` | `DONE` | M0-06 | New. `ADR-0008`. Found by an integration test; the old comparator was deterministic but causally wrong |
 
 ### Offline substrate — `ADR-0002`
 
@@ -125,19 +128,27 @@ All must pass before M1 starts:
 
 ## Where M0 stands
 
-**Done: the domain core.** The fold, the authority model and the SLA timing logic are
-written, typechecked, linted and covered by 32 passing tests — including permanent tests
-for four of the eight invariants. `npm run check` in `app/` is green.
+**Done: the domain core and the event store.** The fold, the authority model, the SLA
+timing logic, and a real PostgreSQL event store with append-only enforced by database
+triggers. 49 tests pass, 17 of them against the real database. `npm run check` is green and
+stable across repeated runs.
 
-**The remaining M0 work is almost entirely gated on one thing: a database.** Postgres is
-not installed on this machine, and per Q-03 the deployment target should be confirmed with
-whoever will maintain it before we provision one. Everything marked `BLOCKED` above unblocks
-the moment that is answered.
+**Nothing is blocked any more.** Q-03 and Q-05 are answered — the district administration
+(DC office / AC HQ office) owns and maintains it, which confirms the stack rather than
+changing it. Q-04 still blocks the **pilot**, but nothing before M4 touches real citizen
+data, so it does not block the build.
 
-**Deliberately not faked.** No in-memory stub standing in for Postgres. A stub would let the
-remaining tasks be marked done while proving nothing about the property that matters —
-durability — and INV-01 is precisely the claim that nothing is ever lost. Better to have
-four honest `BLOCKED` rows than a green board that means nothing.
+**Next, and it is the piece that matters most: the offline outbox (M0-12 to M0-17).** The
+event store can receive a synced batch; nothing produces one yet. Until a report survives
+airplane mode all the way to the server, the central claim of this project is unproven.
+
+**One design flaw already found and fixed** — see `ADR-0008`. It was invisible to the pure
+domain tests and only appeared against a real database. This is precisely why the plan
+says build the spine early rather than writing more documents.
+
+**Deliberately not faked.** No in-memory stub stands in for Postgres, anywhere. A stub
+cannot demonstrate durability or genuine immutability, and INV-01 is exactly the claim that
+nothing is ever lost.
 
 ## M1 and beyond
 

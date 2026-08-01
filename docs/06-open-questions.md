@@ -13,24 +13,6 @@ needs it · `OPEN` — track, resolve when convenient · `RESOLVED` — with evi
 
 ## Blocking
 
-> **Proceeding at recorded risk, 2026-08-01.** Q-03, Q-04 and Q-05 are organisational
-> questions whose answers take weeks. Waiting produces nothing, so M0's **domain core** is
-> being built now — deliberately as pure logic with no database, no framework and no
-> hosting assumption, so that no answer to any of these three can invalidate it. What is
-> gated until they are answered: choosing the deployment target, provisioning a database,
-> touching real citizen data, and finalising the authority model. See `CHANGELOG.md`.
-
-### Q-03 · Who maintains this after handover, and what can they run? `BLOCKING`
-
-The stack in `05-stack.md` is chosen for operability by a small team. That choice is
-meaningless until we know who that team is, what they already run, and what they are
-capable of supporting.
-
-**Needed:** named maintaining body, existing infrastructure, existing skills, hosting
-budget and its source.
-**Blocks:** confirmation of `05-stack.md`, provisioning any database, and deployment.
-**Does not block:** the pure domain core, which is written to be portable.
-
 ### Q-04 · What is the legal basis for holding citizen emergency data? `BLOCKING`
 
 The system stores reporter identity, contact details, location, and health-adjacent
@@ -40,15 +22,6 @@ policy, governs retention, access, export, and cross-border hosting.
 **Needed:** applicable law, district policy, retention limits, who may lawfully access
 reporter PII.
 **Blocks:** anything touching citizen PII at scale — so, the pilot.
-
-### Q-05 · Who owns this system, formally? `BLOCKING`
-
-Not who built it — who is *accountable* for it. The DC office? A district IT cell? PDMA?
-This determines authority modelling, budget continuity, and whether departments will
-accept central override at all.
-
-**Needed:** a named office with a written mandate.
-**Blocks:** the authority model can be built, but cannot be finalised without this.
 
 ---
 
@@ -121,6 +94,37 @@ site is, and who has access, needs an answer before go-live.
 ---
 
 ## Resolved
+
+### Q-03 · Who maintains this after handover? `RESOLVED 2026-08-01`
+### Q-05 · Who owns this system, formally? `RESOLVED 2026-08-01`
+
+**Answer: the district administration — the DC office and/or the AC Headquarter office.**
+Source: project owner, 2026-08-01.
+
+Both questions have the same answer, so they are resolved together.
+
+This is a good answer for a reason worth naming: it is an **office, not a person**. Offices
+survive transfers, which is precisely the logic behind `ADR-0004`. "The DC office owns
+this" remains true after every posting order; "Officer X owns this" would not.
+
+**Consequences**
+- `05-stack.md` is **confirmed**, not merely proposed. DC/AC office IT is exactly the
+  small-team profile the stack was chosen for, so the answer validates the existing
+  choice rather than changing it. The dependency rule in that document — *who restarts
+  this when it fails, and how do they know it failed* — now has an addressee.
+- The authority model can be finalised: the DC seat is the district-tier authority and the
+  break-glass holder.
+- M0 unblocked. Local PostgreSQL 17 provisioned; see `05-stack.md`.
+
+**Deliberately carried forward rather than treated as answered**
+Two practical items sit underneath the organisational answer, and both belong to M5
+handover rather than to the build:
+- Whether a **named technical person** exists today, or the office needs to designate one.
+  The office owning it and someone being able to restore a backup at 02:00 are different
+  facts.
+- **Hosting budget and its source**, which decides cloud VM versus on-premise in the DC
+  office. The system is being built so either works, so this is a deployment-time fork,
+  not a blocker now.
 
 ### Q-01 · Does Rescue 1122 already run a dispatch system? `RESOLVED 2026-08-01`
 

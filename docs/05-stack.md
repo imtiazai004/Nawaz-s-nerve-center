@@ -9,8 +9,30 @@ currently fashionable.
 The system's real availability ceiling is set by whoever can repair it under pressure, not
 by its design diagram. Every choice below is defensible on those grounds.
 
-> **Status: proposed, not confirmed.** These choices must be validated with whoever will
-> actually maintain the system before M0 begins. See `06-open-questions.md` Q-03.
+> **Status: confirmed, 2026-08-01.** The maintaining body is the district administration —
+> the DC office and/or the AC Headquarter office (Q-03, Q-05). That is exactly the
+> small-team profile these choices were made for, so the answer validates the stack rather
+> than changing it. The dependency rule below now has an addressee.
+
+## Local development cluster
+
+PostgreSQL 17.10, portable binaries under `%LOCALAPPDATA%\dnc-postgres`, listening on
+**port 5433**.
+
+Deliberately **not** a Windows service and not a system-wide install: it needs no
+elevation, starts only when asked, and deleting that one folder removes it completely.
+Port 5433 rather than 5432 so it cannot collide with anything installed later.
+
+```
+.\scripts\dev-db.ps1 start | stop | status | psql | logs
+```
+
+Databases `dnc_dev` and `dnc_test`. Connection strings live in `app/.env`, which is
+gitignored; the password there is a local-development value with no production equivalent.
+`app/.env.example` carries placeholders only.
+
+The winget package for PostgreSQL was tried first and failed — EnterpriseDB returns HTTP
+403 to the automated installer download. The binaries zip downloads normally.
 
 ---
 
