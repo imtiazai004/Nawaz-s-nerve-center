@@ -256,3 +256,44 @@ substantive changed, say so in the session summary instead.
   checklist now shows five ticks and three honest blanks.
 - **Verified:** `npm run check` green — typecheck, lint, formatting, **100/100 tests**.
   Committed as `f12e925`. `app/.env` confirmed unstaged.
+
+## 2026-08-01 — M0-12: the app opens with no network
+
+- **Added:** `app/web/src/sw.ts` — the service worker. Closes the last structural gap in
+  M0: before this, a handset that closed the browser during a shutdown could not reach the
+  app at all, so a queued report was safe on disk and completely unreachable.
+- **Added:** `app/web/index.html` and `app/web/src/main.ts` — app shell scaffold. Explicitly
+  not the real intake UI, which is M0-36; this exists to prove offline launch. Two of its
+  behaviours are not scaffold and must survive: the connectivity rung is always stated
+  rather than implied, and a queued entry never renders as delivered.
+- **Added:** `app/build.mjs` — esbuild for the web client. No new dependency; esbuild
+  already ships with vitest (ADR-0007).
+- **Changed:** `src/api/server.ts` serves static assets, with `sw.js` sent `no-cache` so a
+  broken service worker can always be replaced — the component responsible for offline
+  behaviour must never be the one you cannot fix. Path traversal is refused.
+- **Decided:** `/sync` and `/health` are **network-only, never cached, under any
+  circumstances.** A cached `/sync` response is not a stale page — it tells a client its
+  emergency was accepted when it was not, and the outbox (which releases only what the
+  server confirms) then deletes it. INV-01 violated silently by a caching layer, with no
+  error anywhere. Two tests pin this.
+- **Fixed:** a real UI defect the tests caught. The shell trusted `navigator.onLine`, which
+  Chromium reports as `true` while Playwright has the network cut — exactly what a handset
+  attached to a cell tower with dead backhaul does. The app displayed **"Connected. Reports
+  are delivered immediately."** during a total outage, which is INV-02 applied to
+  connectivity itself. Connectivity is now derived from whether a sync actually reached the
+  server; `navigator.onLine` is believed only when it says `false`, since a browser
+  reporting no interface is trustworthy. Pinned by test 3b, which asserts the browser
+  claims online while the UI correctly says offline.
+- **Changed:** M0 gate step 4 restored to the real test. It previously had to restore the
+  network before reloading, because without a service worker the reload failed with
+  `ERR_INTERNET_DISCONNECTED`. It now reopens the handset **with the network still cut**.
+- **Fixed:** `scripts/dev-db.ps1 start` held the calling shell open indefinitely — postgres
+  inherited the console's stdout handle, so the shell never returned even though the server
+  was up, which looks exactly like a hang. Now launched detached with redirected output and
+  polled for readiness; returns in ~1.4s.
+- **Added:** `app/build.d.mts` so the two e2e suites can import the build script.
+- **Changed:** `.gitignore` excludes `web/dist/`.
+- **Open:** M0-19 (real authentication) is now the largest remaining hole — every endpoint
+  accepts any caller, and INV-05 cannot be tested until it does not.
+- **Verified:** `npm run check` green — typecheck, lint, formatting, **111/111 tests**
+  across 9 files. Committed as `5d6a8a9`. `app/.env` and `web/dist` confirmed unstaged.

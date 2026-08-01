@@ -60,7 +60,8 @@ the spine.
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M0-12 | **PWA shell + service worker** | `TODO` | M0-01 | **The one gap left in M0.** Without it the app cannot be *opened* offline: a queued report is safe on disk but unreachable if the browser closed during a shutdown |
+| M0-12 | **PWA shell + service worker** | `DONE` | M0-01 | App opens with the network cut; navigations resolve offline; `/sync` and `/health` never cached. 11 tests |
+| M0-43 | Connectivity derived from sync outcomes, not `navigator.onLine` | `DONE` | M0-12 | New. Chromium reports `onLine: true` with the network cut — the app was claiming "delivered immediately" during a total outage |
 | M0-13 | IndexedDB durable outbox | `DONE` | — | Proven across real page reloads in real Chromium. `clientSeq` and cursor both survive |
 | M0-14 | Write path: local persist → then sync, never the reverse | `DONE` | M0-13, M0-07 | `enqueue()` returns once durable, before any network attempt |
 | M0-15 | Pending state — never a checkmark until server-confirmed | `DONE` | M0-13 | Entry states `pending`/`inflight`/`blocked`; release only on server confirmation. **UI still owed with M0-36** |
@@ -121,14 +122,14 @@ the spine.
 - [x] Escalation fires with every client closed
 - [x] Central override preserves and displays the department's original value
 - [x] `CLAUDE.md` §5 and `CHANGELOG.md` reflect the true state
-- [ ] **The app opens with no network** — blocked on M0-12, the service worker
+- [x] **The app opens with no network** — M0-12
 - [ ] Every mutation refuses unauthorised direct API calls — only the sync endpoints exist
-      so far, and real auth is M0-19
+      so far, and real auth is M0-19. **The largest remaining hole.**
 - [ ] Restore from backup performed successfully, end to end — M0-38, needs someone who is
       not the original developer
 
-The first five are the architectural claims, and they hold. The last three are real and
-open; M0 does not close until they do.
+Six of eight. The architectural claims all hold. The two open items are real: until M0-19
+lands, every endpoint accepts any caller and INV-05 cannot be tested at all.
 
 ---
 
@@ -145,16 +146,21 @@ past moment can be reconstructed as it was seen then.
 Real Chromium, real IndexedDB, Playwright cutting the network at the driver level, real
 HTTP, real PostgreSQL. 100 tests pass.
 
-**One gap keeps M0 from closing: M0-12, the service worker.** Everything the outbox stores
-survives, but the *app* cannot currently be opened with no network, because the browser has
-to fetch the document. A handset that closes during a shutdown would hold a safe but
-unreachable report. In this district that is not acceptable, and it is the next task.
+**M0-12 has landed**, so gate step 4 is now the real test: the handset is closed and
+reopened **with the network still cut**, and the app opens from the service worker cache.
+It previously had to be weakened to restore connectivity first.
 
-**Two things were found by building rather than planning.** `ADR-0008` — an event ordering
-bug that was deterministic and causally wrong, invisible to the pure domain tests, visible
-immediately against a real database. And a test-infrastructure fault where two Chromium
-suites shared a worker: a teardown crash hid ten test results behind a passing-looking run.
-Both are the argument for building the spine early rather than writing more documents.
+**Three things were found by building rather than planning**, and none would have shown up
+in a design document:
+
+1. `ADR-0008` — event ordering that was deterministic and causally wrong. Invisible to the
+   pure domain tests, obvious against a real database with real transaction semantics.
+2. A test-infrastructure fault where two Chromium suites shared a worker: a teardown crash
+   hid ten results behind a run that reported success.
+3. The app trusted `navigator.onLine`, which Chromium reports as `true` with the network
+   cut — the same thing a handset on a tower with dead backhaul does. It displayed
+   *"Connected. Reports are delivered immediately"* during a total outage. Connectivity is
+   now derived from whether a sync actually reached the server.
 
 **Deliberately not faked, anywhere.** No in-memory Postgres, no `fake-indexeddb`, no mocked
 network. Each would satisfy its interface and prove nothing about the one property that

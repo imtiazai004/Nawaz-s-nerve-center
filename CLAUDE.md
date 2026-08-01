@@ -117,17 +117,17 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · **gate PASSED**
-- **Phase:** Implementation. 100 tests pass. One gap remains before M0 closes: the service
-  worker (M0-12), without which the app cannot be *opened* offline.
+- **Milestone:** M0 — The Spine · **gate PASSED, offline launch working**
+- **Phase:** Implementation. 111 tests pass. Remaining before M0 closes: real auth (M0-19),
+  the SLA job actually running (M0-29), the intake UI (M0-36), a restore drill (M0-38).
 - **Last updated:** 2026-08-01
 
 **The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
 this project, end to end, with nothing stubbed: a critical emergency reported on a handset
-with the network genuinely cut survives a full document teardown, delivers itself on
-reconnect with no operator action, escalates server-side while unacknowledged, is overridden
-by the control room without erasing the department's own value, and reaches a closed
-incident whose history cannot be rewritten. Real Chromium, real IndexedDB, Playwright
+with the network genuinely cut, **reopened with the network still cut**, delivering itself
+on reconnect with no operator action, escalating server-side while unacknowledged,
+overridden by the control room without erasing the department's own value, and reaching a
+closed incident whose history cannot be rewritten. Real Chromium, real IndexedDB, Playwright
 cutting the network at the driver, real HTTP, real PostgreSQL.
 
 **Getting a working environment**
@@ -168,18 +168,26 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
     instead of retrying them forever.
   - `adapters/indexeddb.ts` — the store that runs on the handset.
   - `adapters/httpTransport.ts` — the real network transport.
-- **100 tests passing**, including permanent tests for INV-04, INV-06, INV-07, INV-08,
-  17 database integration tests, 6 real-browser durability tests, and the 14-step M0 gate.
+- **`app/web` — the PWA shell and service worker (M0-12).**
+  - `src/sw.ts` — caches the shell so the app **opens with no network**. `/sync` and
+    `/health` are network-only and must stay that way: a cached "accepted" would tell a
+    client its emergency was stored when it was not, and the outbox would then delete it.
+  - `src/main.ts` — app shell scaffold. **Connectivity is derived from actual sync
+    outcomes, never from `navigator.onLine`** (see below). Real intake UI is still M0-36.
+  - Built by `node build.mjs` into `web/dist` (gitignored); served by the sync server.
+- **111 tests passing**, including permanent tests for INV-04, INV-06, INV-07, INV-08,
+  17 database integration tests, 6 real-browser durability tests, 11 offline-launch tests,
+  and the 14-step M0 gate.
 - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
 **What does not exist yet**
-- **The service worker (M0-12).** The one real gap in M0. Without it the app cannot be
-  *opened* offline — a queued report is safe on disk but unreachable if the browser was
-  closed during a shutdown. Not acceptable in this district; it is the next task.
-- Any user interface. The rapid-intake screen and its 15-second budget are untested.
-- The lifecycle endpoints (intake, triage, routing, acknowledgement) as HTTP — the domain
-  logic exists and is proven, but only the sync endpoints are exposed.
 - Real authentication (M0-19). The stub is guarded by a startup check, not implemented.
+- The SLA job actually running on a schedule (M0-29). The decision logic is written and
+  tested; nothing invokes it.
+- The real intake UI and its 15-second budget (M0-36). The current shell is scaffold.
+- The lifecycle endpoints (triage, routing, acknowledgement) as HTTP — the domain logic
+  exists and is proven, but only the sync endpoints are exposed.
+- A performed restore drill (M0-38).
 - Verified domain research (department structures, contacts, seat hierarchies) —
   see `docs/06-open-questions.md`. Everything domain-specific in these documents is
   currently **assumption, not verified fact**.
@@ -199,6 +207,19 @@ passing shuffle test, and was **causally wrong**: an offline batch shares a mill
 was never the hard part. Events now carry `clientSeq`, and the SQL `ORDER BY` and the
 TypeScript comparator are tested against each other directly.
 
+**Never trust `navigator.onLine`, and never cache `/sync`.** Two rules from M0-12, both
+learned from tests rather than reasoning:
+
+- `navigator.onLine` reports whether the browser has *an interface*, not whether anything
+  gets through. Chromium reported `true` with Playwright's network cut — exactly what a
+  handset on a cell tower with dead backhaul does. The app was showing *"Connected. Reports
+  are delivered immediately"* during a total outage. Connectivity is now derived from
+  whether a sync actually reached the server. `navigator.onLine` is believed only when it
+  says `false`.
+- A cached `/sync` response is not a stale page. It tells a client its emergency was
+  accepted when it was not, and the outbox — which releases only what the server confirms —
+  deletes it. INV-01 violated silently, by a caching layer, with no error anywhere.
+
 **Settled — do not reopen without the owner**
 - **No integration with government-issued systems.** The district runs this platform
   independently, by decision of the owner (2026-08-01). Q-01 and Q-02 are resolved. Do not
@@ -209,13 +230,14 @@ TypeScript comparator are tested against each other directly.
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **M0-12 — the service worker.** Cache the app shell so the app opens with no network.
-   Everything else in M0 is done; this is what closes it.
+1. **M0-19 — real authentication and seat-scoped sessions.** The largest remaining hole:
+   every endpoint currently accepts any caller, and INV-05 is untestable until it does not.
 2. M0-29 — the SLA job actually running on a schedule. The decision logic is written and
    tested; nothing invokes it yet.
 3. M0-36 — the rapid-intake screen, and the **15-second budget measured with a stopwatch**
    on a mid-range Android handset. It is a requirement, not an aspiration.
-4. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
+4. M0-38 — a restore drill performed by someone who is not the original developer.
+5. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
    build. Nothing before M4 touches real citizen data.
 
 ## 6. Repository map
@@ -247,7 +269,12 @@ Build with Claude/
 │   ├── eslint.config.js
 │   ├── .prettierrc.json
 │   ├── .env.example           ← copy to .env; .env is gitignored, never commit it
+│   ├── build.mjs              ← esbuild for the web client → web/dist (gitignored)
 │   ├── db/migrations/         ← forward-only SQL. Correct a mistake by writing the next one
+│   ├── web/                   ← the PWA
+│   │   ├── index.html         ← app shell
+│   │   └── src/sw.ts          ← service worker. NEVER cache /sync
+│   │   └── src/main.ts        ← boot; connectivity from sync outcomes, not navigator.onLine
 │   └── src/
 │       ├── domain/            ← pure logic, no database, no framework
 │       │   ├── events.ts      ← the event catalog (ADR-0001)
