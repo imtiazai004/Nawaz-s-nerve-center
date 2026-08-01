@@ -6,10 +6,19 @@
  * what else passes. Do not delete or weaken a test here to make a change go through —
  * if an invariant genuinely needs to change, that is an ADR and an owner decision.
  *
- * Invariants not yet exercisable at the domain layer (INV-01 durable intake, INV-02
- * staleness rendering, INV-03 notification visibility, INV-05 server-side enforcement)
- * get their tests when persistence and the API land in M0. They are listed here so the
- * gap is visible rather than forgotten.
+ * Four invariants are guarded here, at the domain layer: INV-04, INV-06, INV-07, INV-08.
+ *
+ * Two more are guarded elsewhere, because they are properties of the running system and a
+ * pure-domain test cannot demonstrate either:
+ *   - INV-01 (an emergency is never lost) — `src/__tests__/spine.e2e.test.ts`, real
+ *     Chromium with the network cut, real IndexedDB, real PostgreSQL.
+ *   - INV-05 (the UI is never the enforcement layer) — `src/auth/__tests__/auth.test.ts`,
+ *     every refusal made by direct HTTP call, never through a rendered page.
+ *
+ * Two are still uncovered and stay listed here so the gap is visible rather than forgotten:
+ *   - INV-02 (stale data is never rendered as current) — needs the boards, M0-33..35.
+ *   - INV-03 (a notification failure is never invisible) — needs a notification channel
+ *     with tracked delivery state, M0-32. There is nothing to test until that exists.
  */
 
 import { describe, expect, it } from 'vitest';

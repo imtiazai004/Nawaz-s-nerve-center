@@ -91,6 +91,30 @@ burden that needs an owner.
 `00-thesis.md` flags the control room as a single point of failure. Where the secondary
 site is, and who has access, needs an answer before go-live.
 
+### Q-16 · Should severity have an explicit `unknown`? `OPEN`
+Raised by building the intake endpoint (M0-24), which cannot refuse a report and therefore
+has to record *something* when nobody stated a severity. It currently assumes `high` and
+records `assumed: ['severity']` in the payload, so a placeholder is distinguishable from a
+reporter's judgement.
+
+That works, but it encodes a judgement in a field meant to carry someone else's. The
+alternative is a fifth value — `unknown` — which is honest but touches `SEVERITY_ORDER`,
+`worstSeverity`, every SLA target, INV-04's "an aggregate never hides a critical", and every
+screen that sorts by severity. It is an ADR, not a patch.
+
+**Decide before:** M1 puts severity on a board that operators triage from. A placeholder
+that looks like an assessment is a worse failure on a screen than in a database.
+
+### Q-17 · May a department emit `overridden` on its own field? `OPEN`
+The policy table makes the owning department allowed on its own fields, so
+`POST /incidents/:id/override` succeeds for the owner as well as the district. It is fully
+attributable — `actorSeatId` is the department's own seat, so nobody can manufacture the
+appearance of a district decision — but `overridden` is meant to record *someone else's*
+authority being exercised, and a department revising its own call should arguably triage
+again instead.
+
+Pinned by a test as current behaviour so that changing it is deliberate. Low urgency, real.
+
 ---
 
 ## Resolved

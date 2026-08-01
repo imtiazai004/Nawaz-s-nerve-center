@@ -44,6 +44,7 @@ visible_to_owner       none | yes | yes_and_notify
 | Field | Owner | Override authority | Reason | Visible to owner |
 |---|---|---|---|---|
 | Incident severity | Responsible dept | District control room | required | yes, live |
+| Incident acknowledgement | Responsible dept | District control room | required | yes, notified |
 | Responsible department | System routing | Control room + dept supervisor | required | yes, notified |
 | Response actions log | Responsible dept | *none — append only* | — | — |
 | Resolution & closure | Responsible dept | DC seat only | required | yes, notified |
@@ -54,6 +55,40 @@ visible_to_owner       none | yes | yes_and_notify
 
 Adding a field to this table is a normal administrative act. Adding a *new kind of
 authority* is an ADR.
+
+**Acknowledgement was added as a row in M0-28**, when the lifecycle became reachable over
+HTTP. It belongs here rather than in a bespoke check because it is not a simple ownership
+question: the escalation ladder deliberately moves an unacknowledged incident to a district
+seat when a department stays silent (`ADR-0004`, `ADR-0005`), and that seat then has to be
+able to take it. A district acknowledgement therefore requires a reason — acknowledgement
+stops the SLA clock, and the control room stopping another department's clock is precisely
+the act that has to be explainable afterwards.
+
+---
+
+## Who may read an incident at all
+
+Write authority is only half of it. Cross-department access is **denied by default**, and
+that is enforced server-side on every read (INV-05) — not by which links a workspace
+renders.
+
+| Seat | May read |
+|---|---|
+| In a responsible department | Yes |
+| Tehsil tier and above | Yes, everything |
+| Any other seat | No — answered as *not found*, never as *forbidden* |
+| Any seat, incident not yet routed | Yes |
+
+Three of those need their reasoning stated, because each looks like a mistake:
+
+- **Tehsil and above read everything.** Those tiers hold the routing and override authority
+  in the table above, and authority to change a value you may not look at is not authority,
+  it is guesswork.
+- **A refused read is a 404, not a 403.** Confirming that an incident exists to a seat with
+  no authority over it is itself a disclosure about another department's operations.
+- **An unrouted incident is readable by anyone.** Until routing has happened nobody owns it,
+  and an emergency nobody is permitted to see is an emergency nobody picks up (INV-01). The
+  window is small and closes at the first `routed` event.
 
 ---
 

@@ -30,10 +30,16 @@ const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest'];
  * and every report captured on it attributed to someone who has gone home. On a shared
  * device that is not a staleness bug, it is a false record.
  *
+ * `/incidents` — `GET /incidents/:id` is the incident's live state and its history. A
+ * cached copy is a screen showing an emergency as unacknowledged when someone is already
+ * on the way, or as open when it was closed an hour ago. That is INV-02 exactly: stale
+ * data rendered as current, and here it would be rendered on the screen an operator uses
+ * to decide whether to send anyone.
+ *
  * Network-only. If the network is down the request fails, which is correct: the outbox
  * treats a failed push as "still queued" and tries again.
  */
-const NEVER_CACHE = ['/sync', '/health', '/auth'];
+const NEVER_CACHE = ['/sync', '/health', '/auth', '/incidents'];
 
 function isNeverCache(url: URL): boolean {
   return NEVER_CACHE.some(
@@ -70,15 +76,20 @@ self.addEventListener('fetch', (event) => {
   // Same-origin only. Never interpose on anything else.
   if (url.origin !== self.location.origin) return;
 
-  if (isNeverCache(url)) {
-    // Explicitly not handled — straight to the network, and allowed to fail.
-    return;
-  }
-
+  // A write never comes out of a cache, and a POSTed form navigation is still a write.
   if (request.method !== 'GET') return;
 
   // A navigation must always resolve to the shell, even offline. This is the line that
   // makes the app openable during a shutdown.
+  //
+  // **This is checked before `isNeverCache`, and the order is load-bearing.** Adding
+  // `/incidents` to the never-cache list broke exactly this: an operator opening the app at
+  // `/incidents/<id>` during an outage got ERR_INTERNET_DISCONNECTED, because the path was
+  // network-only and a navigation is a request like any other. The two cases are genuinely
+  // different and the URL alone does not distinguish them — `GET /incidents/:id` as a data
+  // fetch must never be served stale (INV-02), while the same URL as a *navigation* is a
+  // person opening the app and must always resolve. The shell it gets is not incident data;
+  // it fetches that fresh, or shows that it cannot.
   if (request.mode === 'navigate') {
     event.respondWith(
       (async () => {
@@ -87,6 +98,11 @@ self.addEventListener('fetch', (event) => {
         return fetch(request);
       })(),
     );
+    return;
+  }
+
+  if (isNeverCache(url)) {
+    // Explicitly not handled — straight to the network, and allowed to fail.
     return;
   }
 

@@ -40,7 +40,7 @@ the spine.
 |---|---|---|---|---|
 | M0-01 | Repository scaffold, TypeScript, lint, format, test tooling | `DONE` | — | `npm run check` green: typecheck, lint, format, 32 tests |
 | M0-02 | Postgres + migration framework + local dev setup | `DONE` | — | Portable PG 17.10 on :5433, `scripts/dev-db.ps1`, forward-only migration runner |
-| M0-03 | Structured logging with correlation ids; health endpoint | `TODO` | M0-02 | Health endpoint returns dependency status |
+| M0-03 | Structured logging with correlation ids; health endpoint | `TODO` | M0-02 | **Half done.** `/health` reports dependency status (queries the DB, 503 when it is down) and `src/main.ts` logs structured lines. Missing: **correlation ids**, and the API server logs no requests at all |
 | M0-04 | CI: lint, typecheck, test on every commit | `TODO` | M0-01 | Red build blocks merge |
 | M0-05 | Secret handling: env template, secret store, nothing in repo | `DOING` | M0-01 | `.env.example`, `.env` gitignored and verified unstaged. Real secret store pending deployment |
 
@@ -87,17 +87,18 @@ the spine.
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M0-24 | Report entity + intake endpoint that never rejects | `TODO` | M0-06 | No input produces a silent drop (INV-01) |
-| M0-25 | Report → Incident linking (manual for M0) | `TODO` | M0-24 | New report creates or links to an incident |
-| M0-26 | Triage: severity + category as events | `TODO` | M0-07 | — |
-| M0-27 | Routing to one department, one seat | `TODO` | M0-18, M0-26 | Routes to the current duty holder |
-| M0-28 | Acknowledgement by duty seat | `TODO` | M0-27 | Records actor + seat held at that moment |
+| M0-24 | Report entity + intake endpoint that never rejects | `DONE` | M0-06 | `POST /incidents`. Accepts an empty body, a nonsense severity, even unparseable JSON. Records what it assumed rather than filling silently. Refuses only a *future* `occurredAt`, which would buy the incident SLA time |
+| M0-25 | Report → Incident linking (manual for M0) | `DONE` | M0-24 | Intake creates the incident and its first report in one `reported` event |
+| M0-26 | Triage: severity + category as events | `DONE` | M0-07 | `POST /incidents/:id/triage`, authorised by the policy table |
+| M0-27 | Routing to one department, one seat | `DONE` | M0-18, M0-26 | `POST /incidents/:id/route`. Tehsil tier and above, reason required. A second attempt is sent to reassign so the handover is recorded as one |
+| M0-28 | Acknowledgement by duty seat | `DONE` | M0-27 | `POST /incidents/:id/acknowledge`. Seat stamped from the session, never the body. New policy row `incident.acknowledgement` — district may acknowledge, with a reason |
 | M0-29 | **Server-side SLA timer + escalation** (INV-07) | `DONE` | M0-28 | Scanner + scheduler behind a Postgres advisory lock. Walks the seat ladder; vacant posts flagged, never swallowed. 18 tests |
 | M0-45 | Escalation scan is starvation-free | `DONE` | M0-29 | New. Oldest-first ordering; hitting the scan cap is reported, not absorbed |
 | M0-46 | Process entry point with ordered shutdown | `DONE` | M0-29 | New. `src/main.ts` — one deployable, structured logs, health endpoint |
-| M0-30 | Reassignment by control room, with reason | `TODO` | M0-22 | Auditable; owning department notified |
-| M0-31 | Resolve and close with evidence | `TODO` | M0-07 | — |
-| M0-32 | One notification channel with tracked delivery state (INV-03) | `TODO` | M0-27 | Failure is visible, not a log line |
+| M0-30 | Reassignment by control room, with reason | `DONE` | M0-22 | `POST /incidents/:id/reassign`. Reason enforced (INV-06). **Notification of the department losing it waits on M0-32** |
+| M0-31 | Resolve and close with evidence | `DONE` | M0-07 | `resolve` then `close`; closing an unresolved incident is refused, because an incident closed with no recorded outcome is the failure the closure-completeness metric measures |
+| M0-49 | Incident read endpoint, authority-scoped | `DONE` | M0-20 | New. `GET /incidents/:id` returns state **and** full history, so provenance is renderable without a second request. Cross-department reads answered as *not found*, never *forbidden* |
+| M0-32 | One notification channel with tracked delivery state (INV-03) | `TODO` | M0-27 | Failure is visible, not a log line. **Now the only lifecycle gap** — reassignment and district acknowledgement both owe the owning department a notification |
 
 ### Views
 
@@ -105,7 +106,7 @@ the spine.
 |---|---|---|---|---|
 | M0-33 | Central board — all active incidents, unstyled | `TODO` | M0-08 | One projection, not a copy |
 | M0-34 | Department board — same log, scoped by authority | `TODO` | M0-08, M0-20 | Provably the same source as M0-33 |
-| M0-35 | Incident detail with full event history and provenance | `TODO` | M0-22 | Every value answers "who set this, when, why" |
+| M0-35 | Incident detail with full event history and provenance | `DOING` | M0-22 | The **data** is there — `GET /incidents/:id` returns state and history together, and 40 tests cover it (M0-49). The **screen** is not |
 | M0-36 | **Rapid intake — measured against the 15s budget** | `DONE` | M0-14 | ~800ms at 4× CPU throttle. Two taps, no typing, submit-then-enrich. 10 tests |
 | M0-48 | Layered location capture that never blocks | `DONE` | M0-36 | New. GPS watched from open; whatever arrived by submit is attached. Captured layers recorded |
 
@@ -113,9 +114,9 @@ the spine.
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M0-37 | Automated backup | `TODO` | M0-02 | Runs on schedule, verified non-empty |
-| M0-38 | **Restore drill, actually performed** | `TODO` | M0-37 | Executed end to end, timed, documented |
-| M0-39 | Invariant test suite scaffold (INV-01…08) | `DOING` | M0-04 | INV-04, 06, 07, 08 covered in `__tests__/invariants.test.ts`. INV-01, 02, 03, 05 need persistence and an API — the gap is recorded in that file's header so it stays visible |
+| M0-37 | Automated backup | `TODO` | M0-02 | Runs on schedule, verified non-empty. **Nothing exists yet — this is code, and M0-38 cannot start until it does** |
+| M0-38 | **Restore drill, actually performed** | `TODO` | M0-37 | Executed end to end, timed, documented. Blocked on M0-37 as well as on a second person |
+| M0-39 | Invariant test suite scaffold (INV-01…08) | `DOING` | M0-04 | INV-04, 06, 07, 08 at the domain layer; **INV-01 by `spine.e2e.test.ts` and INV-05 by the 25 direct-HTTP refusals in `auth.test.ts`** — both are system properties a pure-domain test cannot show. Remaining: INV-02 (needs the boards, M0-33…35) and INV-03 (needs M0-32) |
 
 ---
 
@@ -129,19 +130,35 @@ the spine.
 - [x] `CLAUDE.md` §5 and `CHANGELOG.md` reflect the true state
 - [x] **The app opens with no network** — M0-12
 - [x] **Every mutation refuses unauthorised direct API calls** — M0-19, 25 tests
-- [ ] Restore from backup performed successfully, end to end — M0-38, needs someone who is
-      not the original developer
+- [ ] Restore from backup performed successfully, end to end — M0-38
 
-Seven of eight. The one open item needs another person, not more code — a restore procedure
-that has only ever been performed by the person who wrote it is not a backup strategy.
+Eight of nine. The open item needs **both** an automated backup (M0-37, which does not exist
+yet and is code) and a second person to perform the restore — a restore procedure that has
+only ever been performed by the person who wrote it is not a backup strategy.
 
 ---
 
 ## M1 starts next
 
-M0 has one item left (M0-38, the restore drill) and it needs a second person rather than
-more code. **M1 — Rescue 1122 in full — can begin**, and that is where the dashboard and
-department workspaces start.
+M0's **architecture gate** has passed, which is what unblocks M1 — but the gate proves the
+spine, it does not mean the M0 task list is finished.
+
+**The lifecycle now exists as HTTP** (M0-24…28, 30, 31, 49): intake that cannot refuse,
+triage, routing, acknowledgement, reassignment, resolution, closure, and an authority-scoped
+read — every one of them gated by the policy table and tested by direct HTTP call, never
+through a browser. That was the largest open block and it is closed.
+
+What remains open in M0, eleven of forty-nine:
+
+- **The screens.** M0-33, M0-34, M0-35 — the central board, the department board, the
+  incident detail. The data behind all three is now served; none of it is rendered.
+- **Notifications.** M0-32, and it is load-bearing rather than cosmetic: reassignment and
+  district acknowledgement both owe the owning department a notification that nothing sends
+  yet, and INV-03 has no test until a channel exists.
+- **Operations.** M0-37 backup, M0-38 restore drill, M0-04 CI, M0-03 correlation ids.
+- **Half-done:** M0-05 secrets, M0-11 payload versioning, M0-39 invariant coverage.
+
+**M1 — Rescue 1122 in full — continues from here**, and the next thing it needs is a screen.
 
 Before M1 gets far it needs two answers: **Q-08** (does a Bannu place gazetteer already
 exist — weeks of work versus a phone call) and **Q-06** (real SLA targets, since the

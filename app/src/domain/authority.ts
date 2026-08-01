@@ -102,6 +102,50 @@ export function evaluateWrite(rule: AuthorityRule, attempt: WriteAttempt): Decis
   };
 }
 
+export interface ReadAttempt {
+  readonly seat: Seat;
+  /** Empty while an incident is still unrouted — nobody owns it yet. */
+  readonly responsibleDepartmentIds: readonly Uuid[];
+}
+
+/**
+ * Decide whether a seat may read an incident at all.
+ *
+ * Cross-department access is denied by default (docs/04-authority-model.md). A station-tier
+ * Police seat has no business reading Rescue's incidents, and "the UI does not link to it"
+ * is not a control (INV-05).
+ *
+ * Two deliberate widenings:
+ *
+ * - **Tehsil and above may read everything.** Not a convenience. Those tiers hold the
+ *   routing and override authority in the policy table, and authority to change a value you
+ *   are not allowed to look at is not authority, it is guesswork.
+ * - **An unrouted incident is readable by any seat.** Until routing has happened nobody owns
+ *   it, and an emergency nobody is permitted to see is an emergency nobody picks up
+ *   (INV-01). The window is small and closes at the first `routed` event.
+ */
+export function evaluateRead(attempt: ReadAttempt): Decision {
+  if (attempt.responsibleDepartmentIds.length === 0) {
+    return { allowed: true, as: 'owner' };
+  }
+
+  if (
+    attempt.seat.departmentId !== null &&
+    attempt.responsibleDepartmentIds.includes(attempt.seat.departmentId)
+  ) {
+    return { allowed: true, as: 'owner' };
+  }
+
+  if (tierRank(attempt.seat.tier) >= tierRank('tehsil')) {
+    return { allowed: true, as: 'override' };
+  }
+
+  return {
+    allowed: false,
+    why: `seat ${attempt.seat.seatId} is not in a responsible department for this incident`,
+  };
+}
+
 /**
  * Resolve two writes to the same field in the same window.
  *
@@ -128,8 +172,13 @@ function isNonEmpty(s: string | undefined): s is string {
  *
  * Department ids are placeholders until the registry exists. This lives in code only
  * until there is a database to hold it — it is a table, not logic, by design.
+ *
+ * `responsibleDepartmentId` is null while an incident is unrouted. Every owner-held field
+ * then has no owner, which leaves only the override tiers — so an untriaged, unrouted
+ * incident can be acted on by the control room and by nobody else. That is the correct
+ * answer: before routing, the control room is who holds it.
  */
-export function defaultRules(responsibleDepartmentId: Uuid): readonly AuthorityRule[] {
+export function defaultRules(responsibleDepartmentId: Uuid | null): readonly AuthorityRule[] {
   return [
     {
       fieldKey: 'incident.severity',
@@ -149,6 +198,21 @@ export function defaultRules(responsibleDepartmentId: Uuid): readonly AuthorityR
       fieldKey: 'incident.responsibleDepartment',
       ownerDepartmentId: null,
       overrideTiers: ['tehsil', 'district'],
+      reasonRequired: true,
+      visibleToOwner: 'yes_and_notify',
+    },
+    {
+      /**
+       * New row (M0-28). Acknowledgement is an act of the department that owns the
+       * incident — but the escalation ladder can move the obligation to a district seat
+       * when the department stays silent (ADR-0004, ADR-0005), and that seat must then be
+       * able to take it. Hence a district override, with a reason: the control room
+       * acknowledging on a department's behalf is exactly the thing that should be
+       * explainable afterwards, since acknowledgement stops the SLA clock.
+       */
+      fieldKey: 'incident.acknowledgement',
+      ownerDepartmentId: responsibleDepartmentId,
+      overrideTiers: ['district'],
       reasonRequired: true,
       visibleToOwner: 'yes_and_notify',
     },

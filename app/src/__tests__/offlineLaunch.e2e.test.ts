@@ -298,4 +298,63 @@ describe.skipIf(dbUrl === undefined)('M0-12: the app opens with no network', () 
     expect(await page.textContent('h1')).toContain('District Nerve Center');
     await context.setOffline(false);
   });
+
+  describe('/incidents is two different things at the same URL', () => {
+    /**
+     * Test 10 above is one half of this and caught the bug that produced this block: adding
+     * `/incidents` to the service worker's never-cache list made an operator opening the app
+     * at `/incidents/<id>` during an outage get ERR_INTERNET_DISCONNECTED instead of the
+     * app. These two tests pin both halves, because a fix for either one alone reintroduces
+     * the other.
+     *
+     *   navigation to /incidents/:id  → must always resolve, offline included
+     *   fetch of    /incidents/:id    → must never be served from cache (INV-02)
+     */
+    it('11. incident state fetched over the network is never put in a cache', async () => {
+      const created = await page.evaluate(async () => {
+        const res = await fetch('/incidents', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ category: 'rta', severity: 'high' }),
+        });
+        const body = (await res.json()) as { incidentId: string };
+        const read = await fetch(`/incidents/${body.incidentId}`);
+        return { incidentId: body.incidentId, status: read.status };
+      });
+
+      // The read has to actually succeed, or this test would pass by never caching a 401.
+      expect(created.status).toBe(200);
+
+      const cached = await page.evaluate(async () => {
+        const names = await caches.keys();
+        const urls: string[] = [];
+        for (const name of names) {
+          const cache = await caches.open(name);
+          for (const req of await cache.keys()) urls.push(new URL(req.url).pathname);
+        }
+        return urls;
+      });
+
+      expect(cached.filter((u) => u.startsWith('/incidents'))).toEqual([]);
+    });
+
+    it('12. and offline, that fetch fails rather than answering with yesterday', async () => {
+      // A cached incident is a screen showing an emergency as unacknowledged when a crew is
+      // already on the way, or as open when it was closed an hour ago — on the screen used
+      // to decide whether to send anyone. Failing is the honest answer.
+      await context.setOffline(true);
+
+      const outcome = await page.evaluate(async (id: string) => {
+        try {
+          const res = await fetch(`/incidents/${id}`);
+          return { threw: false, status: res.status };
+        } catch {
+          return { threw: true, status: 0 };
+        }
+      }, randomUUID());
+
+      expect(outcome.threw).toBe(true);
+      await context.setOffline(false);
+    });
+  });
 });

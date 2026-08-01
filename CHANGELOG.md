@@ -490,3 +490,108 @@ substantive changed, say so in the session summary instead.
 - **Verified:** `npm run check` green **three consecutive times** — typecheck, lint,
   formatting, **180/180 tests** across 13 files, intake measured at 771–818ms each run.
   Committed as `d52060d`.
+
+## 2026-08-01 — Bookkeeping corrected: the gate is green, the task list is not finished
+
+No behaviour changed. This entry records three places where the documents had drifted from
+the code, all found by reading the todo list against the source rather than trusting it.
+
+- **Fixed:** M0-38 (the restore drill) was described in both `CLAUDE.md` §5 and
+  `backlog/todos.md` as "needs a second person, not more code". Only half true — **M0-37,
+  the automated backup, does not exist**, so there is nothing to restore from. The drill is
+  blocked on code first and a person second. This mattered: it made the last open gate item
+  look like a scheduling problem when part of it is unwritten work.
+- **Fixed:** the header of `src/domain/__tests__/invariants.test.ts` claimed INV-01, 02, 03
+  and 05 all "get their tests when persistence and the API land in M0". Two of those have
+  since landed and the header never caught up — **INV-01 is proven by `spine.e2e.test.ts`**
+  and **INV-05 by the 25 direct-HTTP refusals in `auth.test.ts`**, neither of which a pure
+  domain test could demonstrate. The header now names where each invariant is guarded, and
+  narrows the honest gap to INV-02 (needs the boards, M0-33…35) and INV-03 (needs a
+  notification channel, M0-32 — there is nothing to test until it exists).
+- **Fixed:** M0-03 was listed as flatly `TODO` with acceptance "health endpoint returns
+  dependency status" — which `api/server.ts` already does, querying the database and
+  answering 503 when it is down. Status stays `TODO` because the other half, **correlation
+  ids, does not exist and the API server logs no requests at all**. The note now says which
+  half is done, so the next session does not rebuild the finished part.
+- **Changed:** `CLAUDE.md` §5 and `todos.md` no longer read as though M0 is one item from
+  finished. The **architecture gate** passed and that is what unblocks M1; the **task list**
+  is ~60% done, with eighteen of forty-eight open — the lifecycle as HTTP (M0-24…28, 30, 31),
+  notifications (M0-32), all three boards (M0-33…35), backup and restore (M0-37, 38) and CI
+  (M0-04). The gate passes with the lifecycle endpoints unbuilt because it appends events
+  through `/sync` directly; that is legitimate proof of the architecture and is now stated
+  plainly instead of being an unexplained gap between two documents.
+- **Changed:** the M0 gate checklist said "seven of eight" while listing nine boxes. Eight
+  of nine.
+
+## 2026-08-01 — The lifecycle becomes reachable: M0-24…28, 30, 31, 49
+
+The largest open block in M0. Triage, routing, acknowledgement, reassignment, resolution and
+closure have existed as proven domain logic since week one and were reachable only by a
+client appending raw events through `/sync`. That is right for a device replaying what it
+captured offline and wrong for an operator action, because **a raw append trusts the caller
+to have checked their own authority.** These are the endpoints that do not.
+
+- **Added:** `src/api/lifecycle.ts` and ten routes — `POST /incidents`, `GET /incidents/:id`,
+  and `/triage`, `/route`, `/acknowledge`, `/actions`, `/reassign`, `/override`, `/resolve`,
+  `/close`. Every command asks the policy table via `governedFields()`, which names the rows
+  a command touches; all of them must permit it. **No command compares a role** — that was
+  the point of ADR-0003 and it would have been quietly abandoned the moment eight handlers
+  started checking tiers by hand.
+- **Added: intake that cannot refuse (M0-24, INV-01).** Every other endpoint here can say
+  no. This one cannot, because the thing on the other end of it is someone saying an
+  emergency is happening, and a validation error returned to a caller under stress is an
+  emergency the system chose to lose. An empty body, a severity of `"apocalyptic"`, even
+  unparseable JSON all produce a stored report. What the server had to supply is returned
+  and recorded as `assumed`, so a placeholder is never mistaken for a reporter's judgement —
+  the same idea as recording which location layers actually produced a fix.
+- **Decided:** intake refuses exactly one thing — an `occurredAt` **in the future**. A clock
+  skewed forward would push the SLA deadline out and quietly buy the incident extra time
+  before it escalates. The report is still accepted; only the claim is dropped.
+- **Decided:** an unstated severity becomes `high`, not `low` and not `critical`. `low`
+  would let an unassessed emergency sink below routine work, which is INV-04 by the back
+  door; `critical` teaches operators to discount the top of the scale. **Open as Q-16** —
+  whether the domain should carry an explicit `unknown` instead. That is an ADR, not a
+  patch: it touches `SEVERITY_ORDER`, every SLA target, and every screen that sorts.
+  **Due before M0-33**, because a placeholder that looks like an assessment is a worse
+  failure on a board than in a database.
+- **Added: a policy row, `incident.acknowledgement`** (M0-28), rather than a bespoke check.
+  It is not a simple ownership question — the escalation ladder deliberately moves an
+  unacknowledged incident to a district seat when a department stays silent (ADR-0004,
+  ADR-0005), and that seat must then be able to take it. A district acknowledgement
+  therefore requires a reason: acknowledgement stops the SLA clock, and the control room
+  stopping another department's clock is precisely the act that must be explainable
+  afterwards. `docs/04-authority-model.md` updated; the per-row generated test covers it
+  automatically, which is what making authority data buys.
+- **Added: read scoping, enforced server-side** (M0-49). Cross-department reads are denied
+  by default. Tehsil and above read everything — they hold the routing and override
+  authority, and authority over a value you may not look at is guesswork. **A refused read
+  answers 404, never 403**, because confirming an incident exists is itself a disclosure
+  about another department's operations. An unrouted incident is readable by anyone: nobody
+  owns it yet, and an emergency nobody may see is an emergency nobody picks up (INV-01).
+- **Decided:** closing an incident that was never resolved is refused. Closure completeness
+  is one of the metrics this system exists to be honest about, and an incident closed with
+  no recorded outcome is the failure it measures. A response action *is* still accepted
+  after closure — a crew debrief logged the next morning is a fact that happened.
+- **Fixed, and this one is worth reading.** Adding `/incidents` to the service worker's
+  `NEVER_CACHE` list was correct — a cached incident is an emergency shown as unacknowledged
+  while a crew is already on the way, on the screen used to decide whether to send anyone
+  (INV-02). But it was checked **before** the navigation branch, so an operator opening the
+  app at `/incidents/<id>` during an outage got `ERR_INTERNET_DISCONNECTED` instead of the
+  app. **The same URL is two different things**: a navigation is a person opening the app and
+  must always resolve to the shell; a `fetch` is data and must never be served stale. The URL
+  cannot tell them apart — `request.mode` can. Caught by the existing M0-12 suite, whose
+  "unknown path" case happens to be `/incidents/<uuid>`; tests 11 and 12 there now pin both
+  halves on purpose, because fixing either alone reintroduces the other.
+- **Open:** Q-17 — the policy table lets a department emit `overridden` on its own field.
+  Fully attributable, so nothing can be forged, but `overridden` is meant to record someone
+  *else's* authority. Pinned by a test as current behaviour so a change to it is deliberate.
+- **Open:** M0-32 is now the only lifecycle gap, and it is load-bearing rather than
+  cosmetic. Reassignment and district acknowledgement both owe the owning department a
+  notification that nothing sends, and INV-03 has no test until a channel exists.
+- **Changed:** M0-35 moves to `DOING`. The data behind incident detail is served — state and
+  full history in one response, because provenance must be renderable without a second
+  request. The screen is not built.
+- **Verified:** `npm run check` green three consecutive times — typecheck, lint, formatting,
+  **222/222 tests** across 14 files, including 40 new lifecycle tests made entirely of direct
+  HTTP calls. Nothing in this change is exercised through a browser, because an authority
+  rule that only holds when you use the app is not a rule (INV-05).

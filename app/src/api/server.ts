@@ -13,6 +13,14 @@ import {
   type Identity,
 } from '../auth/sessions.js';
 import { validateBatch, type PullResponse, type PushResponse } from './protocol.js';
+import {
+  applyCommand,
+  intake,
+  isSeverity,
+  readIncident,
+  type Command,
+  type CommandKind,
+} from './lifecycle.js';
 
 /**
  * The sync server. Plain `node:http`, no framework — see ADR-0007.
@@ -229,6 +237,192 @@ async function handlePush(
   json(res, 200, response);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const COMMAND_PATHS: Readonly<Record<string, CommandKind>> = {
+  triage: 'triage',
+  route: 'route',
+  acknowledge: 'acknowledge',
+  actions: 'log_action',
+  reassign: 'reassign',
+  override: 'override',
+  resolve: 'resolve',
+  close: 'close',
+};
+
+function nonEmpty(v: unknown): v is string {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+function departmentIds(v: unknown): readonly string[] | null {
+  if (!Array.isArray(v) || v.length === 0) return null;
+  if (!v.every((d): d is string => typeof d === 'string' && UUID_RE.test(d))) return null;
+  return v;
+}
+
+/**
+ * Body to command, or a reason it is not one.
+ *
+ * Strict, unlike intake and unlike a sync payload. These are operator actions taken against
+ * a system that is answering them: a reassignment missing its reason has to be refused
+ * loudly, because accepting it would put an unexplained change into the record — and the
+ * record is the whole point (ADR-0001, INV-06).
+ */
+function parseCommand(kind: CommandKind, body: Record<string, unknown>): Command | string {
+  switch (kind) {
+    case 'triage': {
+      if (!isSeverity(body['severity'])) return 'severity must be low, moderate, high or critical';
+      if (!nonEmpty(body['category'])) return 'category is required';
+      return {
+        kind,
+        severity: body['severity'],
+        category: body['category'].trim(),
+        ...(nonEmpty(body['reason']) ? { reason: body['reason'].trim() } : {}),
+      };
+    }
+
+    case 'route':
+    case 'reassign': {
+      const ids = departmentIds(body['departmentIds']);
+      if (ids === null) return 'departmentIds must be a non-empty array of uuids';
+      if (!nonEmpty(body['reason'])) return 'reason is required';
+      return { kind, departmentIds: ids, reason: body['reason'].trim() };
+    }
+
+    case 'acknowledge':
+      return {
+        kind,
+        ...(nonEmpty(body['reason']) ? { reason: body['reason'].trim() } : {}),
+      };
+
+    case 'log_action':
+      if (!nonEmpty(body['note'])) return 'note is required';
+      return { kind, note: body['note'].trim() };
+
+    case 'override': {
+      const field = body['field'];
+      if (field !== 'severity' && field !== 'category') {
+        return "field must be 'severity' or 'category'";
+      }
+      if (!nonEmpty(body['value'])) return 'value is required';
+      if (field === 'severity' && !isSeverity(body['value'])) {
+        return 'severity must be low, moderate, high or critical';
+      }
+      if (!nonEmpty(body['reason'])) return 'reason is required';
+      return { kind, field, value: body['value'].trim(), reason: body['reason'].trim() };
+    }
+
+    case 'resolve':
+      if (!nonEmpty(body['outcome'])) return 'outcome is required';
+      return { kind, outcome: body['outcome'].trim() };
+
+    case 'close':
+      if (!nonEmpty(body['notes'])) return 'notes are required';
+      return { kind, notes: body['notes'].trim() };
+  }
+}
+
+/** `/incidents`, `/incidents/:id`, `/incidents/:id/:action`. */
+function matchIncidentRoute(
+  pathname: string,
+): { readonly incidentId: string | null; readonly action: string | null } | null {
+  const parts = pathname.split('/').filter((p) => p.length > 0);
+  if (parts[0] !== 'incidents') return null;
+  if (parts.length === 1) return { incidentId: null, action: null };
+  if (parts.length === 2) return { incidentId: parts[1]!, action: null };
+  if (parts.length === 3) return { incidentId: parts[1]!, action: parts[2]! };
+  return null;
+}
+
+async function handleIncidents(
+  pool: Pool,
+  req: IncomingMessage,
+  res: ServerResponse,
+  route: { readonly incidentId: string | null; readonly action: string | null },
+  identity: Identity,
+): Promise<void> {
+  const readJson = async (): Promise<Record<string, unknown> | null> => {
+    const raw = await readBody(req);
+    if (raw.trim().length === 0) return {};
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return typeof parsed === 'object' && parsed !== null
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Intake. The one endpoint here that does not refuse — see `intake`.
+  if (route.incidentId === null) {
+    if (req.method !== 'POST') {
+      json(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    // Even unreadable JSON does not lose the report: an empty body still records that
+    // someone said something happened, with every field marked assumed (INV-01).
+    const body = (await readJson()) ?? {};
+    const result = await intake(pool, body, identity);
+    json(res, 201, {
+      incidentId: result.incidentId,
+      reportId: result.reportId,
+      assumed: result.assumed,
+    });
+    return;
+  }
+
+  if (!UUID_RE.test(route.incidentId)) {
+    json(res, 404, { error: 'no such incident' });
+    return;
+  }
+
+  if (route.action === null) {
+    if (req.method !== 'GET') {
+      json(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    const result = await readIncident(pool, route.incidentId, identity);
+    if (!result.ok) {
+      json(res, result.status, { error: result.error });
+      return;
+    }
+    json(res, 200, { state: result.state, events: result.events });
+    return;
+  }
+
+  const kind = COMMAND_PATHS[route.action];
+  if (kind === undefined) {
+    json(res, 404, { error: 'not found' });
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    json(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  const body = await readJson();
+  if (body === null) {
+    json(res, 400, { error: 'invalid json' });
+    return;
+  }
+
+  const command = parseCommand(kind, body);
+  if (typeof command === 'string') {
+    json(res, 400, { error: command });
+    return;
+  }
+
+  const result = await applyCommand(pool, route.incidentId, command, identity);
+  if (!result.ok) {
+    json(res, result.status, { error: result.error });
+    return;
+  }
+
+  json(res, 200, { event: result.event, state: result.state });
+}
+
 async function handlePull(pool: Pool, res: ServerResponse, url: URL): Promise<void> {
   const cursor = Number(url.searchParams.get('cursor') ?? 0);
   const limit = Math.min(Number(url.searchParams.get('limit') ?? 500), 1000);
@@ -311,6 +505,30 @@ export function createSyncServer(options: ServerOptions): Server {
 
         // Everything below requires a session. There is no path around this check, and no
         // reliance on the UI hiding anything (INV-05).
+        const incidentRoute = matchIncidentRoute(url.pathname);
+
+        if (incidentRoute !== null) {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+
+          // Authenticated but holding no seat: they may look at nothing and do nothing.
+          // Authority comes from the seat, never from the person (ADR-0004).
+          if (identity.seatId === null) {
+            json(res, 403, {
+              error: 'no current duty assignment; you hold no seat and cannot act',
+            });
+            return;
+          }
+
+          await handleIncidents(pool, req, res, incidentRoute, identity);
+          return;
+        }
+
         if (url.pathname === '/auth/me' || url.pathname === '/sync') {
           const token = readToken(req);
           const identity = token === null ? null : await resolveSession(pool, token);

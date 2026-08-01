@@ -117,9 +117,12 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · **one item from closing**
-- **Phase:** Implementation. 180 tests pass. The only thing left in M0 is a restore drill
-  (M0-38), which needs a second person rather than more code. **M1 can begin.**
+- **Milestone:** M0 — The Spine · **architecture gate passed; the lifecycle is now reachable**
+- **Phase:** Implementation. 222 tests pass. **M1 is underway.** Do not read the green gate
+  as "M0 is finished" — eleven of M0's forty-nine tasks are open, and they are now mostly
+  **the screens**: the central board, the department board and incident detail (M0-33…35)
+  plus notifications (M0-32), backup and restore (M0-37, 38) and CI (M0-04). See
+  `backlog/todos.md`.
 - **Last updated:** 2026-08-01
 
 **The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
@@ -162,6 +165,23 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
     reason, and one bad event never takes down the batch around it (INV-01).
   - `server.ts` — `POST /sync` (push a held batch), `GET /sync?cursor=` (pull what you
     missed), `GET /health`. **Refuses to start with the auth stub outside development.**
+  - **`lifecycle.ts` — the incident lifecycle as commands (M0-24…28, 30, 31, 49).**
+    `POST /incidents` (intake), `GET /incidents/:id`, and `/triage`, `/route`,
+    `/acknowledge`, `/actions`, `/reassign`, `/override`, `/resolve`, `/close`.
+    - **A raw append through `/sync` trusts the caller to have checked their own authority.
+      A command does not.** That is the whole reason this module exists: `/sync` is right
+      for a device replaying what it captured offline, and wrong for an operator action.
+    - Every command asks the policy table — `governedFields()` names the rows a command
+      touches, and all of them must permit it. **No command compares a role.**
+    - `POST /incidents` **cannot refuse** (INV-01). Empty body, nonsense severity,
+      unparseable JSON — all accepted, with `assumed` recording what the server supplied so
+      a placeholder is never mistaken for a reporter's judgement. The one thing it will not
+      take is a **future** `occurredAt`, which would push the SLA deadline out and quietly
+      buy the incident extra time before it escalates.
+    - **A read the caller has no authority for is a 404, not a 403.** Confirming an incident
+      exists is itself a disclosure about another department's operations.
+    - Closing an unresolved incident is refused. An incident closed with no recorded outcome
+      is exactly what the closure-completeness metric exists to catch.
 - **`app/src/outbox` — the offline substrate.**
   - `outbox.ts` — durable-first writes. Releases **only** what the server confirms it
     holds; keeps anything ambiguous; marks server-rejected events `blocked` for an operator
@@ -211,21 +231,26 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **180 tests passing**, including permanent tests for INV-04 to INV-08, 17 database
-  integration tests, 25 auth tests, 18 escalation tests, 6 real-browser durability tests,
-  11 offline-launch tests, 15 login tests, 10 rapid-intake tests, and the 14-step M0 gate.
+- **222 tests passing**, including permanent tests for INV-04 to INV-08, 17 database
+  integration tests, 25 auth tests, **40 lifecycle tests**, 18 escalation tests, 6
+  real-browser durability tests, 13 offline-launch tests, 15 login tests, 10 rapid-intake
+  tests, and the 14-step M0 gate.
 - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
 **What does not exist yet — and this is the big one**
 - **The dashboard.** None of it. No district overview, no live incident board, no map, no
-  department workspaces, no alerts, no officer directory, no reports. Everything built so
-  far is the spine: capture, sync, authority, escalation, audit. The screens sit on top of
-  it and start in **M1**.
-
-- The real intake UI and its 15-second budget (M0-36). The current shell is scaffold.
-- The lifecycle endpoints (triage, routing, acknowledgement) as HTTP — the domain logic
-  exists and is proven, but only the sync endpoints are exposed.
-- A performed restore drill (M0-38).
+  department workspaces, no alerts, no officer directory, no reports. The spine is built and
+  the lifecycle behind those screens is now served over HTTP and tested — but **nothing
+  renders it**. This is the largest remaining gap and it is the next thing to build.
+- **Notifications (M0-32).** Reassignment and district acknowledgement both owe the owning
+  department a notification, and nothing sends one. INV-03 has no test until a channel
+  exists — the gap is real, not bookkeeping.
+- **Any backup at all (M0-37), and therefore the restore drill (M0-38).** M0-38 is often
+  described as "needs a person, not code" — that is only half true. There is no scheduled
+  backup to restore *from* yet. M0-37 is code, and it comes first.
+- **CI (M0-04).** `npm run check` is green only because someone remembers to run it.
+- Correlation ids and request logging (M0-03). `/health` and structured process logs exist;
+  request correlation does not.
 - Verified domain research (department structures, contacts, seat hierarchies) —
   see `docs/06-open-questions.md`. Everything domain-specific in these documents is
   currently **assumption, not verified fact**.
@@ -264,6 +289,16 @@ learned from tests rather than reasoning:
 - **`navigator.onLine` has now caused the same bug twice** — once in the status line, once
   in the offline-login notice. If you are about to read it, don't. Use measured
   reachability; believe `onLine` only when it says `false`.
+- **`/incidents` is two different things at the same URL, and the service worker's check
+  order is load-bearing.** Adding `/incidents` to `NEVER_CACHE` was correct — a cached
+  incident is an emergency shown as unacknowledged while a crew is on the way (INV-02) — but
+  it was checked *before* the navigation branch, so an operator opening the app at
+  `/incidents/<id>` during an outage got `ERR_INTERNET_DISCONNECTED` instead of the app. A
+  navigation to that URL is **a person opening the app** and must always resolve to the
+  shell; a `fetch` of the same URL is data and must never be served stale. The URL alone
+  does not tell them apart — `request.mode` does. Caught by the M0-12 suite, which happened
+  to navigate to `/incidents/<uuid>` as its "unknown path" case. Tests 11 and 12 there now
+  pin both halves deliberately, because a fix for either one alone reintroduces the other.
 
 **Never invent a connectivity answer, and never trust a claimed identity.** Two more from
 M0-19, both found by tests:
@@ -292,17 +327,25 @@ M0-19, both found by tests:
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **Begin M1 — Rescue 1122 in full.** This is where the dashboard and department
-   workspaces start. Depth before breadth: one department taken all the way down teaches
-   the real shape of a workspace, where four built shallowly in parallel produce four
-   mini-apps and a wrong abstraction. See `backlog/milestones.md`.
-2. M0-38 — a restore drill performed by someone who is not the original developer. Needs
-   another person, not more code. **The last open M0 gate item.**
-3. Q-06 — real SLA targets, agreed with each department. `PLACEHOLDER_SLA` is a guess, and
+1. **The central board (M0-33), then incident detail (M0-35).** The lifecycle is served and
+   tested; nothing renders it. This is where the project stops being a spine and starts
+   being usable, and it is what M1's Rescue workspace is built from. One projection, not a
+   copy (INV-05 for reads is already enforced server-side — the board must not re-implement
+   scoping in the client).
+2. **M0-32, one notification channel.** Not cosmetic: reassignment and district
+   acknowledgement both owe the owning department a notification that nothing sends, and
+   INV-03 has no test until a channel exists.
+3. M0-37 then M0-38 — an automated backup, then a restore drill performed by someone who is
+   not the original developer. **The last open M0 gate item, and it needs code first.**
+4. Q-06 — real SLA targets, agreed with each department. `PLACEHOLDER_SLA` is a guess, and
    the escalation loop is now running on it.
-4. Q-08 — the Place gazetteer for Bannu. M1 needs it, and it may already exist somewhere
+5. Q-08 — the Place gazetteer for Bannu. M1 needs it, and it may already exist somewhere
    (revenue records, PDMA mapping) — weeks of work versus a phone call.
-5. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
+6. Q-16 — whether severity needs an explicit `unknown`. Raised by intake, which cannot
+   refuse a report and so has to assume one. **Decide before severity reaches a board an
+   operator triages from**, because a placeholder that looks like an assessment is a worse
+   failure on a screen than in a database — which makes this a decision due at step 1.
+7. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
    build. Nothing before M4 touches real citizen data.
 
 ## 6. Repository map
@@ -351,6 +394,7 @@ Build with Claude/
 │       ├── jobs/              ← escalation scan + scheduler (M0-29)
 │       ├── main.ts            ← process entry: API + client + escalation loop
 │       ├── api/               ← sync protocol and the node:http server
+│       │   └── lifecycle.ts   ← commands: intake, triage, route, ack, close (M0-24…31)
 │       ├── outbox/            ← the offline substrate (ADR-0002)
 │       │   └── adapters/      ← IndexedDB store, HTTP transport, browser harness
 │       ├── __tests__/         ← spine.e2e.test.ts — THE M0 GATE
