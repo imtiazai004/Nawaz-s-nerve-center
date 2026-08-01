@@ -188,10 +188,10 @@ describe.skipIf(url === undefined)('sync endpoints (integration)', () => {
   });
 
   it('pulls only what the client is missing, and advances the cursor', async () => {
-    const before = await fetch(`${base}/sync?cursor=0&limit=10000`, {
-      headers: authHeaders(actor.token),
-    });
-    const start = ((await before.json()) as { nextCursor: number }).nextCursor;
+    // An empty push returns the server's current position. Paging to the end instead
+    // stopped working once the shared test log grew past the per-request limit — the
+    // "cursor" it produced was the end of the first page, not the end of the log.
+    const start = ((await push([])) as unknown as { cursor: number }).cursor;
 
     await push([ev('reported', { severity: 'low' })]);
 

@@ -8,6 +8,8 @@
     "node": ">=22"
   },
   "scripts": {
+    "build": "node build.mjs",
+    "start": "npm run build && node --experimental-strip-types src/main.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
