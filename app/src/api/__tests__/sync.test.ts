@@ -10,6 +10,7 @@ import { validateBatch } from '../protocol.js';
 import { createPool, migrate, type Pool } from '../../db/pool.js';
 import { loadIncident } from '../../db/eventStore.js';
 import { foldIncident } from '../../domain/incident.js';
+import { seedActor, authHeaders, type TestActor } from '../../testing/seed.js';
 
 const url = process.env['TEST_DATABASE_URL'];
 const here = dirname(fileURLToPath(import.meta.url));
@@ -86,6 +87,7 @@ describe.skipIf(url === undefined)('sync endpoints (integration)', () => {
   let base: string;
   let incidentId: string;
   let seq: number;
+  let actor: TestActor;
 
   beforeAll(async () => {
     pool = createPool(url);
@@ -93,7 +95,9 @@ describe.skipIf(url === undefined)('sync endpoints (integration)', () => {
     server = createSyncServer({ pool, authMode: 'stub', nodeEnv: 'test' });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  });
+    // There is no longer a way in without a session — that is the point of INV-05.
+    actor = await seedActor(pool, { title: 'Sync Test Seat' });
+  }, 60_000);
 
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -124,7 +128,7 @@ describe.skipIf(url === undefined)('sync endpoints (integration)', () => {
   async function push(events: unknown[]): Promise<Record<string, never>> {
     const res = await fetch(`${base}/sync`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(actor.token),
       body: JSON.stringify({ deviceId: randomUUID(), events }),
     });
     return (await res.json()) as Record<string, never>;
@@ -184,30 +188,34 @@ describe.skipIf(url === undefined)('sync endpoints (integration)', () => {
   });
 
   it('pulls only what the client is missing, and advances the cursor', async () => {
-    const before = await fetch(`${base}/sync?cursor=0&limit=10000`);
+    const before = await fetch(`${base}/sync?cursor=0&limit=10000`, {
+      headers: authHeaders(actor.token),
+    });
     const start = ((await before.json()) as { nextCursor: number }).nextCursor;
 
     await push([ev('reported', { severity: 'low' })]);
 
-    const res = await fetch(`${base}/sync?cursor=${start}`);
+    const res = await fetch(`${base}/sync?cursor=${start}`, { headers: authHeaders(actor.token) });
     const page = (await res.json()) as { events: { incidentId: string }[]; nextCursor: number };
 
     expect(page.events.some((e) => e.incidentId === incidentId)).toBe(true);
     expect(page.nextCursor).toBeGreaterThan(start);
 
-    const drained = await fetch(`${base}/sync?cursor=${page.nextCursor}`);
+    const drained = await fetch(`${base}/sync?cursor=${page.nextCursor}`, {
+      headers: authHeaders(actor.token),
+    });
     expect(((await drained.json()) as { events: unknown[] }).events).toHaveLength(0);
   });
 
   it('rejects a malformed cursor rather than guessing', async () => {
-    const res = await fetch(`${base}/sync?cursor=-5`);
+    const res = await fetch(`${base}/sync?cursor=-5`, { headers: authHeaders(actor.token) });
     expect(res.status).toBe(400);
   });
 
   it('rejects invalid json without crashing', async () => {
     const res = await fetch(`${base}/sync`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders(actor.token),
       body: '{ not json',
     });
     expect(res.status).toBe(400);

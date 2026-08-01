@@ -22,6 +22,7 @@ import { dirname, join } from 'node:path';
 import { createSyncServer } from '../api/server.js';
 import { createPool, migrate, type Pool } from '../db/pool.js';
 import { buildWeb } from '../../build.mjs';
+import { seedActor, TEST_PASSWORD } from '../testing/seed.js';
 
 const dbUrl = process.env['TEST_DATABASE_URL'];
 const here = dirname(fileURLToPath(import.meta.url));
@@ -72,6 +73,22 @@ describe.skipIf(dbUrl === undefined)('M0-12: the app opens with no network', () 
   it('1. loads online and registers a service worker', async () => {
     await page.goto(origin);
     await page.waitForSelector('#report');
+
+    // Sign in through the real endpoint. The session cookie is then carried automatically
+    // by the transport, as it would be on a handset.
+    const actor = await seedActor(pool, { title: 'Offline Launch Duty Officer' });
+    const loggedIn = await page.evaluate(
+      async ([phone, password]) => {
+        const res = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ phone, password }),
+        });
+        return res.ok;
+      },
+      [actor.phone, TEST_PASSWORD],
+    );
+    expect(loggedIn).toBe(true);
 
     // First load registers; the worker claims clients on activate.
     await serviceWorkerReady();
@@ -234,7 +251,17 @@ describe.skipIf(dbUrl === undefined)('M0-12: the app opens with no network', () 
           payload: { severity: 'critical', category: 'fire' },
         });
 
-        const sync = await dnc.outbox.sync();
+        // Restoring the network at the end of the previous test fires the browser's
+        // `online` event, which starts a sync of its own. `sync()` deliberately joins a
+        // run already in progress rather than racing it, so the first call here can
+        // legitimately return that earlier run's online answer. Drive it until a sync
+        // actually starts while offline — that is the state under test.
+        let sync = await dnc.outbox.sync();
+        for (let i = 0; i < 20 && !sync.offline; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          sync = await dnc.outbox.sync();
+        }
+
         return {
           offline: sync.offline,
           pushed: sync.pushed,
@@ -244,6 +271,7 @@ describe.skipIf(dbUrl === undefined)('M0-12: the app opens with no network', () 
 
       expect(result.offline).toBe(true);
       expect(result.pushed).toBe(0);
+      // The property that actually matters: a failed push never releases the report.
       expect(result.pending).toBe(1);
 
       await context.setOffline(false);

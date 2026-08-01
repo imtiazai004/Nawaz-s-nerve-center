@@ -26,6 +26,7 @@ import { foldIncident } from '../domain/incident.js';
 import { evaluateWrite, defaultRules } from '../domain/authority.js';
 import { checkEscalation } from '../domain/sla.js';
 import { buildWeb } from '../../build.mjs';
+import { seedActor, TEST_PASSWORD, type TestActor } from '../testing/seed.js';
 import type { IncidentEvent } from '../domain/events.js';
 
 const dbUrl = process.env['TEST_DATABASE_URL'];
@@ -47,6 +48,7 @@ describe.skipIf(dbUrl === undefined)('M0 gate: the offline emergency spine', () 
   let bundle: string;
   let incidentId: string;
   let reportEventId: string;
+  let actor: TestActor;
 
   beforeAll(async () => {
     const webRoot = await buildWeb();
@@ -84,6 +86,23 @@ describe.skipIf(dbUrl === undefined)('M0 gate: the offline emergency spine', () 
     // The harness rides on top of the real app, adding only what the test needs to drive
     // the outbox directly.
     await page.addScriptTag({ content: bundle });
+
+    // Sign in through the real login endpoint so the session cookie is set on the origin.
+    // The transport then carries it automatically, exactly as it does on a handset — there
+    // is no test-only way past authentication, which is the point of INV-05.
+    actor = await seedActor(pool, { title: 'Rescue 1122 Duty Officer', departmentId: RESCUE });
+    const loggedIn = await page.evaluate(
+      async ([phone, password]) => {
+        const res = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ phone, password }),
+        });
+        return res.ok;
+      },
+      [actor.phone, TEST_PASSWORD],
+    );
+    if (!loggedIn) throw new Error('browser login failed');
 
     incidentId = randomUUID();
   }, 180_000);

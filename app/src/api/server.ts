@@ -5,6 +5,13 @@ import { extname, join, normalize, sep } from 'node:path';
 import { append, loadSince } from '../db/eventStore.js';
 import type { Pool } from '../db/pool.js';
 import type { IncidentEvent } from '../domain/events.js';
+import {
+  login,
+  resolveSession,
+  revokeSession,
+  SESSION_TTL_HOURS,
+  type Identity,
+} from '../auth/sessions.js';
 import { validateBatch, type PullResponse, type PushResponse } from './protocol.js';
 
 /**
@@ -121,6 +128,44 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+const SESSION_COOKIE = 'dnc_session';
+
+function readCookie(req: IncomingMessage, name: string): string | null {
+  const header = req.headers.cookie;
+  if (header === undefined) return null;
+  for (const part of header.split(';')) {
+    const [k, ...rest] = part.trim().split('=');
+    if (k === name) return decodeURIComponent(rest.join('='));
+  }
+  return null;
+}
+
+/**
+ * The credential, in order of preference.
+ *
+ * The cookie is the browser path. The `Authorization: Bearer` header exists for the SMS
+ * gateway and any future non-browser client, and because an auth model that can only be
+ * exercised through a browser cannot be tested from outside the UI — which is precisely
+ * what INV-05 requires.
+ */
+function readToken(req: IncomingMessage): string | null {
+  const auth = req.headers.authorization;
+  if (auth !== undefined && auth.startsWith('Bearer ')) return auth.slice(7);
+  return readCookie(req, SESSION_COOKIE);
+}
+
+function sessionCookie(token: string, secure: boolean, maxAgeSeconds: number): string {
+  const parts = [
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Strict',
+    `Max-Age=${maxAgeSeconds}`,
+  ];
+  if (secure) parts.push('Secure');
+  return parts.join('; ');
+}
+
 /**
  * Accept a batch a device has been holding.
  *
@@ -128,7 +173,12 @@ async function readBody(req: IncomingMessage): Promise<string> {
  * or was already present. That distinction does not matter to the client — what matters is
  * that it can safely stop holding them. Anything absent from `accepted` stays queued.
  */
-async function handlePush(pool: Pool, res: ServerResponse, raw: string): Promise<void> {
+async function handlePush(
+  pool: Pool,
+  res: ServerResponse,
+  raw: string,
+  identity: Identity,
+): Promise<void> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -145,10 +195,23 @@ async function handlePush(pool: Pool, res: ServerResponse, raw: string): Promise
 
   const { valid, rejected } = validateBatch(body.events);
 
+  // Identity is stamped from the session, never taken from the payload.
+  //
+  // Without this, any authenticated user could submit an event claiming to be the DC seat,
+  // and the audit trail — which is the whole record (ADR-0001) — would faithfully preserve
+  // the lie. Whatever the client sent in `actorPersonId` / `actorSeatId` is discarded.
+  // Same principle as `recorded_at`: facts the client is not entitled to assert are
+  // assigned by the server.
+  const attributed = valid.map((e) => ({
+    ...e,
+    actorPersonId: identity.personId,
+    actorSeatId: identity.seatId,
+  }));
+
   // recorded_at is assigned by the database, never by the caller. A device with a wrong
   // clock can misreport when something happened; it must not be able to misreport when we
   // learned of it, because escalation timing depends on that.
-  const toStore = valid as unknown as readonly IncidentEvent[];
+  const toStore = attributed as unknown as readonly IncidentEvent[];
   const result = await append(pool, toStore);
 
   const cursorRow = await pool.query<{ max: string | null }>(
@@ -208,13 +271,79 @@ export function createSyncServer(options: ServerOptions): Server {
           return;
         }
 
-        if (req.method === 'POST' && url.pathname === '/sync') {
-          await handlePush(pool, res, await readBody(req));
+        if (req.method === 'POST' && url.pathname === '/auth/login') {
+          let body: { phone?: unknown; password?: unknown };
+          try {
+            body = JSON.parse(await readBody(req)) as typeof body;
+          } catch {
+            json(res, 400, { error: 'invalid json' });
+            return;
+          }
+
+          if (typeof body.phone !== 'string' || typeof body.password !== 'string') {
+            json(res, 400, { error: 'phone and password are required' });
+            return;
+          }
+
+          const result = await login(pool, body.phone, body.password);
+          if (result === null) {
+            // One message for every failure. Distinguishing "no such number" from "wrong
+            // password" hands an attacker the list of real officers.
+            json(res, 401, { error: 'invalid credentials' });
+            return;
+          }
+
+          res.setHeader(
+            'set-cookie',
+            sessionCookie(result.token, nodeEnv === 'production', SESSION_TTL_HOURS * 3600),
+          );
+          json(res, 200, { token: result.token, identity: result.identity });
           return;
         }
 
-        if (req.method === 'GET' && url.pathname === '/sync') {
-          await handlePull(pool, res, url);
+        if (req.method === 'POST' && url.pathname === '/auth/logout') {
+          const token = readToken(req);
+          if (token !== null) await revokeSession(pool, token);
+          res.setHeader('set-cookie', sessionCookie('', nodeEnv === 'production', 0));
+          json(res, 200, { ok: true });
+          return;
+        }
+
+        // Everything below requires a session. There is no path around this check, and no
+        // reliance on the UI hiding anything (INV-05).
+        if (url.pathname === '/auth/me' || url.pathname === '/sync') {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+
+          if (url.pathname === '/auth/me') {
+            json(res, 200, { identity });
+            return;
+          }
+
+          if (req.method === 'POST') {
+            // Authenticated but holding no seat: they may sign in, and may do nothing.
+            // Authority comes from the seat, never from the person (ADR-0004).
+            if (identity.seatId === null) {
+              json(res, 403, {
+                error: 'no current duty assignment; you hold no seat and cannot act',
+              });
+              return;
+            }
+            await handlePush(pool, res, await readBody(req), identity);
+            return;
+          }
+
+          if (req.method === 'GET') {
+            await handlePull(pool, res, url);
+            return;
+          }
+
+          json(res, 405, { error: 'method not allowed' });
           return;
         }
 

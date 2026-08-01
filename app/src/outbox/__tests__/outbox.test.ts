@@ -272,6 +272,27 @@ describe('ordering', () => {
 });
 
 describe('concurrency', () => {
+  it('never invents a connectivity answer for an overlapping caller', async () => {
+    // The bug this pins: an overlapping sync used to return a fabricated
+    // `{ offline: false }`. The UI derives its connectivity state from this field, so that
+    // put "Connected. Reports are delivered immediately." on screen during a real outage.
+    server.offline = true;
+    await outbox.enqueue(draft('reported', { severity: 'critical' }));
+
+    const original = server.push.bind(server);
+    server.push = async (events) => {
+      await new Promise((r) => setTimeout(r, 20));
+      return original(events);
+    };
+
+    const [a, b] = await Promise.all([outbox.sync(), outbox.sync()]);
+
+    // Both callers get the same, true answer — not one measured and one guessed.
+    expect(a.offline).toBe(true);
+    expect(b.offline).toBe(true);
+    expect(a).toEqual(b);
+  });
+
   it('collapses overlapping syncs instead of double-pushing', async () => {
     await outbox.enqueue(draft('reported'));
 
@@ -283,8 +304,12 @@ describe('concurrency', () => {
 
     const [a, b] = await Promise.all([outbox.sync(), outbox.sync()]);
 
+    // One push over the wire, and both callers receive the same real outcome. This
+    // assertion used to read `a.pushed + b.pushed === 1`, which quietly encoded the bug:
+    // it only held because the second caller was handed a fabricated empty result.
     expect(server.pushCalls).toBe(1);
-    expect(a.pushed + b.pushed).toBe(1);
+    expect(a).toEqual(b);
+    expect(a.pushed).toBe(1);
   });
 });
 

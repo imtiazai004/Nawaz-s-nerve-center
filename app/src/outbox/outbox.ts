@@ -78,7 +78,8 @@ export class Outbox {
   private readonly store: OutboxStore;
   private readonly transport: SyncTransport;
   private readonly batchSize: number;
-  private syncing = false;
+  /** The sync currently running, if any. Overlapping callers join it rather than racing. */
+  private inFlight: Promise<SyncResult> | null = null;
 
   constructor(options: OutboxOptions) {
     this.store = options.store;
@@ -124,21 +125,23 @@ export class Outbox {
    * the blocked-entry logic.
    */
   async sync(): Promise<SyncResult> {
-    if (this.syncing) {
-      return {
-        pushed: 0,
-        blocked: 0,
-        pulled: 0,
-        stillPending: await this.pendingCount(),
-        offline: false,
-      };
-    }
-    this.syncing = true;
-    try {
-      return await this.runSync();
-    } finally {
-      this.syncing = false;
-    }
+    // An overlapping call joins the run already in progress and gets its real answer.
+    //
+    // An earlier version returned a fabricated `{ offline: false }` here, which was a
+    // lie: a caller that happened to overlap another sync was told the server was
+    // reachable when nothing had checked. The UI derives its connectivity state from this
+    // field, so that lie put "Connected. Reports are delivered immediately." on screen
+    // during an outage — the same class of failure as trusting `navigator.onLine`.
+    //
+    // Never invent a connectivity answer. Either measure it, or return the measurement
+    // someone else is already taking.
+    if (this.inFlight !== null) return this.inFlight;
+
+    this.inFlight = this.runSync().finally(() => {
+      this.inFlight = null;
+    });
+
+    return this.inFlight;
   }
 
   private async runSync(): Promise<SyncResult> {
