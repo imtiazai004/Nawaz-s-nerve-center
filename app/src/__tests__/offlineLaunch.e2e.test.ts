@@ -37,11 +37,14 @@ describe.skipIf(dbUrl === undefined)('M0-12: the app opens with no network', () 
   let page: Page;
 
   /**
-   * Unique per run. The event table is append-only by design and is never cleaned between
-   * runs, so any test that asserts on a count must isolate itself through its data — the
-   * same discipline the eventStore suite uses with fresh incident ids.
+
+   * The incident reported in step 4, captured from the page after submit.
+   *
+   * Identified by its incident id rather than by a typed field: the rapid-intake path
+   * (M0-36) requires no typing at all, and tagging a report by a form value would couple
+   * this suite to the intake form's shape.
    */
-  const place = `Bannu-Kohat road, near Mandan [${randomUUID()}]`;
+  let reportedIncidentId: string | null = null;
 
   beforeAll(async () => {
     const webRoot = await buildWeb();
@@ -135,9 +138,10 @@ describe.skipIf(dbUrl === undefined)('M0-12: the app opens with no network', () 
   });
 
   it('4. captures a critical report while offline', async () => {
-    await page.selectOption('#category', 'rta');
-    await page.selectOption('#severity', 'critical');
-    await page.fill('#place', place);
+    // Two taps and the button — the rapid-intake path (M0-36). No typing on the critical
+    // path, so the report is tagged by its incident id rather than by a typed field.
+    await page.click('label[for="cat-rta"]');
+    await page.click('label[for="sev-critical"]');
     await page.click('#submit');
 
     await page.waitForFunction(
@@ -150,6 +154,13 @@ describe.skipIf(dbUrl === undefined)('M0-12: the app opens with no network', () 
     // Never a tick, never "sent". Only what is actually true.
     expect(badge).toMatch(/saved on this device/i);
     expect(badge).not.toMatch(/sent|delivered/i);
+
+    reportedIncidentId = await page.evaluate(() =>
+      (
+        globalThis as unknown as { __dnc: { lastIncidentId(): string | null } }
+      ).__dnc.lastIncidentId(),
+    );
+    expect(reportedIncidentId).not.toBeNull();
   });
 
   it('5. the offline report survives closing and reopening the app, still offline', async () => {
@@ -179,8 +190,8 @@ describe.skipIf(dbUrl === undefined)('M0-12: the app opens with no network', () 
     );
 
     const stored = await pool.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM incident_event WHERE payload->>'place' = $1`,
-      [place],
+      `SELECT count(*)::text AS n FROM incident_event WHERE incident_id = $1`,
+      [reportedIncidentId],
     );
     expect(Number(stored.rows[0]!.n)).toBe(1);
   });

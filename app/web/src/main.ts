@@ -1,20 +1,26 @@
 /**
- * App shell boot. Scaffold for M0-12 and M0-19 — proves the app opens offline, signs in,
- * and captures a report either way. The real intake screen is M0-36.
+ * App shell boot: sign-in, rapid intake, outbox queue.
  *
- * Three behaviours here are not scaffold and must survive into the real UI:
+ * Four behaviours here are load-bearing and must survive into anything that replaces this:
  *
  *   1. The connectivity rung is always stated, never implied — and "signed out" is a
  *      distinct state from "no signal", because they need different actions from the user.
  *   2. A queued entry never renders as delivered. "Saved" and "sent" are different words
  *      and the difference can matter to someone's life.
- *   3. An emergency can be recorded whether or not anyone is signed in (see below).
+ *   3. An emergency can be recorded whether or not anyone is signed in (see the submit
+ *      handler).
+ *   4. **Submit first, enrich after.** The critical path is two taps and a button, with no
+ *      typing and nothing blocking on the network or on GPS. Detail is offered only once
+ *      the report is already safe. This is what makes the fifteen-second budget reachable,
+ *      and the budget is a requirement — if this is slower than the phone call it replaces,
+ *      the district keeps using the phone.
  */
 
 import { Outbox } from '../../src/outbox/outbox.js';
 import { IndexedDbOutboxStore, requestPersistence } from '../../src/outbox/adapters/indexeddb.js';
 import { HttpTransport } from '../../src/outbox/adapters/httpTransport.js';
 import type { IncidentEvent } from '../../src/domain/events.js';
+import { buildCapture, describeFix, startLocationWatch, type Fix } from './location.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -34,6 +40,11 @@ function deviceId(): string {
   return id;
 }
 
+function checkedValue(name: string): string | null {
+  const input = document.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`);
+  return input?.value ?? null;
+}
+
 async function boot(): Promise<void> {
   // Ask the browser not to evict an unreported emergency under storage pressure. Best
   // effort — it may refuse, and the app works either way.
@@ -49,6 +60,10 @@ async function boot(): Promise<void> {
   const entries = el('entries');
   const count = el('count');
   const reportForm = el<HTMLFormElement>('report');
+  const submit = el<HTMLButtonElement>('submit');
+  const where = el('where');
+  const sent = el('sent');
+  const sentDetail = el('sentDetail');
   const loginForm = el<HTMLFormElement>('login');
   const loginView = el('loginView');
   const loginError = el('loginError');
@@ -56,23 +71,21 @@ async function boot(): Promise<void> {
   const who = el('who');
   const whoName = el('whoName');
 
-  /**
-   * Connectivity is derived from whether we actually reached the server — never from
-   * `navigator.onLine`.
-   *
-   * `navigator.onLine` reports whether the browser has *a* network interface, not whether
-   * anything gets through. A handset attached to a cell tower with dead backhaul reports
-   * `true` while nothing reaches the control room. Trusting it would put "Connected.
-   * Reports are delivered immediately." on screen during exactly the outage the operator
-   * most needs to know about — INV-02 applied to connectivity itself.
-   *
-   * The negative is still trustworthy: if the browser says there is no interface, there is
-   * certainly no connection. So `false` is believed, `true` is not.
-   */
   type Reachability = 'unknown' | 'reachable' | 'unreachable' | 'refused';
   let reachability: Reachability = 'unknown';
   let identity: Identity | null = null;
+  let fix: Fix | null = null;
+  /** The incident just reported, so enrichment can be attached to it. */
+  let lastIncidentId: string | null = null;
+  let lastClientSeq = 0;
 
+  /**
+   * Connectivity is derived from whether we actually reached the server — never from
+   * `navigator.onLine`, which reports whether the browser has *an interface*, not whether
+   * anything gets through. A handset on a tower with dead backhaul reports `true` while
+   * nothing reaches the control room. The negative is still trustworthy, so `false` is
+   * believed and `true` is not.
+   */
   function paintStatus(): void {
     const state =
       reachability === 'refused'
@@ -100,20 +113,13 @@ async function boot(): Promise<void> {
     who.hidden = !signedIn;
     if (identity !== null) {
       // Holding no seat means signed in with no authority to act (ADR-0004). Saying so is
-      // the difference between an operator understanding why a report will not send and
-      // assuming the system is broken.
+      // the difference between understanding why a report will not send and assuming the
+      // system is broken.
       whoName.textContent =
         identity.seatId === null
           ? `${identity.fullName} — no current duty assignment`
           : identity.fullName;
     }
-    // Signing in needs the server, so say so rather than letting someone type into a form
-    // that cannot possibly work.
-    //
-    // Keyed on *measured* reachability, not `navigator.onLine` — same reason as the status
-    // line. Chromium reports `onLine: true` with the network cut, and so does a handset on
-    // a tower with dead backhaul, so trusting it would leave the form enabled and the
-    // operator wondering why nothing happens.
     const unreachable = reachability === 'unreachable' || navigator.onLine === false;
     offlineLoginNote.hidden = signedIn || !unreachable;
     el<HTMLButtonElement>('loginSubmit').disabled = unreachable;
@@ -145,17 +151,9 @@ async function boot(): Promise<void> {
 
   async function trySync(): Promise<void> {
     const result = await outbox.sync();
-    // Ground truth, and three distinct outcomes rather than two: reached the server,
-    // could not reach it, or was refused by it.
     reachability = result.authRequired ? 'refused' : result.offline ? 'unreachable' : 'reachable';
+    if (result.authRequired && identity !== null) identity = null;
 
-    if (result.authRequired && identity !== null) {
-      // The session went away underneath us — expired, or revoked by an administrator.
-      identity = null;
-    }
-
-    // Always repaint: the sign-in form's availability depends on measured reachability,
-    // which this call is what establishes.
     paintIdentity();
     paintStatus();
     await paintQueue();
@@ -167,14 +165,130 @@ async function boot(): Promise<void> {
       identity = res.ok ? ((await res.json()) as { identity: Identity }).identity : null;
       if (!res.ok && (res.status === 401 || res.status === 403)) reachability = 'refused';
     } catch {
-      // Offline. We cannot know whether the session is still good, and guessing either way
-      // would be a claim we cannot support.
       identity = null;
       reachability = 'unreachable';
     }
     paintIdentity();
     paintStatus();
   }
+
+  // ---------------------------------------------------------------- location
+
+  // Started immediately, and never waited on. Whatever has arrived by submit time is what
+  // gets attached; a report with no coordinates is still a report.
+  startLocationWatch((next, error) => {
+    if (next !== null) fix = next;
+    where.textContent = error ?? describeFix(fix);
+  });
+
+  // ---------------------------------------------------------------- intake
+
+  function refreshSubmit(): void {
+    // Category is the only thing that must be chosen. Severity is pre-set to High, so the
+    // fastest valid report is one tap and the button.
+    submit.disabled = checkedValue('category') === null;
+  }
+
+  reportForm.addEventListener('change', refreshSubmit);
+  refreshSubmit();
+
+  /**
+   * Reporting is available whether or not anyone is signed in.
+   *
+   * The one place the app is deliberately more permissive than the server. A duty officer
+   * whose session expired overnight, on a handset with no signal, *cannot* sign in — and
+   * refusing them would lose the emergency outright (INV-01). Nothing is weakened: the
+   * server still requires a session to accept anything, so the report waits in the outbox.
+   * The trade is attribution to whoever delivered it rather than whoever typed it, which
+   * is the honest available answer.
+   */
+  reportForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const category = checkedValue('category');
+    if (category === null) return;
+
+    const incidentId = crypto.randomUUID();
+    const draft = {
+      eventId: crypto.randomUUID(),
+      incidentId,
+      type: 'reported',
+      occurredAt: new Date().toISOString(),
+      actorPersonId: null,
+      actorSeatId: null,
+      sourceChannel: 'mobile',
+      payload: {
+        reportId: crypto.randomUUID(),
+        category,
+        severity: checkedValue('severity') ?? 'high',
+        location: buildCapture(fix, ''),
+      },
+    } as unknown as Omit<IncidentEvent, 'clientSeq' | 'recordedAt'>;
+
+    // Durable first, always. Nothing here waits on the network.
+    const stored = await outbox.enqueue(draft);
+    lastIncidentId = incidentId;
+    lastClientSeq = stored.clientSeq;
+
+    // The operator's job is done at this point. Everything below is optional.
+    sent.hidden = false;
+    sentDetail.textContent =
+      fix === null
+        ? 'Saved. Add the place below if you can — it will be sent with the report.'
+        : 'Saved with your location. Add anything else below if you can.';
+    submit.disabled = true;
+
+    await paintQueue();
+    void trySync();
+  });
+
+  /**
+   * Enrichment: a second event against the same incident.
+   *
+   * Appended rather than edited, because the log is the record (ADR-0001). What the
+   * reporter first said and what they added afterwards are both part of the history.
+   */
+  el('addDetail').addEventListener('click', async () => {
+    if (lastIncidentId === null) return;
+
+    const place = el<HTMLInputElement>('place').value;
+    const detail = el<HTMLTextAreaElement>('detail').value;
+    if (place.trim().length === 0 && detail.trim().length === 0) return;
+
+    lastClientSeq += 1;
+    await outbox.enqueue({
+      eventId: crypto.randomUUID(),
+      incidentId: lastIncidentId,
+      type: 'action_logged',
+      occurredAt: new Date().toISOString(),
+      actorPersonId: null,
+      actorSeatId: null,
+      sourceChannel: 'mobile',
+      payload: {
+        note: detail.trim().length > 0 ? detail.trim() : 'Location detail added',
+        location: buildCapture(fix, place),
+      },
+    } as unknown as Omit<IncidentEvent, 'clientSeq' | 'recordedAt'>);
+
+    sentDetail.textContent = 'Details saved and will be sent with the report.';
+    el<HTMLInputElement>('place').value = '';
+    el<HTMLTextAreaElement>('detail').value = '';
+
+    await paintQueue();
+    void trySync();
+  });
+
+  el('newReport').addEventListener('click', () => {
+    reportForm.reset();
+    sent.hidden = true;
+    lastIncidentId = null;
+    el<HTMLInputElement>('place').value = '';
+    el<HTMLTextAreaElement>('detail').value = '';
+    refreshSubmit();
+    where.textContent = describeFix(fix);
+  });
+
+  // ---------------------------------------------------------------- auth
 
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -200,7 +314,6 @@ async function boot(): Promise<void> {
       identity = ((await res.json()) as { identity: Identity }).identity;
       loginForm.reset();
       paintIdentity();
-      // Anything captured while signed out goes now.
       await trySync();
     } catch {
       loginError.textContent = 'Cannot reach the server. Check your connection and try again.';
@@ -219,48 +332,8 @@ async function boot(): Promise<void> {
     await trySync();
   });
 
-  /**
-   * Reporting is available whether or not anyone is signed in.
-   *
-   * This is deliberate, and it is the one place the app is more permissive than the server.
-   * A duty officer whose session expired overnight, on a handset with no signal, must not
-   * be told to sign in before they can record a road accident — they cannot sign in, and
-   * refusing them would lose the emergency outright (INV-01).
-   *
-   * Nothing is weakened by it: the server still requires a session to accept anything, so
-   * the report simply waits in the outbox until someone signs in. The trade is that it is
-   * then attributed to whoever delivered it rather than whoever typed it, which is the
-   * honest available answer — that person is identifiable and accountable, and the
-   * alternative is no record at all.
-   */
-  reportForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const data = new FormData(reportForm);
-
-    const draft = {
-      eventId: crypto.randomUUID(),
-      incidentId: crypto.randomUUID(),
-      type: 'reported',
-      occurredAt: new Date().toISOString(),
-      actorPersonId: null,
-      actorSeatId: null,
-      sourceChannel: 'mobile',
-      payload: {
-        reportId: crypto.randomUUID(),
-        category: String(data.get('category') ?? 'other'),
-        severity: String(data.get('severity') ?? 'moderate'),
-        place: String(data.get('place') ?? ''),
-      },
-    } as unknown as Omit<IncidentEvent, 'clientSeq' | 'recordedAt'>;
-
-    // Durable first, always. The screen updates from storage, not from optimism.
-    await outbox.enqueue(draft);
-    await paintQueue();
-    void trySync();
-  });
-
-  // These events are a useful *hint* that something changed — worth a sync attempt — but
-  // they never set the displayed state on their own. Only a sync outcome does that.
+  // Hints that something changed, worth a sync attempt — but they never set the displayed
+  // state on their own. Only a sync outcome does that.
   addEventListener('online', () => {
     paintIdentity();
     void trySync();
@@ -276,14 +349,15 @@ async function boot(): Promise<void> {
   await loadIdentity();
   void trySync();
 
-  // Exposed for the browser tests. Harmless, and it keeps the tests driving the real app
-  // rather than a parallel harness that could drift from it.
   (globalThis as unknown as { __dnc: unknown }).__dnc = {
     outbox,
     store,
     trySync,
     paintQueue,
     identity: () => identity,
+    // So tests can assert against the incident itself rather than against the shape of a
+    // payload, which would couple every suite to the intake form's field names.
+    lastIncidentId: () => lastIncidentId,
   };
 }
 

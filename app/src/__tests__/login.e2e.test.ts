@@ -13,7 +13,6 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { fileURLToPath } from 'node:url';
@@ -109,20 +108,39 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
     expect(await page.isVisible('#loginView')).toBe(false);
   });
 
-  /** Poll the database for a report. Waiting on an empty queue races the submit itself. */
-  async function storedCount(place: string): Promise<number> {
+  /**
+   * The rapid-intake path: two taps and the button, no typing (M0-36). Returns the
+   * incident id so assertions can be made against the incident rather than a form value.
+   */
+  async function reportEmergency(category = 'rta'): Promise<string> {
+    await page.click(`label[for="cat-${category}"]`);
+    await page.click('label[for="sev-critical"]');
+    await page.click('#submit');
+    await page.waitForSelector('#sent', { state: 'visible', timeout: 15_000 });
+
+    const id = await page.evaluate(() =>
+      (
+        globalThis as unknown as { __dnc: { lastIncidentId(): string | null } }
+      ).__dnc.lastIncidentId(),
+    );
+    expect(id).not.toBeNull();
+    return id!;
+  }
+
+  /** Poll the database. Waiting on an empty queue races the submit that empties it. */
+  async function storedCount(incidentId: string): Promise<number> {
     const res = await pool.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM incident_event WHERE payload->>'place' = $1`,
-      [place],
+      `SELECT count(*)::text AS n FROM incident_event WHERE incident_id = $1`,
+      [incidentId],
     );
     return Number(res.rows[0]!.n);
   }
 
-  async function waitForStored(place: string, timeoutMs = 15_000): Promise<number> {
+  async function waitForStored(incidentId: string, timeoutMs = 15_000): Promise<number> {
     const deadline = Date.now() + timeoutMs;
     let n = 0;
     while (Date.now() < deadline) {
-      n = await storedCount(place);
+      n = await storedCount(incidentId);
       if (n > 0) return n;
       await new Promise((r) => setTimeout(r, 100));
     }
@@ -130,16 +148,12 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
   }
 
   it('5. a report delivers immediately while signed in', async () => {
-    const place = `Signed in ${randomUUID()}`;
-    await page.selectOption('#severity', 'critical');
-    await page.fill('#place', place);
-    await page.click('#submit');
-
-    expect(await waitForStored(place)).toBe(1);
+    const incidentId = await reportEmergency();
+    expect(await waitForStored(incidentId)).toBe(1);
   });
 
   describe('a session that goes away underneath the operator', () => {
-    const place = `Revoked ${randomUUID()}`;
+    let revokedIncidentId: string;
 
     it('6. reports "signed out", not "no connection"', async () => {
       // Revoked by an administrator, exactly as a compromised account would be.
@@ -168,9 +182,7 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
     });
 
     it('8. still records an emergency while signed out, and keeps it', async () => {
-      await page.selectOption('#severity', 'critical');
-      await page.fill('#place', place);
-      await page.click('#submit');
+      revokedIncidentId = await reportEmergency('fire');
 
       await page.waitForFunction(
         () => document.querySelectorAll('#entries .entry').length === 1,
@@ -181,7 +193,7 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
       // Held, not lost, and not claimed to be delivered.
       const badge = await page.textContent('.badge');
       expect(badge).toMatch(/saved on this device/i);
-      expect(await storedCount(place)).toBe(0);
+      expect(await storedCount(revokedIncidentId)).toBe(0);
     });
 
     it('9. delivers it on the next sign-in, with no operator action', async () => {
@@ -189,15 +201,15 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
       await page.waitForSelector('#who', { state: 'visible', timeout: 10_000 });
 
       // Nobody pressed anything to send it. Signing in was enough.
-      expect(await waitForStored(place)).toBe(1);
+      expect(await waitForStored(revokedIncidentId)).toBe(1);
     });
 
     it('10. attributes it to whoever delivered it', async () => {
       // The honest available answer. Whoever signed in is identifiable and accountable;
       // the alternative was no record at all.
       const row = await pool.query<{ actor_person_id: string | null }>(
-        `SELECT actor_person_id FROM incident_event WHERE payload->>'place' = $1`,
-        [place],
+        `SELECT actor_person_id FROM incident_event WHERE incident_id = $1`,
+        [revokedIncidentId],
       );
       expect(row.rows[0]!.actor_person_id).toBe(actor.personId);
     });
@@ -237,10 +249,7 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
 
     it('14. records an emergency anyway — offline and signed out', async () => {
       // The worst case this district has: a shutdown, an expired session, and an accident.
-      const place = `Offline signed out ${randomUUID()}`;
-      await page.selectOption('#severity', 'critical');
-      await page.fill('#place', place);
-      await page.click('#submit');
+      const incidentId = await reportEmergency('medical');
 
       await page.waitForFunction(
         () => document.querySelectorAll('#entries .entry').length >= 1,
@@ -249,6 +258,7 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
       );
 
       expect(await page.textContent('.badge')).toMatch(/saved on this device/i);
+      expect(await storedCount(incidentId)).toBe(0);
       await context.setOffline(false);
     });
   });

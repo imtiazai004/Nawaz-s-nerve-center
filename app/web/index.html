@@ -10,6 +10,7 @@
       :root {
         --ink: #14171e;
         --paper: #f1eee7;
+        --card: #fff;
         --line: #cfc9bb;
         --critical: #8c2f22;
         --pending: #8a6420;
@@ -23,36 +24,30 @@
         background: var(--paper);
         color: var(--ink);
         font-size: 17px;
-        line-height: 1.5;
+        line-height: 1.45;
+        -webkit-text-size-adjust: 100%;
       }
       header {
-        padding: 1rem 1.25rem;
+        padding: 0.7rem 1rem;
         border-bottom: 2px solid var(--ink);
         display: flex;
         align-items: baseline;
         justify-content: space-between;
         gap: 1rem;
       }
-      h1 { font-size: 1.05rem; margin: 0; letter-spacing: 0.02em; }
-      #who { font-size: 0.8rem; color: var(--slate); text-align: right; }
+      h1 { font-size: 0.95rem; margin: 0; letter-spacing: 0.02em; }
+      #who { font-size: 0.75rem; color: var(--slate); text-align: right; }
       #who button {
-        margin: 0.2rem 0 0;
-        width: auto;
-        padding: 0.15rem 0;
-        background: none;
-        border: none;
-        color: var(--slate);
-        font-size: 0.78rem;
-        text-decoration: underline;
-        cursor: pointer;
+        margin: 0; width: auto; padding: 0;
+        background: none; border: none; color: var(--slate);
+        font-size: 0.75rem; text-decoration: underline; cursor: pointer;
       }
-      main { padding: 1.25rem; max-width: 40rem; }
+      main { padding: 0.9rem 1rem 2rem; max-width: 34rem; margin: 0 auto; }
 
-      /* Connectivity is never implied. The rung is always stated. */
       #status {
         display: block;
-        padding: 0.6rem 1.25rem;
-        font-size: 0.9rem;
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
         font-weight: 600;
         border-bottom: 1px solid var(--line);
       }
@@ -61,61 +56,124 @@
       #status[data-state="signedout"] { background: #f0dad6; color: var(--critical); }
       #status[data-state="unknown"]   { background: #e6e3da; color: var(--slate); }
 
-      label { display: block; margin: 0.9rem 0 0.25rem; font-weight: 600; font-size: 0.9rem; }
-      input, select, textarea {
-        width: 100%;
-        padding: 0.7rem;
-        font: inherit;
-        border: 1px solid var(--line);
-        background: #fff;
-        border-radius: 2px;
+      fieldset { border: none; margin: 0 0 0.9rem; padding: 0; }
+      legend {
+        padding: 0;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--slate);
+        margin-bottom: 0.4rem;
       }
-      button {
-        margin-top: 1.1rem;
+
+      /* Tiles. Radios underneath so this stays keyboard- and screen-reader-usable. */
+      .tiles { display: grid; gap: 0.5rem; }
+      .tiles.cats { grid-template-columns: repeat(3, 1fr); }
+      .tiles.sev  { grid-template-columns: repeat(4, 1fr); }
+      .tiles input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+      .tiles label {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        /* Comfortably above the 44px minimum, for a gloved hand in a hurry. */
+        min-height: 60px;
+        padding: 0.4rem;
+        background: var(--card);
+        border: 2px solid var(--line);
+        border-radius: 3px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        user-select: none;
+      }
+      .tiles input:checked + label {
+        background: var(--ink);
+        border-color: var(--ink);
+        color: #fff;
+      }
+      .tiles input:focus-visible + label { outline: 3px solid var(--pending); outline-offset: 2px; }
+      /* Severity never relies on colour alone — the label carries the meaning (INV-04). */
+      .tiles.sev input:checked + label[data-level="critical"] {
+        background: var(--critical);
+        border-color: var(--critical);
+      }
+
+      #submit {
         width: 100%;
-        padding: 1rem;
+        min-height: 76px;
+        margin-top: 0.3rem;
         font: inherit;
+        font-size: 1.15rem;
         font-weight: 700;
         color: #fff;
         background: var(--critical);
         border: none;
-        border-radius: 2px;
+        border-radius: 3px;
         cursor: pointer;
       }
-      button:disabled { opacity: 0.5; cursor: default; }
-      button.secondary { background: var(--ink); }
+      #submit:disabled { opacity: 0.45; cursor: default; }
 
-      #queue { margin-top: 1.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
-      #queue h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.12em; margin: 0 0 0.5rem; }
-      .entry {
-        padding: 0.5rem 0;
-        border-bottom: 1px solid var(--line);
-        font-size: 0.9rem;
-        display: flex;
-        justify-content: space-between;
-        gap: 1rem;
+      #where {
+        margin-top: 0.6rem;
+        font-size: 0.82rem;
+        color: var(--slate);
+        min-height: 1.2rem;
       }
-      /* Never a checkmark until the server has confirmed it. */
-      .badge { font-weight: 700; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; }
-      .badge[data-s="pending"]  { color: var(--pending); }
-      .badge[data-s="inflight"] { color: var(--pending); }
-      .badge[data-s="blocked"]  { color: var(--critical); }
+
+      label.text { display: block; margin: 0.7rem 0 0.25rem; font-weight: 600; font-size: 0.85rem; }
+      input[type="text"], input[type="tel"], input[type="password"], textarea {
+        width: 100%;
+        padding: 0.7rem;
+        font: inherit;
+        border: 1px solid var(--line);
+        background: var(--card);
+        border-radius: 2px;
+      }
+
+      #sent {
+        margin-top: 1rem;
+        padding: 0.8rem 1rem;
+        background: #dfe9df;
+        border-left: 4px solid var(--ok);
+      }
+      #sent h2 { margin: 0 0 0.2rem; font-size: 0.95rem; }
+      #sent p { margin: 0 0 0.6rem; font-size: 0.85rem; color: var(--slate); }
+      #sent button {
+        width: 100%; min-height: 48px; margin-top: 0.5rem;
+        font: inherit; font-weight: 600;
+        background: var(--ink); color: #fff; border: none; border-radius: 2px; cursor: pointer;
+      }
+
+      #queue { margin-top: 1.4rem; border-top: 1px solid var(--line); padding-top: 0.8rem; }
+      #queue h2 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em; margin: 0 0 0.4rem; color: var(--slate); }
+      .entry {
+        padding: 0.45rem 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 0.85rem;
+        display: flex; justify-content: space-between; gap: 1rem;
+      }
+      .badge { font-weight: 700; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; }
+      .badge[data-s="pending"], .badge[data-s="inflight"] { color: var(--pending); }
+      .badge[data-s="blocked"] { color: var(--critical); }
 
       .note {
-        margin-top: 1.5rem;
-        padding: 0.75rem 1rem;
+        margin-top: 1.4rem; padding: 0.7rem 0.9rem;
         border-left: 3px solid var(--line);
-        font-size: 0.85rem;
-        color: var(--slate);
+        font-size: 0.8rem; color: var(--slate);
       }
       #loginError {
-        margin-top: 0.9rem;
-        padding: 0.6rem 0.8rem;
-        background: #f0dad6;
-        color: var(--critical);
-        font-size: 0.9rem;
-        font-weight: 600;
+        margin-top: 0.9rem; padding: 0.6rem 0.8rem;
+        background: #f0dad6; color: var(--critical);
+        font-size: 0.9rem; font-weight: 600;
       }
+      button.plain {
+        width: 100%; min-height: 48px; margin-top: 1rem;
+        font: inherit; font-weight: 700; color: #fff;
+        background: var(--critical); border: none; border-radius: 2px; cursor: pointer;
+      }
+      button.plain:disabled { opacity: 0.45; cursor: default; }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -134,59 +192,86 @@
       <!-- Sign in -->
       <section id="loginView" hidden>
         <form id="login">
-          <label for="phone">Phone number</label>
+          <label class="text" for="phone">Phone number</label>
           <input id="phone" name="phone" type="tel" autocomplete="username" inputmode="tel" />
 
-          <label for="password">Password</label>
+          <label class="text" for="password">Password</label>
           <input id="password" name="password" type="password" autocomplete="current-password" />
 
-          <button type="submit" id="loginSubmit">Sign in</button>
+          <button type="submit" id="loginSubmit" class="plain">Sign in</button>
         </form>
         <div id="loginError" hidden></div>
 
         <p class="note" id="offlineLoginNote" hidden>
-          You are offline, so signing in is not possible right now. You can still record an
+          You are offline, so signing in is not possible right now. You can still report an
           emergency below — it will be saved on this device and sent once you sign in.
         </p>
       </section>
 
-      <!-- Report. Available whether or not anyone is signed in: see main.ts. -->
+      <!--
+        Rapid intake (M0-36).
+
+        The whole critical path is above the fold and needs no typing: choose what
+        happened, confirm how serious, press the button. Everything else — exact place,
+        description, contact — is enrichment, offered only after the report is already
+        safe. An incomplete report is accepted and filled in later, never refused.
+      -->
       <section id="reportView">
         <form id="report">
-          <label for="category">What happened</label>
-          <select id="category" name="category">
-            <option value="rta">Road accident</option>
-            <option value="fire">Fire</option>
-            <option value="flood">Flood</option>
-            <option value="medical">Medical emergency</option>
-            <option value="security">Security incident</option>
-            <option value="other">Other</option>
-          </select>
+          <fieldset>
+            <legend>What happened</legend>
+            <div class="tiles cats" id="category">
+              <input type="radio" name="category" id="cat-rta" value="rta" />
+              <label for="cat-rta">Road accident</label>
+              <input type="radio" name="category" id="cat-fire" value="fire" />
+              <label for="cat-fire">Fire</label>
+              <input type="radio" name="category" id="cat-medical" value="medical" />
+              <label for="cat-medical">Medical</label>
+              <input type="radio" name="category" id="cat-flood" value="flood" />
+              <label for="cat-flood">Flood</label>
+              <input type="radio" name="category" id="cat-security" value="security" />
+              <label for="cat-security">Security</label>
+              <input type="radio" name="category" id="cat-other" value="other" />
+              <label for="cat-other">Other</label>
+            </div>
+          </fieldset>
 
-          <label for="severity">How serious</label>
-          <select id="severity" name="severity">
-            <option value="critical">Critical — life at risk</option>
-            <option value="high">High</option>
-            <option value="moderate" selected>Moderate</option>
-            <option value="low">Low</option>
-          </select>
+          <fieldset>
+            <legend>How serious</legend>
+            <div class="tiles sev" id="severity">
+              <input type="radio" name="severity" id="sev-critical" value="critical" />
+              <label for="sev-critical" data-level="critical">Critical</label>
+              <input type="radio" name="severity" id="sev-high" value="high" checked />
+              <label for="sev-high" data-level="high">High</label>
+              <input type="radio" name="severity" id="sev-moderate" value="moderate" />
+              <label for="sev-moderate" data-level="moderate">Moderate</label>
+              <input type="radio" name="severity" id="sev-low" value="low" />
+              <label for="sev-low" data-level="low">Low</label>
+            </div>
+          </fieldset>
 
-          <label for="place">Where</label>
-          <input id="place" name="place" autocomplete="off" placeholder="Village, landmark or road" />
-
-          <button type="submit" id="submit">Report emergency</button>
+          <button type="submit" id="submit" disabled>Report emergency</button>
+          <div id="where">Finding your location…</div>
         </form>
+
+        <!-- Enrichment. Appears only once the report is already safe. -->
+        <section id="sent" hidden>
+          <h2 id="sentTitle">Saved on this device</h2>
+          <p id="sentDetail"></p>
+          <label class="text" for="place">Where is it? (optional)</label>
+          <input id="place" name="place" type="text" autocomplete="off"
+                 placeholder="Village, landmark or road" />
+          <label class="text" for="detail">Anything else? (optional)</label>
+          <textarea id="detail" name="detail" rows="2"></textarea>
+          <button type="button" id="addDetail">Add these details</button>
+          <button type="button" id="newReport">Report another emergency</button>
+        </section>
 
         <section id="queue">
           <h2>Not yet delivered <span id="count">(0)</span></h2>
           <div id="entries"></div>
         </section>
       </section>
-
-      <p class="note">
-        Scaffold only. This proves the app opens, signs in, and captures a report with no
-        network (M0-12, M0-19). The real intake screen, and its 15-second budget, is M0-36.
-      </p>
     </main>
 
     <script src="/app.js"></script>
