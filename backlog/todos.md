@@ -74,12 +74,13 @@ the spine.
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M0-18 | Person / Seat / DutyAssignment model | `DOING` | M0-02 | `Seat` and tiers defined in `authority.ts`; roster needs persistence |
-| M0-19 | Server-side session auth, seat-scoped | `BLOCKED` | M0-02 | Revocation is immediate |
+| M0-18 | Person / Seat / DutyAssignment model | `DONE` | M0-02 | Migration 0003. One current holder per seat enforced by a partial unique index |
+| M0-19 | Server-side session auth, seat-scoped | `DONE` | M0-02 | Token never stored, only its SHA-256. Revocation instant; seat re-resolved every request |
+| M0-44 | Actor identity stamped server-side | `DONE` | M0-19 | New. Closes impersonation: a client claiming the DC seat is discarded |
 | M0-20 | `AuthorityRule` table + evaluation | `DONE` | — | `app/src/domain/authority.ts`. Rules are data; move to DB with M0-02 |
 | M0-21 | Authority tests generated per policy row | `DONE` | M0-20 | Every row exercised: owner allowed, outsider refused |
 | M0-22 | Override as event, with reason; provenance in projection | `DONE` | M0-20, M0-08 | Original value survives; a later department reassessment cannot silently undo it |
-| M0-23 | Direct-API authorisation tests (INV-05) | `BLOCKED` | M0-02 | Needs an API to call. Domain-level refusals already tested |
+| M0-23 | Direct-API authorisation tests (INV-05) | `DONE` | M0-19 | 25 tests, every refusal by direct HTTP call — never through the UI |
 
 ### The lifecycle
 
@@ -123,13 +124,12 @@ the spine.
 - [x] Central override preserves and displays the department's original value
 - [x] `CLAUDE.md` §5 and `CHANGELOG.md` reflect the true state
 - [x] **The app opens with no network** — M0-12
-- [ ] Every mutation refuses unauthorised direct API calls — only the sync endpoints exist
-      so far, and real auth is M0-19. **The largest remaining hole.**
+- [x] **Every mutation refuses unauthorised direct API calls** — M0-19, 25 tests
 - [ ] Restore from backup performed successfully, end to end — M0-38, needs someone who is
       not the original developer
 
-Six of eight. The architectural claims all hold. The two open items are real: until M0-19
-lands, every endpoint accepts any caller and INV-05 cannot be tested at all.
+Seven of eight. The one open item needs another person, not more code — a restore procedure
+that has only ever been performed by the person who wrote it is not a backup strategy.
 
 ---
 
@@ -150,7 +150,7 @@ HTTP, real PostgreSQL. 100 tests pass.
 reopened **with the network still cut**, and the app opens from the service worker cache.
 It previously had to be weakened to restore connectivity first.
 
-**Three things were found by building rather than planning**, and none would have shown up
+**Five things were found by building rather than planning**, and none would have shown up
 in a design document:
 
 1. `ADR-0008` — event ordering that was deterministic and causally wrong. Invisible to the
@@ -159,8 +159,14 @@ in a design document:
    hid ten results behind a run that reported success.
 3. The app trusted `navigator.onLine`, which Chromium reports as `true` with the network
    cut — the same thing a handset on a tower with dead backhaul does. It displayed
-   *"Connected. Reports are delivered immediately"* during a total outage. Connectivity is
-   now derived from whether a sync actually reached the server.
+   *"Connected. Reports are delivered immediately"* during a total outage.
+4. **`verifyPassword` accepted any password against a corrupted hash row.** Base64-decoding
+   garbage yields an empty buffer, scrypt asked for a zero-length key returns one too, and
+   `timingSafeEqual(empty, empty)` is `true`. One bad row would have opened an account
+   completely.
+5. `Outbox.sync()` handed an overlapping caller a fabricated `{ offline: false }` — a
+   connectivity claim nothing had measured, feeding the same lie to the UI as (3). The old
+   test even encoded the bug in its assertion.
 
 **Deliberately not faked, anywhere.** No in-memory Postgres, no `fake-indexeddb`, no mocked
 network. Each would satisfy its interface and prove nothing about the one property that

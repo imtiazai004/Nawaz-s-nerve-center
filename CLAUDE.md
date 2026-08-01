@@ -117,9 +117,9 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · **gate PASSED, offline launch working**
-- **Phase:** Implementation. 111 tests pass. Remaining before M0 closes: real auth (M0-19),
-  the SLA job actually running (M0-29), the intake UI (M0-36), a restore drill (M0-38).
+- **Milestone:** M0 — The Spine · **gate PASSED, offline launch working, auth enforced**
+- **Phase:** Implementation. 137 tests pass. Remaining before M0 closes: the SLA job
+  actually running (M0-29), the intake UI (M0-36), a restore drill (M0-38).
 - **Last updated:** 2026-08-01
 
 **The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
@@ -175,13 +175,21 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
   - `src/main.ts` — app shell scaffold. **Connectivity is derived from actual sync
     outcomes, never from `navigator.onLine`** (see below). Real intake UI is still M0-36.
   - Built by `node build.mjs` into `web/dist` (gitignored); served by the sync server.
-- **111 tests passing**, including permanent tests for INV-04, INV-06, INV-07, INV-08,
-  17 database integration tests, 6 real-browser durability tests, 11 offline-launch tests,
-  and the 14-step M0 gate.
+- **`app/src/auth` — authentication and seat-scoped sessions (M0-19).**
+  - `passwords.ts` — scrypt from `node:crypto`, no dependency. Rejects stunted salts and
+    keys before deriving anything (see the security note below).
+  - `sessions.ts` — server-side sessions. **The token is never stored**, only its SHA-256,
+    so a leaked database hands out no live sessions. Revocation is instant.
+  - The seat is re-resolved from the roster on **every** request, never cached in the
+    session. An officer relieved of a post loses authority on the next request, with no
+    cleanup step for anyone to forget (ADR-0004).
+  - `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`. `/sync` requires a session.
+- **137 tests passing**, including permanent tests for INV-04 to INV-08, 17 database
+  integration tests, 25 auth tests, 6 real-browser durability tests, 11 offline-launch
+  tests, and the 14-step M0 gate.
 - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
 **What does not exist yet**
-- Real authentication (M0-19). The stub is guarded by a startup check, not implemented.
 - The SLA job actually running on a schedule (M0-29). The decision logic is written and
   tested; nothing invokes it.
 - The real intake UI and its 15-second budget (M0-36). The current shell is scaffold.
@@ -220,6 +228,23 @@ learned from tests rather than reasoning:
   accepted when it was not, and the outbox — which releases only what the server confirms —
   deletes it. INV-01 violated silently, by a caching layer, with no error anywhere.
 
+**Never invent a connectivity answer, and never trust a claimed identity.** Two more from
+M0-19, both found by tests:
+
+- `Outbox.sync()` used to return a fabricated `{ offline: false }` to an overlapping
+  caller — a connectivity claim nothing had measured. Same class of failure as the
+  `navigator.onLine` bug. Overlapping callers now join the run in progress and receive its
+  real result. **Either measure it, or return the measurement someone else is taking.**
+- **Actor identity is stamped from the session, never read from the payload.** Without
+  this, any authenticated user could submit an event claiming to be the DC seat, and the
+  audit trail — which *is* the record (ADR-0001) — would preserve the lie faithfully. Same
+  principle as `recorded_at`: facts a client is not entitled to assert are assigned by
+  the server.
+- One more, worth remembering when touching `passwords.ts`: base64-decoding garbage yields
+  an empty buffer, scrypt asked for a zero-length key returns one too, and
+  `timingSafeEqual(empty, empty)` is `true`. A single corrupted hash row would have
+  accepted **any password for that account**.
+
 **Settled — do not reopen without the owner**
 - **No integration with government-issued systems.** The district runs this platform
   independently, by decision of the owner (2026-08-01). Q-01 and Q-02 are resolved. Do not
@@ -230,13 +255,14 @@ learned from tests rather than reasoning:
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **M0-19 — real authentication and seat-scoped sessions.** The largest remaining hole:
-   every endpoint currently accepts any caller, and INV-05 is untestable until it does not.
-2. M0-29 — the SLA job actually running on a schedule. The decision logic is written and
-   tested; nothing invokes it yet.
-3. M0-36 — the rapid-intake screen, and the **15-second budget measured with a stopwatch**
+1. **M0-29 — the SLA job actually running.** The escalation decision logic is written and
+   tested, but nothing invokes it on a schedule, so INV-07 holds in theory and not yet in
+   a running system.
+2. M0-36 — the rapid-intake screen, and the **15-second budget measured with a stopwatch**
    on a mid-range Android handset. It is a requirement, not an aspiration.
-4. M0-38 — a restore drill performed by someone who is not the original developer.
+3. M0-38 — a restore drill performed by someone who is not the original developer.
+4. A login screen. The app has no way to sign in yet — the browser tests authenticate by
+   calling `/auth/login` directly, which is honest for a test but not usable by an operator.
 5. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
    build. Nothing before M4 touches real citizen data.
 
@@ -282,6 +308,7 @@ Build with Claude/
 │       │   ├── authority.ts   ← the policy table as data (ADR-0003)
 │       │   └── sla.ts         ← deadlines and the occurred/recorded split (ADR-0002)
 │       ├── db/                ← pool, migration runner, event store
+│       ├── auth/              ← scrypt passwords, seat-scoped sessions (M0-19)
 │       ├── api/               ← sync protocol and the node:http server
 │       ├── outbox/            ← the offline substrate (ADR-0002)
 │       │   └── adapters/      ← IndexedDB store, HTTP transport, browser harness

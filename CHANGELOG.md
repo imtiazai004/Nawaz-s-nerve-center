@@ -297,3 +297,60 @@ substantive changed, say so in the session summary instead.
   accepts any caller, and INV-05 cannot be tested until it does not.
 - **Verified:** `npm run check` green — typecheck, lint, formatting, **111/111 tests**
   across 9 files. Committed as `5d6a8a9`. `app/.env` and `web/dist` confirmed unstaged.
+
+## 2026-08-01 — M0-19: real authentication, and INV-05 finally enforceable
+
+- **Added:** `app/db/migrations/0003_identity.sql` — `person`, `seat`, `duty_assignment`,
+  `session`. A partial unique index enforces one current holder per seat: two people
+  simultaneously holding "DPO Bannu" would make *"who do I notify right now"* unanswerable,
+  which is the question the model exists to answer.
+- **Added:** `app/src/auth/passwords.ts` — scrypt from `node:crypto`. No new dependency,
+  which matters under ADR-0007. Parameters are stored inside the hash so they can be raised
+  later without invalidating existing passwords. The minimum is length, not complexity
+  theatre — a policy demanding symbols produces passwords written inside a duty register.
+- **Added:** `app/src/auth/sessions.ts` — server-side sessions, chosen in `05-stack.md`
+  precisely because **revocation must be instant**. The token is never stored, only its
+  SHA-256, so a leaked database hands out no live sessions. Login gives one answer for
+  every failure mode: distinguishing "no such number" from "wrong password" hands an
+  attacker the list of real officers.
+- **Decided:** the seat is **re-resolved from the roster on every request**, never cached in
+  the session row. Ending a duty assignment removes authority on the very next request,
+  with no cleanup step for anyone to forget — ADR-0004 made operational. A person holding
+  no seat may authenticate and do nothing.
+- **Fixed (security):** **actor identity is now stamped from the session and whatever the
+  client claimed is discarded.** Without this, any authenticated user could submit an event
+  claiming to be the DC seat, and the audit trail — which *is* the record under ADR-0001 —
+  would have preserved the lie faithfully. Same principle already applied to `recorded_at`:
+  facts a client is not entitled to assert are assigned by the server.
+- **Fixed (security):** `verifyPassword` **accepted any password against a corrupted hash
+  row.** Base64-decoding garbage yields an empty buffer; scrypt asked for a zero-length key
+  returns an empty buffer too; and `timingSafeEqual(empty, empty)` is `true`. A single bad
+  row would have opened that account to anyone. Now rejects stunted salts and keys, and
+  absurd scrypt parameters, before deriving anything. Found by a test that fed in
+  deliberately malformed hashes.
+- **Fixed:** `Outbox.sync()` returned a fabricated `{ offline: false }` to an overlapping
+  caller — inventing a connectivity answer nothing had measured, and feeding the UI the
+  same lie as the earlier `navigator.onLine` bug. Overlapping callers now join the run in
+  progress and receive its real result. The old test had quietly encoded the bug in its
+  assertion (`a.pushed + b.pushed === 1`), which only held because the second caller was
+  handed an empty result.
+- **Added:** 25 auth tests. Every refusal is exercised **by direct HTTP call**, never
+  through a browser — a control that only holds when you use the app is not a control, and
+  an attacker uses curl. Covers: unauthenticated push and pull, garbage and oversized
+  tokens, disabled accounts, identical responses for wrong-password and unknown-number,
+  impersonation, seatless users, authority ending with a duty assignment, instant
+  revocation, killing every session for a compromised account, expiry, and the absence of
+  any plaintext token in the database.
+- **Added:** `app/src/testing/seed.ts` — test identities, because there is no longer a way
+  into `/sync` without a session.
+- **Changed:** `sync.test.ts`, `spine.e2e.test.ts` and `offlineLaunch.e2e.test.ts` now
+  authenticate. The browser suites sign in through the real `/auth/login` endpoint and rely
+  on the session cookie, so there is no test-only path past authentication.
+- **Fixed:** a flaky assertion in offline-launch test 9. Restoring the network at the end of
+  the previous test fires the browser's `online` event, starting a sync that the next call
+  legitimately joins. The test now drives the outbox until a sync actually begins while
+  offline. Verified stable across repeated runs.
+- **Open:** the app still has **no login screen**. The browser tests call `/auth/login`
+  directly, which is honest for a test but unusable by an operator.
+- **Verified:** `npm run check` green twice in a row — typecheck, lint, formatting,
+  **137/137 tests** across 10 files. Committed as `6200ce8`.
