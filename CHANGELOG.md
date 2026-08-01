@@ -354,3 +354,56 @@ substantive changed, say so in the session summary instead.
   directly, which is honest for a test but unusable by an operator.
 - **Verified:** `npm run check` green twice in a row — typecheck, lint, formatting,
   **137/137 tests** across 10 files. Committed as `6200ce8`.
+
+## 2026-08-01 — M0-29: the escalation loop actually runs
+
+- **Added:** `app/src/jobs/escalation.ts`. `domain/sla.ts` has known *when* to escalate
+  since the first day, but nothing invoked it — so INV-07 held of a function and not of a
+  running system, and a closed laptop still stopped an escalation. This is the thing that
+  watches.
+- **Decided:** **the escalation rule is never duplicated in SQL.** The query narrows
+  candidates to open, unacknowledged incidents and nothing more; `checkEscalation` decides.
+  A rule expressed twice drifts, and a district would end up escalating by one rule and
+  reporting by another.
+- **Added:** the seat ladder. Escalation walks station → tehsil → district → provincial,
+  preferring a seat in the same department and falling back to the department-agnostic
+  control-room seats. A missing tier is skipped rather than stalling on.
+- **Decided:** a **vacant post never swallows an escalation** (ADR-0004). It escalates to
+  the unheld seat anyway and is flagged `no_duty_holder`, which is a materially different
+  situation from a missed deadline and must be distinguishable to whoever reviews it.
+- **Added:** `app/src/jobs/scheduler.ts` — an interval loop behind a **Postgres advisory
+  lock**, so two instances cannot both escalate the same incident. Deliberately *not* a job
+  queue: SLA escalation is a periodic scan, not a set of enqueued items, and building a
+  queue to hold one recurring task would be operational surface bought for nothing
+  (ADR-0007). A failed pass never kills the loop — a loop that dies after one bad database
+  moment is worse than none, because everyone still believes it is watching.
+- **Fixed (correctness):** **the scan could starve an emergency indefinitely.** The
+  candidate query took an arbitrary `LIMIT` of the open set with no ordering, so once a
+  district had more open incidents than the cap, *which* ones got scanned was down to
+  whatever order Postgres happened to return — an incident could lose that lottery on every
+  single pass and sit unescalated forever, with nothing anywhere reporting a problem. Now
+  ordered oldest-first, so the most overdue is always seen, and `truncated` is reported on
+  the outcome and logged at `warn` rather than silently absorbed by a `LIMIT`.
+- **Added:** `app/src/main.ts` — the process entry point. One process runs the API, serves
+  the client and drives the escalation loop (ADR-0007's single deployable). Shutdown is
+  ordered: stop escalating, stop accepting requests, release the pool — reversing it could
+  leave a pass writing to a closed pool mid-escalation. Structured JSON logs from the start,
+  because whoever debugs this at 02:00 will be reading a file, not attaching a debugger.
+- **Changed:** SLA targets are injectable into the scheduler. They are operational
+  commitments the departments and the DC office make, not engineering constants (Q-06) —
+  and `PLACEHOLDER_SLA` is a guess that the loop is now running on.
+- **Added:** 18 escalation tests. Time is driven by passing `now` to the pass rather than
+  backdating rows: `recorded_at` is server-assigned and the table is append-only, so there
+  is no way to fabricate "the server has known about this for 30 minutes" — which is
+  correct, and is exactly what makes the audit trail trustworthy.
+- **Changed:** the scheduler test now asserts only that passes are *invoked* and stop
+  cleanly. Conflating that with escalation outcomes forced a zero-minute target, which every
+  incident then trips as a "late arrival" — so nothing escalated and the test proved the
+  opposite of its name.
+- **Fixed:** a sync test paged to "the end of the log" to get a cursor, which stopped
+  working once the shared test log grew past the per-request limit — it was taking the end
+  of the first page. Now uses an empty push, which returns the server's true position.
+- **Open:** Q-06 is now load-bearing. The escalation loop is live and running on guessed
+  deadlines; real targets need agreeing with each department.
+- **Verified:** `npm run check` green **four consecutive times** — typecheck, lint,
+  formatting, **155/155 tests** across 11 files. Committed as `2f8d26f`.

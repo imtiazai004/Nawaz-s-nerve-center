@@ -91,7 +91,9 @@ the spine.
 | M0-26 | Triage: severity + category as events | `TODO` | M0-07 | — |
 | M0-27 | Routing to one department, one seat | `TODO` | M0-18, M0-26 | Routes to the current duty holder |
 | M0-28 | Acknowledgement by duty seat | `TODO` | M0-27 | Records actor + seat held at that moment |
-| M0-29 | **Server-side SLA timer + escalation** (INV-07) | `DOING` | M0-28 | **Decision logic done and tested** in `app/src/domain/sla.ts`, including late-arrival grace. Needs the durable job queue from M0-02 to actually fire |
+| M0-29 | **Server-side SLA timer + escalation** (INV-07) | `DONE` | M0-28 | Scanner + scheduler behind a Postgres advisory lock. Walks the seat ladder; vacant posts flagged, never swallowed. 18 tests |
+| M0-45 | Escalation scan is starvation-free | `DONE` | M0-29 | New. Oldest-first ordering; hitting the scan cap is reported, not absorbed |
+| M0-46 | Process entry point with ordered shutdown | `DONE` | M0-29 | New. `src/main.ts` — one deployable, structured logs, health endpoint |
 | M0-30 | Reassignment by control room, with reason | `TODO` | M0-22 | Auditable; owning department notified |
 | M0-31 | Resolve and close with evidence | `TODO` | M0-07 | — |
 | M0-32 | One notification channel with tracked delivery state (INV-03) | `TODO` | M0-27 | Failure is visible, not a log line |
@@ -150,7 +152,7 @@ HTTP, real PostgreSQL. 100 tests pass.
 reopened **with the network still cut**, and the app opens from the service worker cache.
 It previously had to be weakened to restore connectivity first.
 
-**Five things were found by building rather than planning**, and none would have shown up
+**Six things were found by building rather than planning**, and none would have shown up
 in a design document:
 
 1. `ADR-0008` — event ordering that was deterministic and causally wrong. Invisible to the
@@ -167,6 +169,11 @@ in a design document:
 5. `Outbox.sync()` handed an overlapping caller a fabricated `{ offline: false }` — a
    connectivity claim nothing had measured, feeding the same lie to the UI as (3). The old
    test even encoded the bug in its assertion.
+6. **The escalation scan could starve an emergency indefinitely.** It took an arbitrary
+   `LIMIT` of the open set with no ordering, so once a district had more open incidents
+   than the cap, *which* ones got scanned was down to whatever order Postgres returned. An
+   incident could lose that lottery on every pass, forever, with nothing reporting a
+   problem. Now oldest-first, and hitting the cap is surfaced.
 
 **Deliberately not faked, anywhere.** No in-memory Postgres, no `fake-indexeddb`, no mocked
 network. Each would satisfy its interface and prove nothing about the one property that

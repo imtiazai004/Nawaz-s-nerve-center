@@ -117,9 +117,9 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · **gate PASSED, offline launch working, auth enforced**
-- **Phase:** Implementation. 137 tests pass. Remaining before M0 closes: the SLA job
-  actually running (M0-29), the intake UI (M0-36), a restore drill (M0-38).
+- **Milestone:** M0 — The Spine · **gate PASSED; offline launch, auth and escalation all live**
+- **Phase:** Implementation. 155 tests pass. Remaining before M0 closes: the intake UI
+  (M0-36), a login screen, and a restore drill (M0-38).
 - **Last updated:** 2026-08-01
 
 **The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
@@ -184,14 +184,23 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
     session. An officer relieved of a post loses authority on the next request, with no
     cleanup step for anyone to forget (ADR-0004).
   - `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`. `/sync` requires a session.
-- **137 tests passing**, including permanent tests for INV-04 to INV-08, 17 database
-  integration tests, 25 auth tests, 6 real-browser durability tests, 11 offline-launch
-  tests, and the 14-step M0 gate.
+- **`app/src/jobs` — escalation, actually running (M0-29).**
+  - `escalation.ts` — scans open unacknowledged incidents **oldest first**, walks the seat
+    ladder, appends the escalation event. **The escalation rule is never duplicated in
+    SQL**: the query narrows candidates, `checkEscalation` decides. A vacant post never
+    swallows an escalation — it escalates anyway, flagged `no_duty_holder`.
+  - `scheduler.ts` — interval loop behind a **Postgres advisory lock**, so two instances
+    cannot both escalate. Not a job queue: this is a periodic scan, and a queue to hold one
+    recurring task would be operational surface bought for nothing.
+- **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
+  (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
+  release the pool.
+- **155 tests passing**, including permanent tests for INV-04 to INV-08, 17 database
+  integration tests, 25 auth tests, 18 escalation tests, 6 real-browser durability tests,
+  11 offline-launch tests, and the 14-step M0 gate.
 - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
 **What does not exist yet**
-- The SLA job actually running on a schedule (M0-29). The decision logic is written and
-  tested; nothing invokes it.
 - The real intake UI and its 15-second budget (M0-36). The current shell is scaffold.
 - The lifecycle endpoints (triage, routing, acknowledgement) as HTTP — the domain logic
   exists and is proven, but only the sync endpoints are exposed.
@@ -255,14 +264,14 @@ M0-19, both found by tests:
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **M0-29 — the SLA job actually running.** The escalation decision logic is written and
-   tested, but nothing invokes it on a schedule, so INV-07 holds in theory and not yet in
-   a running system.
+1. **A login screen.** The app has no way to sign in — the browser tests call
+   `/auth/login` directly, which is honest for a test and unusable by an operator.
 2. M0-36 — the rapid-intake screen, and the **15-second budget measured with a stopwatch**
    on a mid-range Android handset. It is a requirement, not an aspiration.
-3. M0-38 — a restore drill performed by someone who is not the original developer.
-4. A login screen. The app has no way to sign in yet — the browser tests authenticate by
-   calling `/auth/login` directly, which is honest for a test but not usable by an operator.
+3. M0-38 — a restore drill performed by someone who is not the original developer. Needs
+   another person, not more code.
+4. Q-06 — real SLA targets, agreed with each department. `PLACEHOLDER_SLA` is a guess, and
+   the escalation loop is now running on it.
 5. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
    build. Nothing before M4 touches real citizen data.
 
@@ -309,6 +318,8 @@ Build with Claude/
 │       │   └── sla.ts         ← deadlines and the occurred/recorded split (ADR-0002)
 │       ├── db/                ← pool, migration runner, event store
 │       ├── auth/              ← scrypt passwords, seat-scoped sessions (M0-19)
+│       ├── jobs/              ← escalation scan + scheduler (M0-29)
+│       ├── main.ts            ← process entry: API + client + escalation loop
 │       ├── api/               ← sync protocol and the node:http server
 │       ├── outbox/            ← the offline substrate (ADR-0002)
 │       │   └── adapters/      ← IndexedDB store, HTTP transport, browser harness
