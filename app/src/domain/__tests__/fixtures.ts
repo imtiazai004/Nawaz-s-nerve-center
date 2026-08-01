@@ -53,6 +53,7 @@ export function ev<T extends EventType>(
     actorPersonId: string | null;
     actorSeatId: string | null;
     sourceChannel: SourceChannel;
+    clientSeq: number;
   }> = {},
 ): IncidentEvent {
   counter += 1;
@@ -64,6 +65,7 @@ export function ev<T extends EventType>(
     type,
     occurredAt: overrides.occurredAt ?? recordedAt,
     recordedAt,
+    clientSeq: overrides.clientSeq ?? counter,
     actorPersonId: overrides.actorPersonId ?? 'person-1',
     actorSeatId: overrides.actorSeatId ?? rescueOperator.seatId,
     sourceChannel: overrides.sourceChannel ?? 'mobile',

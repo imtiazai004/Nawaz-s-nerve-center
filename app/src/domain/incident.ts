@@ -70,14 +70,20 @@ export interface IncidentState {
 }
 
 /**
- * Deterministic order: when it happened, then when we learned of it, then the id.
+ * Causal order: when it happened, then the client's own sequence, then when we learned of
+ * it, then the id as a last resort.
  *
- * The tiebreakers matter. Offline clients produce events with identical `occurredAt`
- * timestamps, and a replay that ordered them differently on each run would make the fold
- * non-deterministic — which would defeat the whole point of deriving state from the log.
+ * `clientSeq` carries the weight. An earlier version ordered by timestamps and fell back
+ * to `eventId`, which is a random uuid — and an integration test caught the consequence: a
+ * batch of events created in the same millisecond, stored in one transaction with an
+ * identical `recordedAt`, folded in random order. `triaged` landed after `overridden` and
+ * silently discarded a district override.
+ *
+ * That version was deterministic. It was also wrong. Determinism was never the hard part.
  */
 export function compareEvents(a: IncidentEvent, b: IncidentEvent): number {
   if (a.occurredAt !== b.occurredAt) return a.occurredAt < b.occurredAt ? -1 : 1;
+  if (a.clientSeq !== b.clientSeq) return a.clientSeq < b.clientSeq ? -1 : 1;
   if (a.recordedAt !== b.recordedAt) return a.recordedAt < b.recordedAt ? -1 : 1;
   if (a.eventId !== b.eventId) return a.eventId < b.eventId ? -1 : 1;
   return 0;

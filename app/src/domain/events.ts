@@ -39,6 +39,15 @@ export interface EventEnvelope {
   readonly incidentId: Uuid;
   readonly occurredAt: Instant;
   readonly recordedAt: Instant;
+  /**
+   * The client's own ordering of events it created, monotonic per incident.
+   *
+   * Timestamps are not enough. A batch created offline shares a millisecond, and
+   * `recorded_at` is identical across one server transaction — so without this, ordering
+   * falls to a random id and `triaged` can fold after `overridden`. Determinism was never
+   * the hard part; causality is. See migration 0002.
+   */
+  readonly clientSeq: number;
   readonly actorPersonId: Uuid | null;
   readonly actorSeatId: Uuid | null;
   readonly sourceChannel: SourceChannel;
