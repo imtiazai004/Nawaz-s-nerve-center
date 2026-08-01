@@ -117,9 +117,9 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · **gate PASSED; offline launch, auth and escalation all live**
-- **Phase:** Implementation. 170 tests pass. Remaining before M0 closes: the real intake UI
-  (M0-36) and a restore drill (M0-38).
+- **Milestone:** M0 — The Spine · **one item from closing**
+- **Phase:** Implementation. 180 tests pass. The only thing left in M0 is a restore drill
+  (M0-38), which needs a second person rather than more code. **M1 can begin.**
 - **Last updated:** 2026-08-01
 
 **The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
@@ -172,9 +172,18 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
   - `src/sw.ts` — caches the shell so the app **opens with no network**. `/sync` and
     `/health` are network-only and must stay that way: a cached "accepted" would tell a
     client its emergency was stored when it was not, and the outbox would then delete it.
-  - `src/main.ts` — app shell scaffold with sign-in. **Connectivity is derived from actual
-    sync outcomes, never from `navigator.onLine`** (see below), and there are **three**
-    states, not two: connected, no connection, and **signed out**. Real intake UI is M0-36.
+  - `src/main.ts` — sign-in, rapid intake, outbox queue. **Connectivity is derived from
+    actual sync outcomes, never from `navigator.onLine`** (see below), and there are
+    **three** states, not two: connected, no connection, and **signed out**.
+  - `src/location.ts` — layered location capture. **Never blocks**: GPS is watched from the
+    moment the screen opens and whatever has arrived by submit is attached. Which layers
+    actually produced something is recorded, so a GPS fix is distinguishable from an
+    operator's best guess rather than every location looking equally certain.
+  - **Submit first, enrich after (M0-36).** The critical path is two taps and a button with
+    no typing; place and description are offered only once the report is already safe, and
+    are **appended as a second event** rather than edited in. Measured at ~800ms against
+    the 15,000ms budget with the CPU throttled 4× — the budget is a requirement, because a
+    system slower than the phone call it replaces loses to the phone.
   - **An emergency can be recorded whether or not anyone is signed in.** Deliberate, and
     the one place the app is more permissive than the server. A duty officer whose session
     expired overnight on a handset with no signal *cannot* sign in, and refusing them would
@@ -202,12 +211,17 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **170 tests passing**, including permanent tests for INV-04 to INV-08, 17 database
+- **180 tests passing**, including permanent tests for INV-04 to INV-08, 17 database
   integration tests, 25 auth tests, 18 escalation tests, 6 real-browser durability tests,
-  11 offline-launch tests, 15 login tests, and the 14-step M0 gate.
+  11 offline-launch tests, 15 login tests, 10 rapid-intake tests, and the 14-step M0 gate.
 - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
-**What does not exist yet**
+**What does not exist yet — and this is the big one**
+- **The dashboard.** None of it. No district overview, no live incident board, no map, no
+  department workspaces, no alerts, no officer directory, no reports. Everything built so
+  far is the spine: capture, sync, authority, escalation, audit. The screens sit on top of
+  it and start in **M1**.
+
 - The real intake UI and its 15-second budget (M0-36). The current shell is scaffold.
 - The lifecycle endpoints (triage, routing, acknowledgement) as HTTP — the domain logic
   exists and is proven, but only the sync endpoints are exposed.
@@ -278,18 +292,18 @@ M0-19, both found by tests:
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **M0-36 — the rapid-intake screen**, and the **15-second budget measured with a
-   stopwatch** on a mid-range Android handset. It is a requirement, not an aspiration:
-   if this is slower than the phone call it replaces, the district keeps using the phone.
+1. **Begin M1 — Rescue 1122 in full.** This is where the dashboard and department
+   workspaces start. Depth before breadth: one department taken all the way down teaches
+   the real shape of a workspace, where four built shallowly in parallel produce four
+   mini-apps and a wrong abstraction. See `backlog/milestones.md`.
 2. M0-38 — a restore drill performed by someone who is not the original developer. Needs
-   another person, not more code.
+   another person, not more code. **The last open M0 gate item.**
 3. Q-06 — real SLA targets, agreed with each department. `PLACEHOLDER_SLA` is a guess, and
    the escalation loop is now running on it.
-4. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
+4. Q-08 — the Place gazetteer for Bannu. M1 needs it, and it may already exist somewhere
+   (revenue records, PDMA mapping) — weeks of work versus a phone call.
+5. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
    build. Nothing before M4 touches real citizen data.
-
-With M0-36 done, M0 closes apart from the restore drill, and M1 (Rescue 1122 in full)
-begins — which is where the dashboard and department workspaces start.
 
 ## 6. Repository map
 

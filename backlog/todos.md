@@ -106,7 +106,8 @@ the spine.
 | M0-33 | Central board — all active incidents, unstyled | `TODO` | M0-08 | One projection, not a copy |
 | M0-34 | Department board — same log, scoped by authority | `TODO` | M0-08, M0-20 | Provably the same source as M0-33 |
 | M0-35 | Incident detail with full event history and provenance | `TODO` | M0-22 | Every value answers "who set this, when, why" |
-| M0-36 | Rapid intake form — three fields, offline-capable | `TODO` | M0-14 | Timed; establishes the 15s baseline for M1 |
+| M0-36 | **Rapid intake — measured against the 15s budget** | `DONE` | M0-14 | ~800ms at 4× CPU throttle. Two taps, no typing, submit-then-enrich. 10 tests |
+| M0-48 | Layered location capture that never blocks | `DONE` | M0-36 | New. GPS watched from open; whatever arrived by submit is attached. Captured layers recorded |
 
 ### Operations
 
@@ -135,6 +136,16 @@ Seven of eight. The one open item needs another person, not more code — a rest
 that has only ever been performed by the person who wrote it is not a backup strategy.
 
 ---
+
+## M1 starts next
+
+M0 has one item left (M0-38, the restore drill) and it needs a second person rather than
+more code. **M1 — Rescue 1122 in full — can begin**, and that is where the dashboard and
+department workspaces start.
+
+Before M1 gets far it needs two answers: **Q-08** (does a Bannu place gazetteer already
+exist — weeks of work versus a phone call) and **Q-06** (real SLA targets, since the
+escalation loop is live on guessed ones).
 
 ## Where M0 stands
 

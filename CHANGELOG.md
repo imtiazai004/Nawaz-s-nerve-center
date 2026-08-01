@@ -450,3 +450,43 @@ substantive changed, say so in the session summary instead.
   the submit that empties it. They poll the database instead.
 - **Verified:** `npm run check` green **three consecutive times** — typecheck, lint,
   formatting, **170/170 tests** across 12 files. Committed as `3848261`.
+
+## 2026-08-01 — M0-36: rapid intake, and the budget actually measured
+
+- **Added:** the rapid-intake screen. The thesis makes intake speed a **correctness
+  property**, not polish: a system slower than the phone call it replaces loses to the
+  phone, operators stop entering things, and the central board goes quietly false.
+- **Measured, not asserted.** The budget test throttles the CPU **4×** to approximate a
+  mid-range Android handset — measuring on a developer machine would prove nothing about
+  the device this runs on. The clock starts when the screen is usable and stops when the
+  report is **durably stored**, not when the network confirms it, because the operator's
+  job is done at the point the emergency cannot be lost. **Result: ~800ms against a
+  15,000ms budget**, stable across runs.
+- **Decided: submit first, enrich after.** The critical path is two taps and a button with
+  **no typing at all**. Place and description are offered only once the report is already
+  safe, and are **appended as a second event** rather than edited in — what the reporter
+  first said and what they added afterwards are both history (ADR-0001). This is what makes
+  the budget reachable, and it is the same principle as "an incomplete report is accepted
+  and enriched later, never refused" (INV-01).
+- **Decided: nothing on the critical path blocks.** Not the network, and not GPS.
+  `web/src/location.ts` starts watching for a position the moment the screen opens and
+  attaches whatever has arrived by submit time. An operator indoors on an old handset may
+  never get a fix, and waiting for one would spend the whole budget on coordinates that
+  matter far less than the report itself. Tested with geolocation permission denied.
+- **Added:** layered location capture — GPS, free text, any one sufficient. **Which layers
+  actually produced something is recorded**, so a downstream consumer can tell a GPS fix
+  from an operator's best guess rather than treating every location as equally certain.
+- **Changed:** category and severity are tiles backed by radio inputs, so the groups stay
+  keyboard- and screen-reader-navigable. Severity carries its meaning in the **label**,
+  never colour alone (INV-04). Tap targets are 60px+, the submit button 76px — sized for a
+  hand in a hurry, and asserted in a test rather than eyeballed.
+- **Changed:** the three existing browser suites moved off the old select-and-text form.
+  They now identify a report by its **incident id**, captured from the page after submit,
+  rather than by a typed field — which decouples them from the intake form's shape and
+  stops the next UI change from breaking three unrelated suites.
+- **Open:** M0's last gate item is M0-38, the restore drill, which needs a second person.
+  **M1 — Rescue 1122 in full — can begin**, and that is where the dashboard and department
+  workspaces start.
+- **Verified:** `npm run check` green **three consecutive times** — typecheck, lint,
+  formatting, **180/180 tests** across 13 files, intake measured at 771–818ms each run.
+  Committed as `d52060d`.
