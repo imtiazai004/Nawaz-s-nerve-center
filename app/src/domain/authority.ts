@@ -1,0 +1,170 @@
+/**
+ * Authority as data, not `if` statements. See ADR-0003 and docs/04-authority-model.md.
+ *
+ * Every writable field carries a rule. The rules are a table an administrator can read
+ * and change; they are not scattered role comparisons that nobody can audit. Adding a
+ * department is rows, not a release.
+ *
+ * Nothing here is a substitute for enforcing this server-side at every mutation endpoint
+ * (INV-05). This module is the decision; the endpoint is the gate.
+ */
+
+import type { Uuid } from './events.js';
+
+/** Where a seat sits in the escalation hierarchy. Higher tier wins a conflict. */
+export type Tier = 'station' | 'tehsil' | 'district' | 'provincial';
+
+export const TIER_ORDER: readonly Tier[] = ['station', 'tehsil', 'district', 'provincial'];
+
+export function tierRank(t: Tier): number {
+  return TIER_ORDER.indexOf(t);
+}
+
+export interface Seat {
+  readonly seatId: Uuid;
+  readonly departmentId: Uuid | null;
+  readonly tier: Tier;
+  /** Seats permitted to act outside the policy table, with a reason. Always audited. */
+  readonly canBreakGlass?: boolean;
+}
+
+export interface AuthorityRule {
+  readonly fieldKey: string;
+  /** The department that owns the field. `null` means system-owned. */
+  readonly ownerDepartmentId: Uuid | null;
+  /** Seat ids, or tiers, permitted to override the owner. */
+  readonly overrideSeatIds?: readonly Uuid[];
+  readonly overrideTiers?: readonly Tier[];
+  readonly reasonRequired: boolean;
+  readonly visibleToOwner: 'none' | 'yes' | 'yes_and_notify';
+  /** Append-only fields cannot be overridden by anyone. */
+  readonly appendOnly?: boolean;
+}
+
+export type Decision =
+  | { readonly allowed: true; readonly as: 'owner' | 'override' | 'break_glass' }
+  | { readonly allowed: false; readonly why: string };
+
+export interface WriteAttempt {
+  readonly fieldKey: string;
+  readonly seat: Seat;
+  readonly reason?: string | undefined;
+  /** Set only when the actor is deliberately invoking emergency powers. */
+  readonly breakGlass?: boolean;
+}
+
+/**
+ * Decide whether a write is permitted.
+ *
+ * Order matters: ownership first, then delegated override authority, then break-glass.
+ * Break-glass is deliberately last and deliberately present — an escape hatch that does
+ * not exist gets replaced by shared passwords, which is strictly worse than one that is
+ * logged and reviewed.
+ */
+export function evaluateWrite(rule: AuthorityRule, attempt: WriteAttempt): Decision {
+  if (rule.fieldKey !== attempt.fieldKey) {
+    return { allowed: false, why: `rule ${rule.fieldKey} does not govern ${attempt.fieldKey}` };
+  }
+
+  const isOwner =
+    rule.ownerDepartmentId !== null && attempt.seat.departmentId === rule.ownerDepartmentId;
+
+  if (rule.appendOnly) {
+    return isOwner
+      ? { allowed: true, as: 'owner' }
+      : { allowed: false, why: `${rule.fieldKey} is append-only by its owning department` };
+  }
+
+  if (isOwner) return { allowed: true, as: 'owner' };
+
+  const bySeat = rule.overrideSeatIds?.includes(attempt.seat.seatId) ?? false;
+  const byTier = rule.overrideTiers?.includes(attempt.seat.tier) ?? false;
+
+  if (bySeat || byTier) {
+    if (rule.reasonRequired && !isNonEmpty(attempt.reason)) {
+      return { allowed: false, why: `${rule.fieldKey} requires a reason to override` };
+    }
+    return { allowed: true, as: 'override' };
+  }
+
+  if (attempt.breakGlass === true && attempt.seat.canBreakGlass === true) {
+    // Never waived, no matter who is asking. An unexplained emergency override is
+    // indistinguishable from an abuse of one.
+    if (!isNonEmpty(attempt.reason)) {
+      return { allowed: false, why: 'break-glass always requires a reason' };
+    }
+    return { allowed: true, as: 'break_glass' };
+  }
+
+  return {
+    allowed: false,
+    why: `seat ${attempt.seat.seatId} has no authority over ${rule.fieldKey}`,
+  };
+}
+
+/**
+ * Resolve two writes to the same field in the same window.
+ *
+ * Authority first, then time. The loser is never silently discarded — the caller is
+ * expected to surface it as a visible conflict, so a disagreement between a department
+ * and the control room is made explicit rather than settled by whoever saved last.
+ */
+export function resolveConflict(
+  a: { readonly seat: Seat; readonly at: string },
+  b: { readonly seat: Seat; readonly at: string },
+): { readonly winner: 'a' | 'b'; readonly by: 'authority' | 'time' } {
+  const ra = tierRank(a.seat.tier);
+  const rb = tierRank(b.seat.tier);
+  if (ra !== rb) return { winner: ra > rb ? 'a' : 'b', by: 'authority' };
+  return { winner: a.at >= b.at ? 'a' : 'b', by: 'time' };
+}
+
+function isNonEmpty(s: string | undefined): s is string {
+  return typeof s === 'string' && s.trim().length > 0;
+}
+
+/**
+ * The starting policy table from docs/04-authority-model.md.
+ *
+ * Department ids are placeholders until the registry exists. This lives in code only
+ * until there is a database to hold it — it is a table, not logic, by design.
+ */
+export function defaultRules(responsibleDepartmentId: Uuid): readonly AuthorityRule[] {
+  return [
+    {
+      fieldKey: 'incident.severity',
+      ownerDepartmentId: responsibleDepartmentId,
+      overrideTiers: ['district'],
+      reasonRequired: true,
+      visibleToOwner: 'yes',
+    },
+    {
+      fieldKey: 'incident.category',
+      ownerDepartmentId: responsibleDepartmentId,
+      overrideTiers: ['district'],
+      reasonRequired: true,
+      visibleToOwner: 'yes',
+    },
+    {
+      fieldKey: 'incident.responsibleDepartment',
+      ownerDepartmentId: null,
+      overrideTiers: ['tehsil', 'district'],
+      reasonRequired: true,
+      visibleToOwner: 'yes_and_notify',
+    },
+    {
+      fieldKey: 'incident.actions',
+      ownerDepartmentId: responsibleDepartmentId,
+      reasonRequired: false,
+      visibleToOwner: 'none',
+      appendOnly: true,
+    },
+    {
+      fieldKey: 'incident.closure',
+      ownerDepartmentId: responsibleDepartmentId,
+      overrideTiers: ['district'],
+      reasonRequired: true,
+      visibleToOwner: 'yes_and_notify',
+    },
+  ];
+}

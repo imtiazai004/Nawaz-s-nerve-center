@@ -1,0 +1,167 @@
+# Open Questions
+
+**Everything domain-specific in this repository is currently assumption, not verified
+fact.** The architecture documents are sound as engineering; the claims they make about
+Bannu's departments, systems, and procedures are not yet sourced.
+
+Do not build past a **blocking** question by guessing. Raise it.
+
+**Status legend:** `BLOCKING` — work stops · `HIGH` — decide before the milestone that
+needs it · `OPEN` — track, resolve when convenient · `RESOLVED` — with evidence and date.
+
+---
+
+## Blocking
+
+> **Proceeding at recorded risk, 2026-08-01.** Q-03, Q-04 and Q-05 are organisational
+> questions whose answers take weeks. Waiting produces nothing, so M0's **domain core** is
+> being built now — deliberately as pure logic with no database, no framework and no
+> hosting assumption, so that no answer to any of these three can invalidate it. What is
+> gated until they are answered: choosing the deployment target, provisioning a database,
+> touching real citizen data, and finalising the authority model. See `CHANGELOG.md`.
+
+### Q-03 · Who maintains this after handover, and what can they run? `BLOCKING`
+
+The stack in `05-stack.md` is chosen for operability by a small team. That choice is
+meaningless until we know who that team is, what they already run, and what they are
+capable of supporting.
+
+**Needed:** named maintaining body, existing infrastructure, existing skills, hosting
+budget and its source.
+**Blocks:** confirmation of `05-stack.md`, provisioning any database, and deployment.
+**Does not block:** the pure domain core, which is written to be portable.
+
+### Q-04 · What is the legal basis for holding citizen emergency data? `BLOCKING`
+
+The system stores reporter identity, contact details, location, and health-adjacent
+information. Pakistan's data protection framework, plus any KP government or district
+policy, governs retention, access, export, and cross-border hosting.
+
+**Needed:** applicable law, district policy, retention limits, who may lawfully access
+reporter PII.
+**Blocks:** anything touching citizen PII at scale — so, the pilot.
+
+### Q-05 · Who owns this system, formally? `BLOCKING`
+
+Not who built it — who is *accountable* for it. The DC office? A district IT cell? PDMA?
+This determines authority modelling, budget continuity, and whether departments will
+accept central override at all.
+
+**Needed:** a named office with a written mandate.
+**Blocks:** the authority model can be built, but cannot be finalised without this.
+
+---
+
+## High
+
+### Q-06 · What are the real acknowledgement SLA targets? `HIGH`
+
+Currently unspecified. These are operational commitments, not engineering choices — they
+must come from the departments and the DC office, and they will differ by severity and by
+department. Guessing produces either constant false escalation or SLAs so loose they mean
+nothing.
+
+**Needed for:** M0 (a placeholder is acceptable), M4 (real values required).
+
+### Q-07 · Which notification channels are actually reliable in Bannu? `HIGH`
+
+WhatsApp Business API availability, template approval, and consent requirements. SMS
+gateway options and their delivery rates. Whether automated voice calls are viable.
+Assumptions here directly affect whether escalation works.
+
+**Needed for:** M3.
+
+### Q-08 · Does the Place gazetteer exist anywhere already? `HIGH`
+
+Revenue department records, election commission data, PDMA mapping, or survey data may
+already contain Bannu's union councils and villages with coordinates. Building this from
+scratch is weeks of work; obtaining it is a phone call.
+
+**Needed for:** M1.
+
+### Q-09 · Urdu, Pashto, or both? `HIGH`
+
+Affects translation scope and whether bidirectional layout is required from the start.
+Should be answered by asking actual operators, not assumed.
+
+**Needed for:** M1 UI work.
+
+### Q-10 · What is the escalation path above the district? `HIGH`
+
+Which provincial seats, under what conditions, through what channel. Even a v1 that only
+notifies and flags needs to know who it is notifying.
+
+**Needed for:** M3.
+
+---
+
+## Open
+
+### Q-11 · Media retention policy `OPEN`
+Photos and video from incidents. Storage cost and privacy both argue for a shorter
+retention than the incident record itself. Needs a decision, not a default.
+
+### Q-12 · Radio integration `OPEN`
+Whether radio traffic can feed the system directly at L3/L4, or whether it stays
+operator-transcribed. Probably the latter for v1.
+
+### Q-13 · Public-facing reporting `OPEN`
+Whether citizens report directly, or only through departments and the control room. Large
+scope and trust implications. Explicitly out of MVP scope until decided.
+
+### Q-14 · Existing officer and contact directories `OPEN`
+Whether a current, maintained directory of district officers exists, or whether the
+platform becomes its home. If the latter, keeping it current is an ongoing operational
+burden that needs an owner.
+
+### Q-15 · Secondary control room location `OPEN`
+`00-thesis.md` flags the control room as a single point of failure. Where the secondary
+site is, and who has access, needs an answer before go-live.
+
+---
+
+## Resolved
+
+### Q-01 · Does Rescue 1122 already run a dispatch system? `RESOLVED 2026-08-01`
+
+**Answer: yes, several departments run government-issued systems — and it does not matter.**
+Source: project owner, 2026-08-01.
+
+The district's explicit intent is a platform they run **independently of government-issued
+software**, for their own efficiency and their own control. Integration is therefore
+**not a requirement and not a goal.** No API coupling, no dependency on a provincial or
+federal system's availability, no shared schema.
+
+**Consequences**
+- M1 is unblocked. Build Rescue 1122's workspace on our own model.
+- Do not spend effort discovering, negotiating, or reverse-engineering external interfaces.
+- **New risk introduced, and it is the serious one:** departments already using another
+  system now face double entry. That is the single most likely cause of adoption failure —
+  it does not make this system wrong, it makes speed and usefulness non-negotiable. Two
+  mitigations, both already in the plan:
+  1. The 15-second rapid-intake budget (`00-thesis.md`) is now a hard requirement, not an
+     aspiration. If this system is slower than what they already tolerate, it loses.
+  2. **Report export** (see Q-02) — the system produces the formats departments must submit
+     upward, so it *replaces* work rather than adding it.
+- Bypass rate (`backlog/milestones.md`) becomes even more important as the adoption canary.
+
+### Q-02 · What must each department already report upward? `RESOLVED 2026-08-01`
+
+**Answer: still worth knowing — but as an export target, not an integration target.**
+Source: project owner, 2026-08-01, following from Q-01.
+
+Departments retain their existing upward reporting obligations. This platform does not
+connect to those systems, but it **can generate the formats they need to submit**, as
+files, on demand. That is export, not integration: no coupling, no dependency, no loss of
+independence — and it turns the platform from extra work into saved work.
+
+**Consequences**
+- M2 no longer blocked on interface discovery.
+- Collect required report *formats* per department during M1/M2 onboarding — a lightweight
+  task, not a research phase.
+- Report export becomes a named capability (see `07-capabilities.md`, group 9).
+
+---
+
+When resolving: move the question here, state the answer, cite the source and date, and
+update every document the answer affects. Log it in `CHANGELOG.md`.
