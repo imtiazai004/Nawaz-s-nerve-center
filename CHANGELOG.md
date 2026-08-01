@@ -95,3 +95,46 @@ substantive changed, say so in the session summary instead.
   recording the independence decision and its double-entry consequence; §6 repository map
   updated for the new document; immediate next actions now point at Q-03, Q-04 and Q-05,
   which are the remaining blockers.
+
+## 2026-08-01 — M0 begun: the domain core
+
+- **Decided:** proceed into M0 without waiting for Q-03, Q-04 and Q-05. These are
+  organisational questions whose answers take weeks, and waiting produces nothing. The
+  mitigation is structural rather than optimistic: the domain core is written as pure logic
+  with **no database, no framework and no hosting assumption**, so that no answer to any of
+  the three can invalidate it. Recorded in `docs/06-open-questions.md` as an explicit
+  "proceeding at recorded risk" note rather than a silently skipped gate.
+- **Added:** git repository initialised at the folder root, with `.gitignore` covering
+  `node_modules`, build output, and — importantly — `.env` and key material.
+- **Added:** `app/` scaffold — TypeScript 5.7 (strict, `noUncheckedIndexedAccess`,
+  `exactOptionalPropertyTypes`), ESLint 9, Prettier, Vitest. One command, `npm run check`,
+  runs typecheck, lint, format check and tests.
+- **Added:** `app/src/domain/events.ts` — the full event catalog from `03-data-model.md`.
+  Every envelope carries `occurredAt` and `recordedAt`, and a client-generated `eventId`
+  that doubles as the idempotency key.
+- **Added:** `app/src/domain/incident.ts` — the fold. Deterministic ordering (occurred,
+  then recorded, then id), duplicate events dropped, and **override provenance**: a district
+  override never erases the department's own value, and a later department reassessment
+  cannot silently undo an override.
+- **Added:** `app/src/domain/authority.ts` — the policy table as data, with break-glass
+  (always requires a reason, even for the DC) and authority-then-time conflict resolution.
+- **Added:** `app/src/domain/sla.ts` — the timestamp split from ADR-0002 made concrete.
+  Measurement uses `occurredAt` so metrics tell the truth; escalation firing uses
+  `recordedAt` plus a grace window so a reconnect produces one labelled late-arrival alert
+  instead of a retroactive storm.
+- **Added:** `app/src/domain/__tests__/` — 32 tests, all passing. Includes permanent
+  invariant tests for INV-04 (500 routine incidents cannot hide one critical), INV-06
+  (no unattributable action), INV-07 (escalation fires with every client closed) and INV-08
+  (replay changes nothing; late arrival gets grace, not a storm).
+- **Changed:** `backlog/todos.md` — M0-01, M0-08, M0-09, M0-10, M0-20, M0-21, M0-22 marked
+  `DONE`; M0-05, M0-18, M0-29, M0-39 `DOING`; M0-02, M0-06, M0-07, M0-19, M0-23 `BLOCKED`
+  on a database. New "Where M0 stands" section states plainly that no in-memory stub will
+  stand in for Postgres — a stub would let tasks be marked done while proving nothing about
+  durability, which is the one thing INV-01 actually claims.
+- **Changed:** `CLAUDE.md` §5 and §6 rewritten for the new state, including a standing
+  instruction to keep `npm run check` green and not to fake the database.
+- **Open:** Postgres is not installed on this machine and Docker is unavailable. M0-02 and
+  everything downstream of it is gated on Q-03 — confirming the deployment target with
+  whoever will maintain the system. This is now the single highest-value unblock.
+- **Verified:** `npm run check` green — typecheck clean, lint clean, formatting clean,
+  32/32 tests passing. Committed as `2666417` with no `node_modules` and no secrets staged.

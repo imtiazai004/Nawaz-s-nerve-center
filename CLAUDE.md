@@ -116,25 +116,44 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · *not started*
-- **Phase:** Planning and architecture. No application code written yet.
+- **Milestone:** M0 — The Spine · *domain core done, persistence blocked*
+- **Phase:** Implementation begun. `app/` builds and all checks pass.
 - **Last updated:** 2026-08-01
 
 **What exists**
 - Planning and architecture documents in `docs/` (thesis, invariants, connectivity
-  ladder, data model, authority model, stack, open questions).
+  ladder, data model, authority model, stack, open questions, capabilities).
 - Seven ADRs recording the load-bearing decisions.
 - Milestone plan and an M0 task decomposition in `backlog/`.
-
 - The plain-language capability list in `docs/07-capabilities.md` — the scope document.
   If something is not there or in `backlog/milestones.md`, it is not in scope.
+- **A git repository**, with the domain core committed.
+- **`app/` — the domain core.** Pure TypeScript, no database, no framework:
+  - `src/domain/events.ts` — the event catalog; `occurredAt`/`recordedAt` on every envelope
+  - `src/domain/incident.ts` — the fold, deterministic ordering, override provenance
+  - `src/domain/authority.ts` — the policy table as data, break-glass, conflict resolution
+  - `src/domain/sla.ts` — response deadlines, late-arrival grace, honest measurement
+  - 32 tests passing, including permanent tests for INV-04, INV-06, INV-07 and INV-08
+  - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
 **What does not exist yet**
-- Any application code, repository scaffold, database, or schema.
+- Any persistence. No database, no schema, no migrations — see below.
+- Any API, client, or user interface.
 - Verified domain research (department structures, contacts, seat hierarchies) —
   see `docs/06-open-questions.md`. Everything domain-specific in these documents is
   currently **assumption, not verified fact**.
 - The Place gazetteer for Bannu.
+
+**Why the domain core was built before the blockers were resolved**
+Deliberate, and recorded. Q-03, Q-04 and Q-05 are organisational questions whose answers
+take weeks, and waiting produces nothing. The domain core was written as pure logic with
+no database, no framework and no hosting assumption precisely so that **no answer to any
+of those three can invalidate it**. What stays gated: choosing a deployment target,
+provisioning a database, touching real citizen data, and finalising the authority table.
+
+**Do not fake the database.** An in-memory stub would let the remaining M0 tasks be marked
+done while proving nothing about durability — and INV-01 is exactly the claim that nothing
+is ever lost. Honest `BLOCKED` rows beat a meaningless green board.
 
 **Settled — do not reopen without the owner**
 - **No integration with government-issued systems.** The district runs this platform
@@ -173,6 +192,18 @@ Build with Claude/
 │   └── adr/                   ← architecture decision records
 │       ├── README.md          ← index and template
 │       └── ADR-0001..0007
+├── app/                       ← the application
+│   ├── package.json           ← `npm run check` = typecheck + lint + format + test
+│   ├── tsconfig.json          ← strict, including noUncheckedIndexedAccess
+│   ├── eslint.config.js
+│   ├── .prettierrc.json
+│   ├── .env.example           ← nothing live yet; copy to .env, never commit .env
+│   └── src/domain/
+│       ├── events.ts          ← the event catalog (ADR-0001)
+│       ├── incident.ts        ← the fold: events → state, with provenance
+│       ├── authority.ts       ← the policy table as data (ADR-0003)
+│       ├── sla.ts             ← deadlines and the occurred/recorded split (ADR-0002)
+│       └── __tests__/         ← incident, authority, and the invariant suite
 ├── backlog/
 │   ├── milestones.md          ← M0–M5 with pass/fail gates
 │   └── todos.md               ← live task list

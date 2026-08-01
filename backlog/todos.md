@@ -36,21 +36,21 @@ the spine.
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M0-01 | Repository scaffold, TypeScript, lint, format, test tooling | `TODO` | P-02 | Fresh clone installs and runs all checks clean |
-| M0-02 | Postgres + migration framework + local dev setup | `TODO` | M0-01 | Migrations run deterministically from empty |
-| M0-03 | Structured logging with correlation ids; health endpoint | `TODO` | M0-01 | Health endpoint returns dependency status |
+| M0-01 | Repository scaffold, TypeScript, lint, format, test tooling | `DONE` | — | `npm run check` green: typecheck, lint, format, 32 tests |
+| M0-02 | Postgres + migration framework + local dev setup | `BLOCKED` | Q-03 | Postgres not installed on this machine; gated on who maintains it |
+| M0-03 | Structured logging with correlation ids; health endpoint | `TODO` | M0-02 | Health endpoint returns dependency status |
 | M0-04 | CI: lint, typecheck, test on every commit | `TODO` | M0-01 | Red build blocks merge |
-| M0-05 | Secret handling: env template, secret store, nothing in repo | `TODO` | M0-01 | Secret scan passes; no key in frontend bundle |
+| M0-05 | Secret handling: env template, secret store, nothing in repo | `DOING` | M0-01 | `.env.example` + `.gitignore` done; secret store pending M0-02 |
 
 ### The event core — `ADR-0001`
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M0-06 | `IncidentEvent` table: append-only, client UUID, dual timestamps | `TODO` | M0-02 | Insert-only enforced at DB level, not just in code |
-| M0-07 | Event append API with idempotency on `event_id` | `TODO` | M0-06 | Same event twice = one row, no error |
-| M0-08 | `incident_current` projection + fold logic | `TODO` | M0-06 | State matches expected fold for every event type |
-| M0-09 | Projection rebuild from log | `TODO` | M0-08 | **Drop all projections, rebuild, assert identical** |
-| M0-10 | Point-in-time replay — state as of any timestamp | `TODO` | M0-08 | Reconstructs state at an arbitrary past moment |
+| M0-06 | `IncidentEvent` table: append-only, client UUID, dual timestamps | `BLOCKED` | M0-02 | Insert-only enforced at DB level, not just in code. **Types and catalog done** in `app/src/domain/events.ts` |
+| M0-07 | Event append API with idempotency on `event_id` | `BLOCKED` | M0-06 | Same event twice = one row, no error. **Fold-level idempotency done and tested** |
+| M0-08 | `incident_current` projection + fold logic | `DONE` | — | `app/src/domain/incident.ts`; every event type covered; order-independent |
+| M0-09 | Projection rebuild from log | `DONE` | M0-08 | Fold is pure and deterministic across 4 shuffle seeds. **DB-level rebuild still owed once M0-02 lands** |
+| M0-10 | Point-in-time replay — state as of any timestamp | `DONE` | M0-08 | Both `knownAt` (what we saw) and `happenedBy` (what was true) implemented and tested |
 | M0-11 | Event payload versioning from the start | `TODO` | M0-06 | v1 events readable after a v2 is introduced |
 
 ### Offline substrate — `ADR-0002`
@@ -68,12 +68,12 @@ the spine.
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M0-18 | Person / Seat / DutyAssignment model | `TODO` | M0-02 | "Who holds seat X now" answerable |
-| M0-19 | Server-side session auth, seat-scoped | `TODO` | M0-18 | Revocation is immediate |
-| M0-20 | `AuthorityRule` table + evaluation | `TODO` | M0-18 | Rules are data, editable without deploy |
-| M0-21 | Authority tests generated per policy row | `TODO` | M0-20 | Owner writes; authority overrides; others refused |
-| M0-22 | Override as event, with reason; provenance in projection | `TODO` | M0-20, M0-08 | Original value survives and renders |
-| M0-23 | Direct-API authorisation tests (INV-05) | `TODO` | M0-20 | Every refusal tested outside the UI |
+| M0-18 | Person / Seat / DutyAssignment model | `DOING` | M0-02 | `Seat` and tiers defined in `authority.ts`; roster needs persistence |
+| M0-19 | Server-side session auth, seat-scoped | `BLOCKED` | M0-02 | Revocation is immediate |
+| M0-20 | `AuthorityRule` table + evaluation | `DONE` | — | `app/src/domain/authority.ts`. Rules are data; move to DB with M0-02 |
+| M0-21 | Authority tests generated per policy row | `DONE` | M0-20 | Every row exercised: owner allowed, outsider refused |
+| M0-22 | Override as event, with reason; provenance in projection | `DONE` | M0-20, M0-08 | Original value survives; a later department reassessment cannot silently undo it |
+| M0-23 | Direct-API authorisation tests (INV-05) | `BLOCKED` | M0-02 | Needs an API to call. Domain-level refusals already tested |
 
 ### The lifecycle
 
@@ -84,7 +84,7 @@ the spine.
 | M0-26 | Triage: severity + category as events | `TODO` | M0-07 | — |
 | M0-27 | Routing to one department, one seat | `TODO` | M0-18, M0-26 | Routes to the current duty holder |
 | M0-28 | Acknowledgement by duty seat | `TODO` | M0-27 | Records actor + seat held at that moment |
-| M0-29 | **Server-side SLA timer + escalation** (INV-07) | `TODO` | M0-28 | **Fires with every client closed** |
+| M0-29 | **Server-side SLA timer + escalation** (INV-07) | `DOING` | M0-28 | **Decision logic done and tested** in `app/src/domain/sla.ts`, including late-arrival grace. Needs the durable job queue from M0-02 to actually fire |
 | M0-30 | Reassignment by control room, with reason | `TODO` | M0-22 | Auditable; owning department notified |
 | M0-31 | Resolve and close with evidence | `TODO` | M0-07 | — |
 | M0-32 | One notification channel with tracked delivery state (INV-03) | `TODO` | M0-27 | Failure is visible, not a log line |
@@ -104,7 +104,7 @@ the spine.
 |---|---|---|---|---|
 | M0-37 | Automated backup | `TODO` | M0-02 | Runs on schedule, verified non-empty |
 | M0-38 | **Restore drill, actually performed** | `TODO` | M0-37 | Executed end to end, timed, documented |
-| M0-39 | Invariant test suite scaffold (INV-01…08) | `TODO` | M0-04 | Each invariant has at least one failing-if-broken test |
+| M0-39 | Invariant test suite scaffold (INV-01…08) | `DOING` | M0-04 | INV-04, 06, 07, 08 covered in `__tests__/invariants.test.ts`. INV-01, 02, 03, 05 need persistence and an API — the gap is recorded in that file's header so it stays visible |
 
 ---
 
@@ -122,6 +122,22 @@ All must pass before M1 starts:
 - [ ] `CLAUDE.md` §5 and `CHANGELOG.md` reflect the true state
 
 ---
+
+## Where M0 stands
+
+**Done: the domain core.** The fold, the authority model and the SLA timing logic are
+written, typechecked, linted and covered by 32 passing tests — including permanent tests
+for four of the eight invariants. `npm run check` in `app/` is green.
+
+**The remaining M0 work is almost entirely gated on one thing: a database.** Postgres is
+not installed on this machine, and per Q-03 the deployment target should be confirmed with
+whoever will maintain it before we provision one. Everything marked `BLOCKED` above unblocks
+the moment that is answered.
+
+**Deliberately not faked.** No in-memory stub standing in for Postgres. A stub would let the
+remaining tasks be marked done while proving nothing about the property that matters —
+durability — and INV-01 is precisely the claim that nothing is ever lost. Better to have
+four honest `BLOCKED` rows than a green board that means nothing.
 
 ## M1 and beyond
 
