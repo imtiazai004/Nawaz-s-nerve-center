@@ -14,6 +14,7 @@
         --critical: #8c2f22;
         --pending: #8a6420;
         --ok: #2f5d3a;
+        --slate: #5f6675;
         font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
       }
       * { box-sizing: border-box; }
@@ -27,8 +28,24 @@
       header {
         padding: 1rem 1.25rem;
         border-bottom: 2px solid var(--ink);
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
       }
       h1 { font-size: 1.05rem; margin: 0; letter-spacing: 0.02em; }
+      #who { font-size: 0.8rem; color: var(--slate); text-align: right; }
+      #who button {
+        margin: 0.2rem 0 0;
+        width: auto;
+        padding: 0.15rem 0;
+        background: none;
+        border: none;
+        color: var(--slate);
+        font-size: 0.78rem;
+        text-decoration: underline;
+        cursor: pointer;
+      }
       main { padding: 1.25rem; max-width: 40rem; }
 
       /* Connectivity is never implied. The rung is always stated. */
@@ -39,9 +56,10 @@
         font-weight: 600;
         border-bottom: 1px solid var(--line);
       }
-      #status[data-state="online"]  { background: #dfe9df; color: var(--ok); }
-      #status[data-state="offline"] { background: #f2e3c9; color: var(--pending); }
-      #status[data-state="unknown"] { background: #e6e3da; color: #5f6675; }
+      #status[data-state="online"]    { background: #dfe9df; color: var(--ok); }
+      #status[data-state="offline"]   { background: #f2e3c9; color: var(--pending); }
+      #status[data-state="signedout"] { background: #f0dad6; color: var(--critical); }
+      #status[data-state="unknown"]   { background: #e6e3da; color: var(--slate); }
 
       label { display: block; margin: 0.9rem 0 0.25rem; font-weight: 600; font-size: 0.9rem; }
       input, select, textarea {
@@ -65,6 +83,7 @@
         cursor: pointer;
       }
       button:disabled { opacity: 0.5; cursor: default; }
+      button.secondary { background: var(--ink); }
 
       #queue { margin-top: 1.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
       #queue h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.12em; margin: 0 0 0.5rem; }
@@ -81,53 +100,92 @@
       .badge[data-s="pending"]  { color: var(--pending); }
       .badge[data-s="inflight"] { color: var(--pending); }
       .badge[data-s="blocked"]  { color: var(--critical); }
-      .scaffold {
-        margin-top: 2rem;
+
+      .note {
+        margin-top: 1.5rem;
         padding: 0.75rem 1rem;
         border-left: 3px solid var(--line);
         font-size: 0.85rem;
-        color: #5f6675;
+        color: var(--slate);
       }
+      #loginError {
+        margin-top: 0.9rem;
+        padding: 0.6rem 0.8rem;
+        background: #f0dad6;
+        color: var(--critical);
+        font-size: 0.9rem;
+        font-weight: 600;
+      }
+      [hidden] { display: none !important; }
     </style>
   </head>
   <body>
-    <header><h1>District Nerve Center · Bannu</h1></header>
-    <div id="status" data-state="online">Checking connection…</div>
+    <header>
+      <h1>District Nerve Center · Bannu</h1>
+      <div id="who" hidden>
+        <span id="whoName"></span>
+        <br /><button type="button" id="logout">Sign out</button>
+      </div>
+    </header>
+
+    <div id="status" data-state="unknown">Checking connection…</div>
 
     <main>
-      <form id="report">
-        <label for="category">What happened</label>
-        <select id="category" name="category">
-          <option value="rta">Road accident</option>
-          <option value="fire">Fire</option>
-          <option value="flood">Flood</option>
-          <option value="medical">Medical emergency</option>
-          <option value="security">Security incident</option>
-          <option value="other">Other</option>
-        </select>
+      <!-- Sign in -->
+      <section id="loginView" hidden>
+        <form id="login">
+          <label for="phone">Phone number</label>
+          <input id="phone" name="phone" type="tel" autocomplete="username" inputmode="tel" />
 
-        <label for="severity">How serious</label>
-        <select id="severity" name="severity">
-          <option value="critical">Critical — life at risk</option>
-          <option value="high">High</option>
-          <option value="moderate" selected>Moderate</option>
-          <option value="low">Low</option>
-        </select>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" />
 
-        <label for="place">Where</label>
-        <input id="place" name="place" autocomplete="off" placeholder="Village, landmark or road" />
+          <button type="submit" id="loginSubmit">Sign in</button>
+        </form>
+        <div id="loginError" hidden></div>
 
-        <button type="submit" id="submit">Report emergency</button>
-      </form>
-
-      <section id="queue">
-        <h2>Not yet delivered <span id="count">(0)</span></h2>
-        <div id="entries"></div>
+        <p class="note" id="offlineLoginNote" hidden>
+          You are offline, so signing in is not possible right now. You can still record an
+          emergency below — it will be saved on this device and sent once you sign in.
+        </p>
       </section>
 
-      <p class="scaffold">
-        Scaffold only. This exists to prove the app opens and captures a report with no
-        network (M0-12). The real intake screen, and its 15-second budget, is M0-36.
+      <!-- Report. Available whether or not anyone is signed in: see main.ts. -->
+      <section id="reportView">
+        <form id="report">
+          <label for="category">What happened</label>
+          <select id="category" name="category">
+            <option value="rta">Road accident</option>
+            <option value="fire">Fire</option>
+            <option value="flood">Flood</option>
+            <option value="medical">Medical emergency</option>
+            <option value="security">Security incident</option>
+            <option value="other">Other</option>
+          </select>
+
+          <label for="severity">How serious</label>
+          <select id="severity" name="severity">
+            <option value="critical">Critical — life at risk</option>
+            <option value="high">High</option>
+            <option value="moderate" selected>Moderate</option>
+            <option value="low">Low</option>
+          </select>
+
+          <label for="place">Where</label>
+          <input id="place" name="place" autocomplete="off" placeholder="Village, landmark or road" />
+
+          <button type="submit" id="submit">Report emergency</button>
+        </form>
+
+        <section id="queue">
+          <h2>Not yet delivered <span id="count">(0)</span></h2>
+          <div id="entries"></div>
+        </section>
+      </section>
+
+      <p class="note">
+        Scaffold only. This proves the app opens, signs in, and captures a report with no
+        network (M0-12, M0-19). The real intake screen, and its 15-second budget, is M0-36.
       </p>
     </main>
 

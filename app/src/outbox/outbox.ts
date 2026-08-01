@@ -58,6 +58,24 @@ export interface SyncTransport {
   }>;
 }
 
+/**
+ * The server refused us, rather than being unreachable.
+ *
+ * A distinct type because "signed out" and "no signal" are different facts and must not be
+ * shown as the same thing. Telling an operator the network is down when their session
+ * expired sends them looking for signal on a working connection, and the report sits
+ * undelivered while they do.
+ *
+ * Defined here rather than in the transport because it is part of the transport contract,
+ * and the outbox is the thing that has to react to it.
+ */
+export class AuthRequiredError extends Error {
+  constructor(message = 'authentication required') {
+    super(message);
+    this.name = 'AuthRequiredError';
+  }
+}
+
 export interface SyncResult {
   readonly pushed: number;
   readonly blocked: number;
@@ -65,6 +83,11 @@ export interface SyncResult {
   readonly stillPending: number;
   /** True when the network could not be reached. Not an error — the normal case here. */
   readonly offline: boolean;
+  /**
+   * True when the server refused the credential. Queued events are **kept**, exactly as
+   * when offline — being signed out must never cost an emergency (INV-01).
+   */
+  readonly authRequired: boolean;
 }
 
 export interface OutboxOptions {
@@ -149,6 +172,7 @@ export class Outbox {
     let blocked = 0;
     let pulled = 0;
     let offline = false;
+    let authRequired = false;
 
     const queued = (await this.store.all())
       .filter((e) => e.state !== 'blocked')
@@ -174,10 +198,15 @@ export class Outbox {
       let result;
       try {
         result = await this.transport.push(batch.map((e) => e.event));
-      } catch {
-        // The normal case in Bannu, not an exception. Put everything back and stop trying;
-        // nothing is lost and the next reconnect will pick it up.
-        offline = true;
+      } catch (err) {
+        // Unreachable or refused — either way everything goes back on the queue. The two
+        // are distinguished only so the operator can be told the truth about which it is.
+        if (err instanceof AuthRequiredError) {
+          authRequired = true;
+        } else {
+          // The normal case in Bannu, not an exception.
+          offline = true;
+        }
         await Promise.all(
           batch.map((e) => this.store.put({ ...e, state: 'pending', attempts: e.attempts + 1 })),
         );
@@ -219,7 +248,7 @@ export class Outbox {
       await this.store.setCursor(result.cursor);
     }
 
-    if (!offline) {
+    if (!offline && !authRequired) {
       try {
         let cursor = await this.store.getCursor();
         for (let guard = 0; guard < 100; guard++) {
@@ -229,11 +258,19 @@ export class Outbox {
           await this.store.setCursor(cursor);
           if (!page.hasMore) break;
         }
-      } catch {
-        offline = true;
+      } catch (err) {
+        if (err instanceof AuthRequiredError) authRequired = true;
+        else offline = true;
       }
     }
 
-    return { pushed, blocked, pulled, stillPending: await this.pendingCount(), offline };
+    return {
+      pushed,
+      blocked,
+      pulled,
+      stillPending: await this.pendingCount(),
+      offline,
+      authRequired,
+    };
   }
 }

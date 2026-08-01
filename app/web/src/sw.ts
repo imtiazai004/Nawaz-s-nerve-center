@@ -20,18 +20,26 @@ const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest'];
 /**
  * Paths that must **never** be served from cache, under any circumstances.
  *
- * A cached `/sync` response is not a stale page — it is a client being told its emergency
+ * `/sync` — a cached response is not a stale page. It is a client being told its emergency
  * was accepted when it was not. The outbox would then delete the entry (it releases only
- * what the server confirms it holds), and the report would be gone. That is INV-01
- * violated by a caching layer, silently, with no error anywhere.
+ * what the server confirms it holds), and the report would be gone. INV-01 violated by a
+ * caching layer, silently, with no error anywhere.
  *
- * Network-only. If the network is down the request fails, which is correct: the outbox is
- * built to treat a failed push as "still queued" and try again.
+ * `/auth` — `/auth/me` is a GET, so it would otherwise be cached like any other. A cached
+ * identity means a handset showing the previous holder as signed in after a shift change,
+ * and every report captured on it attributed to someone who has gone home. On a shared
+ * device that is not a staleness bug, it is a false record.
+ *
+ * Network-only. If the network is down the request fails, which is correct: the outbox
+ * treats a failed push as "still queued" and tries again.
  */
-const NEVER_CACHE = ['/sync', '/health'];
+const NEVER_CACHE = ['/sync', '/health', '/auth'];
 
 function isNeverCache(url: URL): boolean {
-  return NEVER_CACHE.some((p) => url.pathname === p || url.pathname.startsWith(`${p}?`));
+  return NEVER_CACHE.some(
+    (p) =>
+      url.pathname === p || url.pathname.startsWith(`${p}/`) || url.pathname.startsWith(`${p}?`),
+  );
 }
 
 self.addEventListener('install', (event) => {

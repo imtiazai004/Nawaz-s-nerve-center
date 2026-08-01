@@ -8,7 +8,7 @@
  */
 
 import type { IncidentEvent } from '../../domain/events.js';
-import type { SyncTransport } from '../outbox.js';
+import { AuthRequiredError, type SyncTransport } from '../outbox.js';
 import type { PullResponse, PushResponse } from '../../api/protocol.js';
 
 export interface HttpTransportOptions {
@@ -39,6 +39,11 @@ export class HttpTransport implements SyncTransport {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const res = await fetch(`${this.baseUrl}${path}`, { ...init, signal: controller.signal });
+      // 401 and 403 mean the server heard us and said no. That is a different fact from
+      // being unreachable, and the operator must be told which one it is.
+      if (res.status === 401 || res.status === 403) {
+        throw new AuthRequiredError(`sync refused: ${res.status}`);
+      }
       if (!res.ok) throw new Error(`sync failed: ${res.status}`);
       return (await res.json()) as T;
     } finally {
