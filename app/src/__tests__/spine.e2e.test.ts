@@ -25,6 +25,7 @@ import { append, loadIncident } from '../db/eventStore.js';
 import { foldIncident } from '../domain/incident.js';
 import { evaluateWrite, defaultRules } from '../domain/authority.js';
 import { checkEscalation } from '../domain/sla.js';
+import { buildWeb } from '../../build.mjs';
 import type { IncidentEvent } from '../domain/events.js';
 
 const dbUrl = process.env['TEST_DATABASE_URL'];
@@ -48,10 +49,12 @@ describe.skipIf(dbUrl === undefined)('M0 gate: the offline emergency spine', () 
   let reportEventId: string;
 
   beforeAll(async () => {
+    const webRoot = await buildWeb();
+
     pool = createPool(dbUrl);
     await migrate(pool, migrationsDir);
 
-    api = createSyncServer({ pool, authMode: 'stub', nodeEnv: 'test' });
+    api = createSyncServer({ pool, authMode: 'stub', nodeEnv: 'test', webRoot });
     await new Promise<void>((r) => api.listen(0, '127.0.0.1', r));
     apiUrl = `http://127.0.0.1:${(api.address() as AddressInfo).port}`;
 
@@ -70,13 +73,20 @@ describe.skipIf(dbUrl === undefined)('M0 gate: the offline emergency spine', () 
     context = await browser.newContext();
     page = await context.newPage();
 
-    // The app is served from the same origin as the API, so the harness page comes from
-    // the sync server itself — 404 body, correct origin, which is all IndexedDB needs.
+    // Load the real app, not a bare page. The service worker it registers is what makes
+    // step 4 — reopening the handset with no network — possible at all.
     await page.goto(apiUrl);
+    await page.waitForSelector('#report', { timeout: 20_000 });
+    await page.waitForFunction(() => navigator.serviceWorker.controller !== null, undefined, {
+      timeout: 20_000,
+    });
+
+    // The harness rides on top of the real app, adding only what the test needs to drive
+    // the outbox directly.
     await page.addScriptTag({ content: bundle });
 
     incidentId = randomUUID();
-  }, 120_000);
+  }, 180_000);
 
   afterAll(async () => {
     await browser?.close();
@@ -136,16 +146,14 @@ describe.skipIf(dbUrl === undefined)('M0 gate: the offline emergency spine', () 
     expect(survived[0]!.state).toBe('pending');
   });
 
-  it('4. it survives the document being torn down entirely', async () => {
-    // Network restored only so the page can be re-fetched. Reloading is *not* what
-    // delivers the report — nothing is sent until sync() is called explicitly in step 5,
-    // and the assertions below prove the server is still empty at this point.
+  it('4. it survives the handset being closed and reopened, still with no network', async () => {
+    // The real scenario, now that M0-12 has landed: the browser is closed during a
+    // shutdown and reopened before signal returns. The service worker serves the shell
+    // from cache, so the app opens and the queued report is reachable.
     //
-    // GAP, tracked as M0-12: reloading while offline needs a service worker to serve the
-    // app shell from cache. Until that exists, a handset that closes the browser during a
-    // shutdown cannot reopen the app at all — the queued report is safe on disk but
-    // unreachable. In this district that is not acceptable, and it is the next task.
-    await context.setOffline(false);
+    // Before the service worker this reload failed outright with
+    // ERR_INTERNET_DISCONNECTED, and this step had to be weakened to restore the network
+    // first. It no longer does.
     await page.reload();
     await inject();
 
@@ -165,6 +173,8 @@ describe.skipIf(dbUrl === undefined)('M0 gate: the offline emergency spine', () 
   });
 
   it('5. it delivers itself when signal returns, with no operator action', async () => {
+    await context.setOffline(false);
+
     const result = await page.evaluate(
       async ([url]) => {
         const store = await DNC.openStore('spine');

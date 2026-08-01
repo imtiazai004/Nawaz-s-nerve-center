@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize, sep } from 'node:path';
 
 import { append, loadSince } from '../db/eventStore.js';
 import type { Pool } from '../db/pool.js';
@@ -25,6 +27,61 @@ export interface ServerOptions {
    */
   readonly authMode?: AuthMode;
   readonly nodeEnv?: string;
+  /** Directory of built web assets. When absent, the server is API-only. */
+  readonly webRoot?: string;
+}
+
+const MIME: Readonly<Record<string, string>> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+};
+
+/**
+ * Serve a built asset.
+ *
+ * `sw.js` is served with `Cache-Control: no-cache` on purpose. If the browser were allowed
+ * to cache the service worker itself, a broken one could become unreplaceable — the very
+ * component responsible for offline behaviour would be the one you could not fix.
+ */
+async function serveStatic(
+  webRoot: string,
+  res: ServerResponse,
+  pathname: string,
+): Promise<boolean> {
+  const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
+
+  // Refuse anything that escapes the web root. `..` in a URL is not a mistake to forgive.
+  const target = normalize(join(webRoot, rel));
+  if (!target.startsWith(normalize(webRoot) + sep) && target !== normalize(webRoot)) {
+    res.writeHead(403).end();
+    return true;
+  }
+
+  let body: Buffer;
+  try {
+    body = await readFile(target);
+  } catch {
+    return false;
+  }
+
+  const ext = extname(target);
+  const isServiceWorker = rel === 'sw.js';
+
+  res.writeHead(200, {
+    'content-type': MIME[ext] ?? 'application/octet-stream',
+    'content-length': body.length,
+    'cache-control': isServiceWorker ? 'no-cache' : 'no-cache',
+    // The service worker must be able to control the whole origin, not just /assets.
+    ...(isServiceWorker ? { 'service-worker-allowed': '/' } : {}),
+  });
+  res.end(body);
+  return true;
 }
 
 /**
@@ -129,7 +186,7 @@ async function handlePull(pool: Pool, res: ServerResponse, url: URL): Promise<vo
 }
 
 export function createSyncServer(options: ServerOptions): Server {
-  const { pool } = options;
+  const { pool, webRoot } = options;
   const authMode = options.authMode ?? 'stub';
   const nodeEnv = options.nodeEnv ?? process.env['NODE_ENV'] ?? 'development';
 
@@ -159,6 +216,16 @@ export function createSyncServer(options: ServerOptions): Server {
         if (req.method === 'GET' && url.pathname === '/sync') {
           await handlePull(pool, res, url);
           return;
+        }
+
+        // Static assets last, so an API route can never be shadowed by a file on disk.
+        if (webRoot !== undefined && req.method === 'GET') {
+          if (await serveStatic(webRoot, res, url.pathname)) return;
+          // Unknown path with no matching file: fall back to the shell so client-side
+          // routes work, both online and from the service worker cache.
+          if (req.headers.accept?.includes('text/html') === true) {
+            if (await serveStatic(webRoot, res, '/')) return;
+          }
         }
 
         json(res, 404, { error: 'not found' });

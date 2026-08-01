@@ -34,8 +34,27 @@ if (-not (Test-Path $Bin)) {
 
 switch ($Command) {
     'start' {
-        & "$Bin\pg_ctl.exe" -D $Data -l $Log -o "-p $Port" -w start
-        & "$Bin\pg_isready.exe" -h 127.0.0.1 -p $Port
+        # Launched detached on purpose.
+        #
+        # Calling pg_ctl directly leaves postgres holding the console's stdout handle, so
+        # the calling shell never returns even though the server is up — which looks
+        # exactly like a hang. Start-Process with redirected output breaks that
+        # inheritance, and we then poll for readiness ourselves.
+        Start-Process -FilePath "$Bin\pg_ctl.exe" `
+            -ArgumentList @('-D', "`"$Data`"", '-l', "`"$Log`"", '-o', "`"-p $Port`"", 'start') `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput "$Root\pg_ctl.out" `
+            -RedirectStandardError "$Root\pg_ctl.err"
+
+        for ($i = 0; $i -lt 30; $i++) {
+            & "$Bin\pg_isready.exe" -h 127.0.0.1 -p $Port -q
+            if ($LASTEXITCODE -eq 0) { Write-Host "postgres ready on port $Port"; exit 0 }
+            Start-Sleep -Milliseconds 400
+        }
+
+        Write-Host "postgres did not become ready in 12s. Last log lines:" -ForegroundColor Red
+        if (Test-Path $Log) { Get-Content $Log -Tail 20 }
+        exit 1
     }
     'stop' {
         & "$Bin\pg_ctl.exe" -D $Data -m fast -w stop
