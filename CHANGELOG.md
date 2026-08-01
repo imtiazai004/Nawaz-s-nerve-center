@@ -192,3 +192,19 @@ substantive changed, say so in the session summary instead.
   in the index, and a standing warning to read ADR-0008 before touching event ordering.
 - **Verified:** `npm run check` green — typecheck, lint, formatting, 49/49 tests. Committed
   as `8b4d6e5`. `app/.env` confirmed unstaged.
+
+## 2026-08-01 — Rule 0 hook false positive fixed
+
+- **Changed:** `.claude/rule0-check.ps1` compared content timestamps against the **earlier**
+  of `CLAUDE.md` and `CHANGELOG.md`, on the reasoning that both must be current. That was
+  wrong, and it produced a false positive the first time it mattered: updating `CLAUDE.md`,
+  then `backlog/todos.md`, then `CHANGELOG.md` is a correct sequence, but the earlier
+  reference timestamp made `todos.md` look unattended. Now compares against the later of
+  the two.
+- **Why it matters:** Rule 0 is not an ordering constraint. It asks whether the reference
+  was brought current before finishing, and a later write to either file is evidence of
+  that. A hook that cries wolf gets ignored, and an ignored hook enforces nothing.
+- **Open:** accepted limitation — updating only `CHANGELOG.md` and forgetting `CLAUDE.md`
+  will not be caught. Judged cheaper than false positives.
+- **Verified:** tested in three states — silent when the reference is current, flags a
+  doc changed without a reference update, silent again once the reference is updated.

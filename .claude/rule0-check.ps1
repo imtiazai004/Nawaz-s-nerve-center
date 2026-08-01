@@ -30,8 +30,19 @@ try {
     $logTime = if (Test-Path -LiteralPath $log) { (Get-Item -LiteralPath $log).LastWriteTime }
                else { [datetime]::MinValue }
 
-    # Both must be current, so compare against whichever is older.
-    $baseline = if ($refTime -lt $logTime) { $refTime } else { $logTime }
+    # Compare against the LATER of the two reference files.
+    #
+    # An earlier version used the earlier one, reasoning that both must be current. That
+    # was wrong, and it produced a false positive the first time it mattered: updating
+    # CLAUDE.md, then backlog/todos.md, then CHANGELOG.md is a perfectly correct sequence,
+    # but the older reference timestamp made todos.md look unattended.
+    #
+    # Rule 0 is not an ordering constraint. It asks whether the reference was brought
+    # current before finishing, and a later write to either file is evidence that it was.
+    #
+    # Known limitation, accepted: updating only CHANGELOG.md and forgetting CLAUDE.md will
+    # not be caught. A hook that cries wolf gets ignored, which costs more than that miss.
+    $baseline = if ($refTime -gt $logTime) { $refTime } else { $logTime }
 
     $changed = @(
         Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
