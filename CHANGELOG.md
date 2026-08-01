@@ -208,3 +208,51 @@ substantive changed, say so in the session summary instead.
   will not be caught. Judged cheaper than false positives.
 - **Verified:** tested in three states — silent when the reference is current, flags a
   doc changed without a reference update, silent again once the reference is updated.
+
+## 2026-08-01 — The M0 gate passes: the offline spine works end to end
+
+- **Added:** `app/src/api/protocol.ts` — the sync wire protocol. Validation is deliberately
+  asymmetric: the **envelope is strict** (without a usable id and timestamp an event cannot
+  be stored or ordered at all) and the **payload is permissive** (a reporter under stress
+  who omits fields has still told us something happened — INV-01). A malformed event is
+  partitioned out with a reason and never takes down the batch around it, because during an
+  outage a device may hold the only record of several emergencies.
+- **Added:** `app/src/api/server.ts` — `POST /sync`, `GET /sync?cursor=`, `GET /health`.
+  Plain `node:http`, no framework (ADR-0007). **Refuses to start when `authMode` is the
+  development stub and `NODE_ENV` is anything else** — "shipped with the auth stub still in
+  place" is a routine compromise, and a comment does not prevent it.
+- **Added:** `app/src/outbox/outbox.ts` — the offline substrate. `enqueue()` returns once
+  **durable**, not once sent, so the UI may say "saved" and never "delivered". Releases
+  only events the server confirms it holds; anything ambiguous stays queued. Server-rejected
+  events become `blocked` and surface to an operator rather than being retried forever —
+  not lost, but not buried either.
+- **Added:** `app/src/outbox/adapters/indexeddb.ts` and `httpTransport.ts` — the store and
+  transport that run on the handset.
+- **Added:** 6 real-browser durability tests. Real Chromium, real IndexedDB, assertions
+  made **after an actual page reload**. A test that never reloads is testing a Map with
+  extra steps, and `fake-indexeddb` would have passed every one of them while proving
+  nothing.
+- **Added:** `app/src/__tests__/spine.e2e.test.ts` — **the M0 gate, and it passes.** 14
+  steps, nothing stubbed at any layer: a critical emergency captured with Playwright cutting
+  the network at the driver, proven committed to storage rather than memory, surviving a
+  full document teardown, delivering itself on reconnect with no operator action, escalating
+  server-side while unacknowledged, overridden by the control room without erasing Rescue's
+  own assessment, resolved and closed — then proof the history cannot be rewritten and that
+  any past moment can be reconstructed as it was seen then.
+- **Fixed:** a test-infrastructure fault worth recording. Two suites launch Chromium, and
+  under vitest's default worker-thread pool a browser teardown took the shared worker down
+  with it. The run reported `Test Files 7 passed (8)` and `Tests 90 passed (100)` — **ten
+  results silently missing behind a run that looked fine.** Now one forked process per file.
+  A crash in one file must never be able to hide results in another.
+- **Changed:** `tsconfig.json` adds the `DOM` lib for the browser-side adapter. Server code
+  must not reach for `document` or `window`; nothing enforces that yet beyond review.
+- **Open:** **M0-12, the service worker, is the one gap keeping M0 from closing.** The
+  outbox survives everything, but the *app* cannot yet be opened with no network — the
+  browser must fetch the document. A handset closed during a shutdown would hold a safe but
+  unreachable report. Documented inline at the exact test step where it bites.
+- **Open:** two other gate items remain honestly unticked — unauthorised direct-API refusal
+  (only sync endpoints exist; real auth is M0-19) and a performed restore drill (M0-38).
+- **Changed:** `backlog/todos.md` — M0-13 to M0-17 `DONE`, new M0-41 and M0-42, and the gate
+  checklist now shows five ticks and three honest blanks.
+- **Verified:** `npm run check` green — typecheck, lint, formatting, **100/100 tests**.
+  Committed as `f12e925`. `app/.env` confirmed unstaged.

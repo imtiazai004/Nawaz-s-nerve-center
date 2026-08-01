@@ -117,9 +117,18 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · *domain core and event store done; offline outbox next*
-- **Phase:** Implementation. `app/` builds, 49 tests pass against real PostgreSQL.
+- **Milestone:** M0 — The Spine · **gate PASSED**
+- **Phase:** Implementation. 100 tests pass. One gap remains before M0 closes: the service
+  worker (M0-12), without which the app cannot be *opened* offline.
 - **Last updated:** 2026-08-01
+
+**The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
+this project, end to end, with nothing stubbed: a critical emergency reported on a handset
+with the network genuinely cut survives a full document teardown, delivers itself on
+reconnect with no operator action, escalates server-side while unacknowledged, is overridden
+by the control room without erasing the department's own value, and reaches a closed
+incident whose history cannot be rewritten. Real Chromium, real IndexedDB, Playwright
+cutting the network at the driver, real HTTP, real PostgreSQL.
 
 **Getting a working environment**
 ```
@@ -147,14 +156,30 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
   - `db/migrations/0002_event_ordering.sql` — causal ordering (`ADR-0008`)
   - `src/db/eventStore.ts` — idempotent append, incident load, sync cursor, late arrivals.
     **There is no update method and no delete method. That is the interface, not an omission.**
-- **49 tests passing**, including permanent tests for INV-04, INV-06, INV-07, INV-08 and
-  17 integration tests against a real database.
+- **`app/src/api` — the sync server.** `node:http`, no framework.
+  - `protocol.ts` — **strict envelope, permissive payload.** An incomplete report is
+    accepted and enriched later; only structurally unusable events are refused, with a
+    reason, and one bad event never takes down the batch around it (INV-01).
+  - `server.ts` — `POST /sync` (push a held batch), `GET /sync?cursor=` (pull what you
+    missed), `GET /health`. **Refuses to start with the auth stub outside development.**
+- **`app/src/outbox` — the offline substrate.**
+  - `outbox.ts` — durable-first writes. Releases **only** what the server confirms it
+    holds; keeps anything ambiguous; marks server-rejected events `blocked` for an operator
+    instead of retrying them forever.
+  - `adapters/indexeddb.ts` — the store that runs on the handset.
+  - `adapters/httpTransport.ts` — the real network transport.
+- **100 tests passing**, including permanent tests for INV-04, INV-06, INV-07, INV-08,
+  17 database integration tests, 6 real-browser durability tests, and the 14-step M0 gate.
 - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
 **What does not exist yet**
-- The offline outbox and client sync (M0-12 to M0-17) — the next piece.
-- Any API, client, or user interface.
-- The lifecycle endpoints (intake, triage, routing, acknowledgement).
+- **The service worker (M0-12).** The one real gap in M0. Without it the app cannot be
+  *opened* offline — a queued report is safe on disk but unreachable if the browser was
+  closed during a shutdown. Not acceptable in this district; it is the next task.
+- Any user interface. The rapid-intake screen and its 15-second budget are untested.
+- The lifecycle endpoints (intake, triage, routing, acknowledgement) as HTTP — the domain
+  logic exists and is proven, but only the sync endpoints are exposed.
+- Real authentication (M0-19). The stub is guarded by a startup check, not implemented.
 - Verified domain research (department structures, contacts, seat hierarchies) —
   see `docs/06-open-questions.md`. Everything domain-specific in these documents is
   currently **assumption, not verified fact**.
@@ -184,12 +209,13 @@ TypeScript comparator are tested against each other directly.
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **M0-12 to M0-17 — the offline outbox.** The event store is ready to receive a synced
-   batch; nothing produces one yet. This is the riskiest remaining piece and the reason
-   the project exists.
-2. M0-24 to M0-32 — the lifecycle: intake that never rejects, triage, routing to a duty
-   seat, acknowledgement, and the server-side SLA job that actually fires.
-3. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
+1. **M0-12 — the service worker.** Cache the app shell so the app opens with no network.
+   Everything else in M0 is done; this is what closes it.
+2. M0-29 — the SLA job actually running on a schedule. The decision logic is written and
+   tested; nothing invokes it yet.
+3. M0-36 — the rapid-intake screen, and the **15-second budget measured with a stopwatch**
+   on a mid-range Android handset. It is a requirement, not an aspiration.
+4. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
    build. Nothing before M4 touches real citizen data.
 
 ## 6. Repository map
@@ -229,7 +255,11 @@ Build with Claude/
 │       │   ├── authority.ts   ← the policy table as data (ADR-0003)
 │       │   └── sla.ts         ← deadlines and the occurred/recorded split (ADR-0002)
 │       ├── db/                ← pool, migration runner, event store
-│       └── testing/           ← test setup (loads .env)
+│       ├── api/               ← sync protocol and the node:http server
+│       ├── outbox/            ← the offline substrate (ADR-0002)
+│       │   └── adapters/      ← IndexedDB store, HTTP transport, browser harness
+│       ├── __tests__/         ← spine.e2e.test.ts — THE M0 GATE
+│       └── testing/           ← test setup, browser global types
 ├── scripts/
 │   └── dev-db.ps1             ← start/stop the local Postgres
 ├── backlog/

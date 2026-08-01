@@ -60,12 +60,14 @@ the spine.
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M0-12 | PWA shell + service worker | `TODO` | M0-01 | Installs on Android; loads with no network |
-| M0-13 | IndexedDB durable outbox | `TODO` | M0-12 | Survives process kill and device restart |
-| M0-14 | Write path: local persist → then sync, never the reverse | `TODO` | M0-13, M0-07 | No write path bypasses the outbox |
-| M0-15 | Pending state in UI — never a checkmark until server-confirmed | `TODO` | M0-13 | Visually distinct; outbox count visible |
-| M0-16 | Sync on reconnect, ordered, idempotent | `TODO` | M0-14 | 50 queued events replay once, in order |
-| M0-17 | `occurred_at` / `recorded_at` semantics + gap flagging | `TODO` | M0-06 | Late arrival tagged; measurement uses occurred_at |
+| M0-12 | **PWA shell + service worker** | `TODO` | M0-01 | **The one gap left in M0.** Without it the app cannot be *opened* offline: a queued report is safe on disk but unreachable if the browser closed during a shutdown |
+| M0-13 | IndexedDB durable outbox | `DONE` | — | Proven across real page reloads in real Chromium. `clientSeq` and cursor both survive |
+| M0-14 | Write path: local persist → then sync, never the reverse | `DONE` | M0-13, M0-07 | `enqueue()` returns once durable, before any network attempt |
+| M0-15 | Pending state — never a checkmark until server-confirmed | `DONE` | M0-13 | Entry states `pending`/`inflight`/`blocked`; release only on server confirmation. **UI still owed with M0-36** |
+| M0-16 | Sync on reconnect, ordered, idempotent | `DONE` | M0-14 | Batched in operator order; ambiguous retries drain; nothing lost across 20 failed attempts |
+| M0-17 | `occurred_at` / `recorded_at` semantics + gap flagging | `DONE` | M0-06 | Server assigns `recorded_at`; a client cannot forge it. Late arrivals queryable |
+| M0-41 | Sync protocol and endpoints | `DONE` | M0-07 | New. Strict envelope, permissive payload; one bad event never fails the batch |
+| M0-42 | **The M0 gate — offline spine end to end** | `DONE` | all above | New. 14 steps, nothing stubbed. See `app/src/__tests__/spine.e2e.test.ts` |
 
 ### Identity, seats, authority — `ADR-0003`, `ADR-0004`
 
@@ -113,42 +115,50 @@ the spine.
 
 ## Gate check — M0
 
-All must pass before M1 starts:
+- [x] Report submitted in airplane mode reaches the server after reconnect, exactly once
+- [x] Projections dropped and rebuilt from the log produce identical results
+- [x] Incident state reconstructable at any past timestamp
+- [x] Escalation fires with every client closed
+- [x] Central override preserves and displays the department's original value
+- [x] `CLAUDE.md` §5 and `CHANGELOG.md` reflect the true state
+- [ ] **The app opens with no network** — blocked on M0-12, the service worker
+- [ ] Every mutation refuses unauthorised direct API calls — only the sync endpoints exist
+      so far, and real auth is M0-19
+- [ ] Restore from backup performed successfully, end to end — M0-38, needs someone who is
+      not the original developer
 
-- [ ] Report submitted in airplane mode reaches the server after reconnect, exactly once
-- [ ] Projections dropped and rebuilt from the log produce identical results
-- [ ] Incident state reconstructable at any past timestamp
-- [ ] Escalation fires with every client closed
-- [ ] Central override preserves and displays the department's original value
-- [ ] Every mutation refuses unauthorised direct API calls
-- [ ] Restore from backup performed successfully, end to end
-- [ ] `CLAUDE.md` §5 and `CHANGELOG.md` reflect the true state
+The first five are the architectural claims, and they hold. The last three are real and
+open; M0 does not close until they do.
 
 ---
 
 ## Where M0 stands
 
-**Done: the domain core and the event store.** The fold, the authority model, the SLA
-timing logic, and a real PostgreSQL event store with append-only enforced by database
-triggers. 49 tests pass, 17 of them against the real database. `npm run check` is green and
-stable across repeated runs.
+**The gate has passed.** `app/src/__tests__/spine.e2e.test.ts` walks one critical emergency
+through 14 steps with nothing stubbed: captured on a handset with the network genuinely
+cut, committed to storage rather than memory, surviving a full document teardown,
+delivering itself on reconnect with no operator action, escalating server-side while
+unacknowledged, overridden by the control room without erasing the department's own
+assessment, resolved, closed — and then proof that the history cannot be rewritten and any
+past moment can be reconstructed as it was seen then.
 
-**Nothing is blocked any more.** Q-03 and Q-05 are answered — the district administration
-(DC office / AC HQ office) owns and maintains it, which confirms the stack rather than
-changing it. Q-04 still blocks the **pilot**, but nothing before M4 touches real citizen
-data, so it does not block the build.
+Real Chromium, real IndexedDB, Playwright cutting the network at the driver level, real
+HTTP, real PostgreSQL. 100 tests pass.
 
-**Next, and it is the piece that matters most: the offline outbox (M0-12 to M0-17).** The
-event store can receive a synced batch; nothing produces one yet. Until a report survives
-airplane mode all the way to the server, the central claim of this project is unproven.
+**One gap keeps M0 from closing: M0-12, the service worker.** Everything the outbox stores
+survives, but the *app* cannot currently be opened with no network, because the browser has
+to fetch the document. A handset that closes during a shutdown would hold a safe but
+unreachable report. In this district that is not acceptable, and it is the next task.
 
-**One design flaw already found and fixed** — see `ADR-0008`. It was invisible to the pure
-domain tests and only appeared against a real database. This is precisely why the plan
-says build the spine early rather than writing more documents.
+**Two things were found by building rather than planning.** `ADR-0008` — an event ordering
+bug that was deterministic and causally wrong, invisible to the pure domain tests, visible
+immediately against a real database. And a test-infrastructure fault where two Chromium
+suites shared a worker: a teardown crash hid ten test results behind a passing-looking run.
+Both are the argument for building the spine early rather than writing more documents.
 
-**Deliberately not faked.** No in-memory stub stands in for Postgres, anywhere. A stub
-cannot demonstrate durability or genuine immutability, and INV-01 is exactly the claim that
-nothing is ever lost.
+**Deliberately not faked, anywhere.** No in-memory Postgres, no `fake-indexeddb`, no mocked
+network. Each would satisfy its interface and prove nothing about the one property that
+matters — that an emergency is never lost.
 
 ## M1 and beyond
 
