@@ -64,7 +64,8 @@ the spine.
 | M0-43 | Connectivity derived from sync outcomes, not `navigator.onLine` | `DONE` | M0-12 | New. Chromium reports `onLine: true` with the network cut — the app was claiming "delivered immediately" during a total outage |
 | M0-13 | IndexedDB durable outbox | `DONE` | — | Proven across real page reloads in real Chromium. `clientSeq` and cursor both survive |
 | M0-14 | Write path: local persist → then sync, never the reverse | `DONE` | M0-13, M0-07 | `enqueue()` returns once durable, before any network attempt |
-| M0-15 | Pending state — never a checkmark until server-confirmed | `DONE` | M0-13 | Entry states `pending`/`inflight`/`blocked`; release only on server confirmation. **UI still owed with M0-36** |
+| M0-15 | Pending state — never a checkmark until server-confirmed | `DONE` | M0-13 | Entry states `pending`/`inflight`/`blocked`; release only on server confirmation. Rendered as "saved on this device", never "sent" |
+| M0-47 | Login screen; signed-out is distinct from offline | `DONE` | M0-19 | New. 15 tests. An emergency can still be captured while signed out — INV-01 outranks tidiness |
 | M0-16 | Sync on reconnect, ordered, idempotent | `DONE` | M0-14 | Batched in operator order; ambiguous retries drain; nothing lost across 20 failed attempts |
 | M0-17 | `occurred_at` / `recorded_at` semantics + gap flagging | `DONE` | M0-06 | Server assigns `recorded_at`; a client cannot forge it. Late arrivals queryable |
 | M0-41 | Sync protocol and endpoints | `DONE` | M0-07 | New. Strict envelope, permissive payload; one bad event never fails the batch |
@@ -174,6 +175,11 @@ in a design document:
    than the cap, *which* ones got scanned was down to whatever order Postgres returned. An
    incident could lose that lottery on every pass, forever, with nothing reporting a
    problem. Now oldest-first, and hitting the cap is surfaced.
+7. The service worker would have **cached `/auth/me`** — on a shared handset, showing the
+   previous holder as signed in after a shift change and attributing their reports to
+   someone who had gone home.
+8. `navigator.onLine` caused the **same bug a second time**, in the offline-login notice.
+   Noted in `CLAUDE.md` as a standing instruction not to read it.
 
 **Deliberately not faked, anywhere.** No in-memory Postgres, no `fake-indexeddb`, no mocked
 network. Each would satisfy its interface and prove nothing about the one property that

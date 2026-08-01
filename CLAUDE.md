@@ -118,8 +118,8 @@ that blocks release on failure.
 > **Update this section every session.**
 
 - **Milestone:** M0 — The Spine · **gate PASSED; offline launch, auth and escalation all live**
-- **Phase:** Implementation. 155 tests pass. Remaining before M0 closes: the intake UI
-  (M0-36), a login screen, and a restore drill (M0-38).
+- **Phase:** Implementation. 170 tests pass. Remaining before M0 closes: the real intake UI
+  (M0-36) and a restore drill (M0-38).
 - **Last updated:** 2026-08-01
 
 **The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
@@ -172,8 +172,15 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
   - `src/sw.ts` — caches the shell so the app **opens with no network**. `/sync` and
     `/health` are network-only and must stay that way: a cached "accepted" would tell a
     client its emergency was stored when it was not, and the outbox would then delete it.
-  - `src/main.ts` — app shell scaffold. **Connectivity is derived from actual sync
-    outcomes, never from `navigator.onLine`** (see below). Real intake UI is still M0-36.
+  - `src/main.ts` — app shell scaffold with sign-in. **Connectivity is derived from actual
+    sync outcomes, never from `navigator.onLine`** (see below), and there are **three**
+    states, not two: connected, no connection, and **signed out**. Real intake UI is M0-36.
+  - **An emergency can be recorded whether or not anyone is signed in.** Deliberate, and
+    the one place the app is more permissive than the server. A duty officer whose session
+    expired overnight on a handset with no signal *cannot* sign in, and refusing them would
+    lose the emergency (INV-01). The server still requires a session to accept anything, so
+    the report waits in the outbox; the trade is attribution to whoever delivered it rather
+    than whoever typed it. Do not "tighten" this without reading the note in `main.ts`.
   - Built by `node build.mjs` into `web/dist` (gitignored); served by the sync server.
 - **`app/src/auth` — authentication and seat-scoped sessions (M0-19).**
   - `passwords.ts` — scrypt from `node:crypto`, no dependency. Rejects stunted salts and
@@ -195,9 +202,9 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **155 tests passing**, including permanent tests for INV-04 to INV-08, 17 database
+- **170 tests passing**, including permanent tests for INV-04 to INV-08, 17 database
   integration tests, 25 auth tests, 18 escalation tests, 6 real-browser durability tests,
-  11 offline-launch tests, and the 14-step M0 gate.
+  11 offline-launch tests, 15 login tests, and the 14-step M0 gate.
 - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
 **What does not exist yet**
@@ -236,6 +243,13 @@ learned from tests rather than reasoning:
 - A cached `/sync` response is not a stale page. It tells a client its emergency was
   accepted when it was not, and the outbox — which releases only what the server confirms —
   deletes it. INV-01 violated silently, by a caching layer, with no error anywhere.
+- **`/auth` is never cached either.** `/auth/me` is a GET, so it would otherwise be cached
+  like anything else — and on a shared handset that shows the previous holder as signed in
+  after a shift change, attributing their reports to someone who has gone home. Not a
+  staleness bug; a false record.
+- **`navigator.onLine` has now caused the same bug twice** — once in the status line, once
+  in the offline-login notice. If you are about to read it, don't. Use measured
+  reachability; believe `onLine` only when it says `false`.
 
 **Never invent a connectivity answer, and never trust a claimed identity.** Two more from
 M0-19, both found by tests:
@@ -264,16 +278,18 @@ M0-19, both found by tests:
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **A login screen.** The app has no way to sign in — the browser tests call
-   `/auth/login` directly, which is honest for a test and unusable by an operator.
-2. M0-36 — the rapid-intake screen, and the **15-second budget measured with a stopwatch**
-   on a mid-range Android handset. It is a requirement, not an aspiration.
-3. M0-38 — a restore drill performed by someone who is not the original developer. Needs
+1. **M0-36 — the rapid-intake screen**, and the **15-second budget measured with a
+   stopwatch** on a mid-range Android handset. It is a requirement, not an aspiration:
+   if this is slower than the phone call it replaces, the district keeps using the phone.
+2. M0-38 — a restore drill performed by someone who is not the original developer. Needs
    another person, not more code.
-4. Q-06 — real SLA targets, agreed with each department. `PLACEHOLDER_SLA` is a guess, and
+3. Q-06 — real SLA targets, agreed with each department. `PLACEHOLDER_SLA` is a guess, and
    the escalation loop is now running on it.
-5. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
+4. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
    build. Nothing before M4 touches real citizen data.
+
+With M0-36 done, M0 closes apart from the restore drill, and M1 (Rescue 1122 in full)
+begins — which is where the dashboard and department workspaces start.
 
 ## 6. Repository map
 

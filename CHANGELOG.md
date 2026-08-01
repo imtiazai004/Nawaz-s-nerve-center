@@ -407,3 +407,46 @@ substantive changed, say so in the session summary instead.
   deadlines; real targets need agreeing with each department.
 - **Verified:** `npm run check` green **four consecutive times** — typecheck, lint,
   formatting, **155/155 tests** across 11 files. Committed as `2f8d26f`.
+
+## 2026-08-01 — A login screen, and the states around it told honestly
+
+- **Added:** sign-in and sign-out in the app shell. The app previously had no way to
+  authenticate at all — the browser tests called `/auth/login` directly, which is fine for
+  a test and unusable by an operator.
+- **Changed:** there are now **three** connectivity states, not two — connected, no
+  connection, and **signed out**. A 401 is the server saying no, which is a different fact
+  from being unreachable and needs a different action from the operator. Telling someone
+  the network is down when their session expired sends them hunting for signal on a working
+  connection while the report sits undelivered.
+- **Added:** `AuthRequiredError` in `outbox.ts` and `authRequired` on `SyncResult`. Queued
+  events are kept on a 401 exactly as when offline — being signed out must never cost an
+  emergency.
+- **Decided:** **an emergency can be recorded whether or not anyone is signed in.** This is
+  the one place the app is deliberately more permissive than the server. A duty officer
+  whose session expired overnight, on a handset with no signal, *cannot* sign in, and
+  refusing them would lose the emergency outright (INV-01). Nothing is weakened: the server
+  still requires a session to accept anything, so the report waits in the outbox. The trade
+  is that it is then attributed to whoever delivered it rather than whoever typed it —
+  the honest available answer, since that person is identifiable and accountable and the
+  alternative was no record at all. Reasoning is written at the handler in `main.ts`.
+- **Fixed:** the service worker would have **cached `/auth/me`**, which is a GET like any
+  other. On a shared handset that means showing the previous holder as signed in after a
+  shift change, and attributing their reports to someone who has gone home — not a
+  staleness bug, a false record. `/auth` is now network-only alongside `/sync` and
+  `/health`.
+- **Fixed:** the offline-login notice trusted `navigator.onLine` — **the same flaw already
+  fixed for the status line, in a new place.** Chromium reports `true` with the network
+  cut, so the notice never appeared and the sign-in form stayed enabled with nothing behind
+  it. Now keyed on measured reachability. `CLAUDE.md` gains a standing instruction not to
+  read `navigator.onLine` at all.
+- **Changed:** a person holding no seat now sees "no current duty assignment" beside their
+  name. Signed in with no authority to act (ADR-0004) is the difference between an operator
+  understanding why a report will not send and assuming the system is broken.
+- **Added:** 15 login tests covering wrong credentials without leaking which part was
+  wrong, sign-in, persistence across reload, a session revoked mid-use, capture while
+  signed out, delivery on the next sign-in, attribution, server-side session death after
+  logout, offline sign-in, and the absence of any `/auth` response in the cache.
+- **Fixed:** two of those tests waited on an empty outbox to infer delivery, which races
+  the submit that empties it. They poll the database instead.
+- **Verified:** `npm run check` green **three consecutive times** — typecheck, lint,
+  formatting, **170/170 tests** across 12 files. Committed as `3848261`.
