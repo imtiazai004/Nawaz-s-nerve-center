@@ -21,6 +21,7 @@
     "@types/node": "^22.10.2",
     "@types/pg": "^8.20.3",
     "eslint": "^9.17.0",
+    "playwright": "^1.62.1",
     "prettier": "^3.4.2",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.1",

@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023"],
+    // DOM is here for the browser-side outbox adapter (IndexedDB) only. Server code must
+    // not reach for `document` or `window`; nothing enforces that yet beyond review.
+    "lib": ["ES2023", "DOM"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "types": ["node"],
