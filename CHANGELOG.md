@@ -1280,3 +1280,31 @@ built rather than facts we were missing.
   not only the two administrative offices. Routing signals and SLA deadlines stay with the
   administration — a department that can edit its own routing could quietly stop receiving
   night-time calls, and nobody would see it happen.
+
+## 2026-08-02 — The roster: a department maintains its own people
+
+- **Requirement (owner, 2026-08-02):** every department must be able to edit its own data —
+  add somebody, remove somebody, see the list — **not** the routing signals the two offices
+  assign. Confirmed explicitly when I put the reading back to them.
+- **Added:** migration `0009_roster.sql`, `db/rosterStore.ts`, `api/roster.ts`,
+  `web/src/roster.ts`. Posts, people, assignments and handovers. One component, two doors:
+  a department officer opens "My department"; the two offices reach any department from a
+  new **Rosters** tab in the console.
+- **Changed:** `person` gains `removed_at` and `created_by_seat_id`; `seat` gains
+  `retired_at`. Nothing is deleted — past events name the seat that acted and the person who
+  held it, and both must keep resolving (ADR-0001).
+- **Held back deliberately:** routing signals, SLA deadlines, creating and retiring
+  departments, and placing a post above station tier all stay with the two offices. The tier
+  restriction is the non-obvious one — `evaluateRead` widens at tehsil, so a department able
+  to place its own tehsil post could grant itself sight of every incident in the district.
+- **INV-03 hole found and closed, by the roster tests.** `runNotifyPass` handled "this
+  department has no post to notify" by incrementing a counter in its return value and writing
+  **nothing to the incident**. The board therefore showed such an emergency as notified. A
+  counter in a return value is precisely the log line the invariant forbids. The attempt is
+  now recorded against the department, fails with `no_post`, and counts as an unmet
+  obligation like any other. The console makes this easy to reach: creating a department
+  gives it zero posts, and a routing signal is the very next click.
+- **A phone number must never reach `config_event`.** Retiring a post logged the whole post,
+  holder and number included, into a table that is rendered on a screen and copied into every
+  backup leaving the district. Now summarised. Pinned by a test.
+- **Tests:** 410 → 450, across 28 files.

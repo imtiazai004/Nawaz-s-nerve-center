@@ -125,11 +125,27 @@ interface Payloads {
    * facts: an attempt, and then either a delivery or a failure. Collapsing them into a
    * boolean on the incident is the failure the invariant names.
    */
-  notified: { attemptId: Uuid; seatId: Uuid; channel: SourceChannel; reason: NotifyReason };
-  notification_delivered: { attemptId: Uuid; seatId: Uuid; channel: SourceChannel };
+  notified: {
+    attemptId: Uuid;
+    /**
+     * The seat that was to be told, or **null when the department has no post at all**.
+     *
+     * A null seat is not a missing field, it is the failure itself: an obligation to a
+     * department that has nobody in it. It used to be recorded as a counter in the job's
+     * return value and nowhere on the incident, which is exactly the "log line" INV-03
+     * forbids — the board showed nothing, so the emergency looked notified. Now the attempt
+     * exists, fails, and is counted like any other unmet obligation.
+     */
+    seatId: Uuid | null;
+    /** Set when the obligation was to a department rather than to a named seat. */
+    departmentId?: Uuid;
+    channel: SourceChannel;
+    reason: NotifyReason;
+  };
+  notification_delivered: { attemptId: Uuid; seatId: Uuid | null; channel: SourceChannel };
   notification_failed: {
     attemptId: Uuid;
-    seatId: Uuid;
+    seatId: Uuid | null;
     channel: SourceChannel;
     failure: string;
   };

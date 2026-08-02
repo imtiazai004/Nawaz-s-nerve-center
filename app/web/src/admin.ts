@@ -24,6 +24,8 @@
  * the tab is a courtesy to the operator rather than a control (INV-05).
  */
 
+import { mountRoster, type RosterPanel } from './roster.js';
+
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
 export type Severity = 'critical' | 'high' | 'moderate' | 'low' | 'unknown';
@@ -99,7 +101,7 @@ interface ConfigChange {
   before: unknown;
 }
 
-type Tab = 'departments' | 'deadlines' | 'performance' | 'history';
+type Tab = 'departments' | 'deadlines' | 'roster' | 'performance' | 'history';
 
 /** A number, or a dash. Never a zero standing in for "we do not know". */
 function num(v: number | null, suffix = ''): string {
@@ -540,6 +542,50 @@ export function mountAdmin(): AdminConsole {
   }
 
   //--------------------------------------------------------------------------
+  // Rosters — the same component a department sees, with a department picker
+  //--------------------------------------------------------------------------
+
+  /**
+   * The administration's door onto `web/src/roster.ts`.
+   *
+   * Departments that cannot be reached lead the list, because a post with nobody in it is
+   * the thing that silently swallows an alert. Everything below is the same markup a
+   * department officer sees on their own screen — one component, two doors, so the two views
+   * cannot drift into disagreeing about what a roster is.
+   */
+  async function renderRosters(mine: number): Promise<void> {
+    const departments = await api<DepartmentView[]>('GET', '/admin/departments');
+    if (departments === null) return;
+
+    const wrap = document.createElement('div');
+    wrap.id = 'adminRosters';
+
+    const picker = document.createElement('select');
+    picker.id = 'rosterPicker';
+    picker.setAttribute('aria-label', 'Department');
+    for (const d of departments.filter((d) => d.retiredAt === null)) {
+      const label = d.vacantSeats > 0 ? `${d.name} — ${String(d.vacantSeats)} vacant` : d.name;
+      picker.append(new Option(label, d.departmentId));
+    }
+    wrap.append(picker);
+
+    const panelHost = document.createElement('div');
+    panelHost.id = 'rosterPanel';
+    wrap.append(panelHost);
+
+    paint(mine, wrap);
+    if (mine !== generation) return;
+
+    const panel: RosterPanel = mountRoster({
+      container: panelHost,
+      fail,
+      clearError,
+    });
+    picker.addEventListener('change', () => void panel.show(picker.value));
+    if (picker.value !== '') await panel.show(picker.value);
+  }
+
+  //--------------------------------------------------------------------------
   // Performance
   //--------------------------------------------------------------------------
 
@@ -671,6 +717,7 @@ export function mountAdmin(): AdminConsole {
     body.replaceChildren(text('p', 'meta', 'Loading…'));
 
     if (tab === 'departments') await renderDepartments(mine);
+    else if (tab === 'roster') await renderRosters(mine);
     else if (tab === 'deadlines') await renderDeadlines(mine);
     else if (tab === 'performance') await renderPerformance(mine);
     else await renderHistory(mine);

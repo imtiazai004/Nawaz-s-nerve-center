@@ -53,7 +53,10 @@ export interface ResponseAction {
  */
 export interface NotificationAttempt {
   readonly attemptId: Uuid;
-  readonly seatId: Uuid;
+  /** Null when the obligation was to a department with no post to notify. See INV-03. */
+  readonly seatId: Uuid | null;
+  /** Present when the obligation was to a department rather than a named seat. */
+  readonly departmentId?: Uuid;
   readonly channel: string;
   readonly reason: string;
   readonly attemptedAt: Instant;

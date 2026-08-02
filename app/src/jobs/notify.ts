@@ -180,16 +180,25 @@ export async function runNotifyPass(
         target.seatId ??
         (target.departmentId === null ? null : await dutySeatFor(pool, target.departmentId));
 
-      if (seatId === null) {
-        // A department with no seat at all cannot be notified, and that is a configuration
-        // problem somebody has to fix rather than something to skip quietly. There is no
-        // attempt to record against a seat that does not exist, so it surfaces through the
-        // pass outcome instead.
-        failed += 1;
+      // A department with no post at all is a configuration gap, and it is recorded **on
+      // the incident** rather than only counted here.
+      //
+      // This used to `continue` after incrementing a counter, which meant the board showed
+      // nothing: an emergency routed to a department with no posts looked notified. INV-03
+      // says an unmet obligation surfaces on the board and not as a log line, and a number
+      // in a job's return value is a log line. The console makes this easy to hit — creating
+      // a department gives it zero posts, and a routing signal is the very next click.
+      if (seatId === null && target.departmentId === null) continue;
+
+      if (
+        alreadyAttempted(
+          state.notifications,
+          { seatId, departmentId: target.departmentId },
+          target.reason,
+        )
+      ) {
         continue;
       }
-
-      if (alreadyAttempted(state.notifications, seatId, target.reason)) continue;
 
       const attemptId = randomUUID();
       const base = {
@@ -208,17 +217,30 @@ export async function runNotifyPass(
           eventId: randomUUID(),
           type: 'notified',
           clientSeq: state.eventCount + 1,
-          payload: { attemptId, seatId, channel: channel.name, reason: target.reason },
+          payload: {
+            attemptId,
+            seatId,
+            ...(target.departmentId === null ? {} : { departmentId: target.departmentId }),
+            channel: channel.name,
+            reason: target.reason,
+          },
         } as unknown as IncidentEvent,
       ]);
       attempted += 1;
 
-      const result = await channel
-        .deliver({ seatId, incidentId, reason: target.reason })
-        .catch((err: unknown) => ({
-          ok: false as const,
-          failure: `channel threw: ${String(err)}`,
-        }));
+      const result =
+        seatId === null
+          ? {
+              ok: false as const,
+              failure:
+                'no_post: this department has no post to notify — nobody can be told until one exists',
+            }
+          : await channel
+              .deliver({ seatId, incidentId, reason: target.reason })
+              .catch((err: unknown) => ({
+                ok: false as const,
+                failure: `channel threw: ${String(err)}`,
+              }));
 
       if (!result.ok) {
         failed += 1;

@@ -32,7 +32,8 @@ export interface ConfigActor {
   readonly personId: Uuid | null;
 }
 
-export type ConfigSubject = 'department' | 'routing_signal' | 'sla_target';
+export type ConfigSubject =
+  'department' | 'routing_signal' | 'sla_target' | 'seat' | 'person' | 'duty';
 export type ConfigAction = 'created' | 'updated' | 'retired' | 'restored';
 
 export interface ConfigChange {
@@ -87,7 +88,7 @@ const DEPARTMENT_COLUMNS = `department_id, code, name, description, contact_phon
  * the thing this table exists to prevent, and a separate connection would make that a
  * possible outcome of a badly timed crash.
  */
-async function recordChange(
+export async function recordChange(
   tx: PoolClient,
   entry: {
     subject: ConfigSubject;
@@ -116,7 +117,7 @@ async function recordChange(
   );
 }
 
-async function inTransaction<T>(pool: Pool, fn: (tx: PoolClient) => Promise<T>): Promise<T> {
+export async function inTransaction<T>(pool: Pool, fn: (tx: PoolClient) => Promise<T>): Promise<T> {
   const tx = await pool.connect();
   try {
     await tx.query('BEGIN');

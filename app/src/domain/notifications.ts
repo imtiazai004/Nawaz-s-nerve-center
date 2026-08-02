@@ -80,12 +80,27 @@ export function obligationsFor(state: IncidentState): readonly NotifyTarget[] {
 }
 
 /** An obligation is met once an attempt for that seat and reason exists in any state. */
+/**
+ * What makes two attempts the same obligation.
+ *
+ * A seat when there is one; the department when there is not. Without the second half, every
+ * pass would record a fresh failure against a department that has no post — the notification
+ * storm INV-08 exists to prevent, aimed at the one department least able to answer it.
+ */
+export function targetKey(target: {
+  readonly seatId: Uuid | null;
+  readonly departmentId?: Uuid | null;
+}): string {
+  return target.seatId ?? `department:${String(target.departmentId ?? 'unknown')}`;
+}
+
 export function alreadyAttempted(
   attempts: readonly NotificationAttempt[],
-  seatId: Uuid,
+  target: { readonly seatId: Uuid | null; readonly departmentId?: Uuid | null },
   reason: NotifyReason,
 ): boolean {
-  return attempts.some((a) => a.seatId === seatId && a.reason === reason);
+  const key = targetKey(target);
+  return attempts.some((a) => targetKey(a) === key && a.reason === reason);
 }
 
 export interface UnmetObligation {

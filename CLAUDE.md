@@ -123,7 +123,7 @@ that blocks release on failure.
 
 - **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven, CI
   running**
-- **Phase:** Implementation. 410 tests pass on every push. **M1a is done; M1 is the work now. Every M0
+- **Phase:** Implementation. 450 tests pass on every push. **M1a is done; M1 is the work now. Every M0
   task that is code is done.** What remains open: the restore **drill** (M0-38, needs a
   second person), backup **scheduling** (M0-53, unblocked now that P-08 is answered),
   replication to the standby (M0-54), secrets (M0-05), and M0-11 payload versioning, which
@@ -157,6 +157,16 @@ that blocks release on failure.
 - **Configuration has its own append-only log** (`config_event`). The same argument as
   ADR-0001, applied to settings: a settings table holding only the current value cannot
   answer *why was this not flagged late?* six weeks later.
+- **The roster is editable by the department that owns it (M1a-10, 2026-08-02).** Owner's
+  requirement: a department maintains **its own people and posts** from its own screen —
+  add, remove, change a number, hand a post over. The two offices reach every department's
+  roster from the console. **Routing signals and SLA deadlines are deliberately not
+  included**, and the owner confirmed that reading: a department able to edit its own routing
+  could quietly remove the signal that sends it night-time fire calls, and nothing on any
+  screen would show it. One component, two doors — `web/src/roster.ts`.
+- **Adding a contact and granting a login stay separate acts.** The district's list is ~80
+  officials the system must be able to *notify*; that is not ~80 people who should have
+  credentials.
 - **Almost every question that was "waiting on the district" is now build work.** SLA targets
   (Q-06), department structure (Q-18), Rescue's missing number, which departments respond —
   all of them are things the administration sets in the software rather than facts to be
@@ -289,7 +299,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **410 tests passing** across 26 files, including **17 backup/restore tests that run a real
+- **450 tests passing** across 28 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -589,7 +599,7 @@ placeholder behind it, and carry on.
 | # | What is needed | Who from | What was put in meanwhile | Consequence until it arrives |
 |---|---|---|---|---|
 | **R-01** | **Rescue 1122's contact number.** The district's list names Bakht Ullah Wazir as District Emergency Officer with no number | DC / AC HQ | `1111111`, **flagged as a placeholder** (migration 0008) | Alerts to that post are recorded as **failed, loudly** — a stand-in is never dialled and never counted as reached. The post is filled so the roster is complete and editable |
-| **R-02** | **The rest of the contact list.** 38 of 81 posts are vacant; the owner has said more rows will follow | DC / AC HQ | Vacant posts loaded as vacant, and flagged on the department's card in the console | A department with routing signals and no reachable holder is shown as exactly that |
+| **R-02** | **The rest of the contact list.** 38 of 81 posts are vacant; the owner has said more rows will follow | DC / AC HQ | Vacant posts loaded as vacant, flagged on the department's card, **and now editable from the roster screen by the department itself** (M1a-10) | A department with routing signals and no reachable holder is shown as exactly that. Nobody has to wait for a developer to fix a number |
 | **R-03** | **Real acknowledgement deadlines** per department (Q-06) | DC / AC HQ | The install defaults — 5 / 15 / 60 / 240 / 15 minutes — seeded into `sla_target` | The board measures against the defaults. **Inherited values now render differently from chosen ones**, so nobody mistakes one for a decision |
 | **R-04** | **Routing signals** — which department answers for which kind of emergency (ADR-0010) | DC / AC HQ | None. Deliberately none | Every emergency lands as **unassigned** on both administrative dashboards until a signal exists. Loud by design, not a defect |
 | **R-05** | **WhatsApp / SMS / voice accounts** (P-11, ADR-0012) — Meta business account with **pre-approved templates**, an SMS gateway, a telephony provider, and a **GSM modem + SIM** for the DC server | District procurement | The in-app inbox, which needs no provider | Notifications reach the app and nothing else. **Longest lead time in the project** — Meta must approve the alert wording before a single alert can be sent |
@@ -636,7 +646,8 @@ Build with Claude/
 │   │   ├── index.html         ← app shell
 │   │   └── src/sw.ts          ← service worker. NEVER cache /sync
 │   │   └── src/main.ts        ← boot; connectivity from sync outcomes, not navigator.onLine
-│   │   └── src/admin.ts       ← the administration console (M1a). Four tabs, no authority
+│   │   └── src/admin.ts       ← the administration console (M1a). Five tabs, no authority
+│   │   └── src/roster.ts      ← the roster (M1a-10). One component, two doors
 │   └── src/
 │       ├── domain/            ← pure logic, no database, no framework
 │       │   ├── events.ts      ← the event catalog (ADR-0001)
@@ -646,7 +657,8 @@ Build with Claude/
 │       │   ├── routing.ts     ← signals → departments (ADR-0010). Never guesses
 │       │   └── sla.ts         ← deadlines and the occurred/recorded split (ADR-0002)
 │       ├── db/                ← pool, migration runner, event store
-│       │   └── configStore.ts ← departments, signals, SLA targets + the config log (M1a)
+│       │   ├── configStore.ts ← departments, signals, SLA targets + the config log (M1a)
+│       │   └── rosterStore.ts ← who holds which post, and how to reach them (M1a-10)
 │       ├── auth/              ← scrypt passwords, seat-scoped sessions (M0-19)
 │       ├── jobs/              ← escalation scan, notification pass, scheduler (M0-29, 32)
 │       ├── obs/               ← structured logs + correlation ids (M0-03)
@@ -657,6 +669,7 @@ Build with Claude/
 │       │   ├── board.ts       ← the central board projection (M0-33). No board table
 │       │   ├── admin.ts       ← the administration console API (M1a). The gate is here
 │       │   ├── performance.ts ← every department side by side (M1a). Folded, not stored
+│       │   ├── roster.ts      ← posts, people, handovers (M1a-10). Two audiences, one gate
 │       │   └── notifications.ts ← the seat's inbox (M0-32). No inbox table either
 │       ├── outbox/            ← the offline substrate (ADR-0002)
 │       │   └── adapters/      ← IndexedDB store, HTTP transport, browser harness

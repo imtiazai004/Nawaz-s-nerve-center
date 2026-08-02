@@ -37,6 +37,18 @@ import {
   type AdminResult,
 } from './admin.js';
 import { districtPerformance } from './performance.js';
+import {
+  addPost,
+  addRosterPerson,
+  assign,
+  editPost,
+  editRosterPerson,
+  grantRosterAccount,
+  readRoster,
+  relieve,
+  removeRosterPerson,
+  retirePost,
+} from './roster.js';
 import { backupHealth } from '../ops/backup.js';
 import { correlationIdFrom, log, withContext } from '../obs/log.js';
 
@@ -486,6 +498,138 @@ async function handleAdmin(
   json(res, 404, { error: 'not found' });
 }
 
+/**
+ * The roster — M1a-10. Everything under `/roster`.
+ *
+ * Separate from `/admin` because the gate is different, and the difference is the point: a
+ * department may edit **its own** people and posts, while `/admin` remains the two offices
+ * only. Routing signals and SLA deadlines stay on `/admin` deliberately (ADR-0010) — a
+ * department able to edit its own routing could quietly stop receiving night-time calls.
+ *
+ * The literal segments `posts` and `people` are matched before the `:departmentId` pattern,
+ * or `/roster/posts/...` would be read as a department whose id is "posts".
+ */
+async function handleRoster(
+  pool: Pool,
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  identity: Identity,
+): Promise<void> {
+  const send = <T>(result: AdminResult<T>, okStatus = 200): void => {
+    if (!result.ok) json(res, result.status, { error: result.error });
+    else json(res, okStatus, result.value);
+  };
+
+  const body = async (): Promise<Record<string, unknown> | null> => bodyOf(req);
+  const bad = (): void => void json(res, 400, { error: 'that was not valid json' });
+
+  // A post, by id.
+  const post = /^\/roster\/posts\/([^/]+)(?:\/([a-z]+))?$/.exec(pathname);
+  if (post !== null) {
+    const seatId = post[1]!;
+    const action = post[2] ?? null;
+    if (!UUID_RE.test(seatId)) {
+      json(res, 404, { error: 'no such post' });
+      return;
+    }
+
+    const input = await body();
+    if (input === null) return bad();
+
+    if (req.method === 'PATCH' && action === null) {
+      send(await editPost(pool, identity, seatId, input));
+      return;
+    }
+    if (req.method === 'POST' && action === 'retire') {
+      send(await retirePost(pool, identity, seatId, true, input['reason']));
+      return;
+    }
+    if (req.method === 'POST' && action === 'restore') {
+      send(await retirePost(pool, identity, seatId, false, input['reason']));
+      return;
+    }
+    if (req.method === 'POST' && action === 'assign') {
+      send(await assign(pool, identity, seatId, input));
+      return;
+    }
+    if (req.method === 'POST' && action === 'relieve') {
+      send(await relieve(pool, identity, seatId, input['reason']));
+      return;
+    }
+    json(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  // A person, by id.
+  const person = /^\/roster\/people\/([^/]+)(?:\/([a-z]+))?$/.exec(pathname);
+  if (person !== null) {
+    const personId = person[1]!;
+    const action = person[2] ?? null;
+    if (!UUID_RE.test(personId)) {
+      json(res, 404, { error: 'no such person' });
+      return;
+    }
+
+    const input = await body();
+    if (input === null) return bad();
+
+    if (req.method === 'PATCH' && action === null) {
+      send(await editRosterPerson(pool, identity, personId, input));
+      return;
+    }
+    if (req.method === 'POST' && action === 'remove') {
+      send(await removeRosterPerson(pool, identity, personId, input['reason']));
+      return;
+    }
+    if (req.method === 'POST' && action === 'account') {
+      send(await grantRosterAccount(pool, identity, personId, input));
+      return;
+    }
+    json(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  // `/roster` with no id: whatever department the caller's own seat sits in. A department
+  // officer should not have to know their own uuid, and must not be able to change the
+  // answer by sending a different one.
+  if (req.method === 'GET' && pathname === '/roster') {
+    send(await readRoster(pool, identity, null));
+    return;
+  }
+
+  const department = /^\/roster\/([^/]+)(?:\/([a-z]+))?$/.exec(pathname);
+  if (department !== null) {
+    const departmentId = department[1]!;
+    const action = department[2] ?? null;
+    if (!UUID_RE.test(departmentId)) {
+      json(res, 404, { error: 'no such department' });
+      return;
+    }
+
+    if (req.method === 'GET' && action === null) {
+      send(await readRoster(pool, identity, departmentId));
+      return;
+    }
+
+    const input = await body();
+    if (input === null) return bad();
+
+    if (req.method === 'POST' && action === 'posts') {
+      send(await addPost(pool, identity, departmentId, input), 201);
+      return;
+    }
+    if (req.method === 'POST' && action === 'people') {
+      send(await addRosterPerson(pool, identity, departmentId, input), 201);
+      return;
+    }
+    json(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  json(res, 404, { error: 'not found' });
+}
+
 async function handleIncidents(
   pool: Pool,
   req: IncomingMessage,
@@ -737,6 +881,21 @@ export function createSyncServer(options: ServerOptions): Server {
           }
 
           await handleAdmin(pool, req, res, url.pathname, identity);
+          return;
+        }
+
+        // The roster (M1a-10). Behind a session; a department may edit its own, the two
+        // offices may edit any. The scoping itself lives in `api/roster.ts` → `reach`.
+        if (url.pathname === '/roster' || url.pathname.startsWith('/roster/')) {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+
+          await handleRoster(pool, req, res, url.pathname, identity);
           return;
         }
 

@@ -348,6 +348,67 @@
       .change[data-action="retired"] .what { color: var(--critical); }
       @media (max-width: 46rem) { .change { grid-template-columns: 1fr; } }
 
+      /* ------------------------------------------------------------- the roster */
+      body:has(#mineView:not([hidden])) main { max-width: 52rem; }
+
+      #mineError {
+        margin: 0 0 0.9rem; padding: 0.6rem 0.8rem;
+        background: #f0dad6; color: var(--critical);
+        font-size: 0.88rem; font-weight: 600;
+      }
+      #rosterPicker { width: 100%; margin: 0 0 1rem; padding: 0.5rem; font: inherit; }
+      .rostername { margin: 0 0 0.2rem; font-size: 1.05rem; }
+
+      /* A post nothing can reach. Loud, above everything, and in words (INV-04). */
+      .unreachable {
+        margin: 0 0 0.9rem; padding: 0.6rem 0.8rem;
+        background: #f0dad6; color: var(--critical);
+        border-left: 4px solid var(--critical);
+        font-size: 0.88rem; font-weight: 700;
+      }
+
+      .post, .rosterperson {
+        background: var(--card); border: 1px solid var(--line); border-radius: 3px;
+        padding: 0.6rem 0.8rem; margin-bottom: 0.5rem;
+      }
+      .post[data-retired="true"] { opacity: 0.6; background: none; }
+      .post header { display: flex; align-items: baseline; gap: 0.5rem; padding: 0; border: none; }
+      .post .title { margin: 0; font-size: 0.92rem; }
+      .post .nobody, .nobody {
+        margin: 0.3rem 0 0; font-size: 0.82rem; font-weight: 700; color: var(--critical);
+      }
+
+      .holder { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; margin-top: 0.3rem; }
+      .holder .pname { font-weight: 600; font-size: 0.88rem; }
+      .holder .pphone { font-size: 0.82rem; color: var(--slate); font-variant-numeric: tabular-nums; }
+      .holder[data-placeholder="true"] .pphone { text-decoration: line-through; }
+      .holder .warn { color: var(--critical); font-size: 0.78rem; }
+      .holder .tag {
+        font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+        padding: 0.1rem 0.35rem; border: 1px solid var(--line); border-radius: 2px; color: var(--slate);
+      }
+
+      .post .actions, .rosterperson .actions {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 0.7rem; margin-top: 0.5rem;
+      }
+      select.assign { margin: 0; padding: 0.25rem; font: inherit; font-size: 0.8rem; }
+
+      .addpost, .addperson {
+        display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.7rem;
+      }
+      .addpost input, .addperson input[type="text"], .addperson select {
+        flex: 1 1 9rem; min-width: 0; margin: 0; padding: 0.45rem; font: inherit; font-size: 0.88rem;
+      }
+      .addperson .ph {
+        display: flex; align-items: center; gap: 0.3rem;
+        font-size: 0.78rem; color: var(--slate); white-space: nowrap;
+      }
+      .addperson .ph input { width: auto; margin: 0; }
+      .addpost button, .addperson button {
+        margin: 0; padding: 0.45rem 0.9rem; font: inherit; font-size: 0.85rem; font-weight: 700;
+        background: var(--ink); color: var(--paper); border: none; border-radius: 2px; cursor: pointer;
+      }
+
       #boardRows { border-top: 1px solid var(--line); }
       .row {
         display: grid;
@@ -474,6 +535,15 @@
         answer (INV-05).
       -->
       <button type="button" id="navAdmin" hidden>Administration</button>
+      <!--
+        A department's own roster (M1a-10).
+
+        The other door onto the same component. A department officer maintains their own
+        people and posts here; the two offices reach the same screen from the console and can
+        pick any department. Routing signals and deadlines are deliberately not here — those
+        are the district's decisions about a department, not the department's about itself.
+      -->
+      <button type="button" id="navMine" hidden>My department</button>
     </nav>
 
     <main>
@@ -597,11 +667,18 @@
         <nav id="adminTabs">
           <button type="button" data-tab="departments" aria-current="page">Departments</button>
           <button type="button" data-tab="deadlines">Deadlines</button>
+          <button type="button" data-tab="roster">Rosters</button>
           <button type="button" data-tab="performance">Performance</button>
           <button type="button" data-tab="history">History</button>
         </nav>
         <p id="adminError" hidden></p>
         <div id="adminBody"></div>
+      </section>
+
+      <!-- A department's own roster. Same component, scoped to the caller's own seat. -->
+      <section id="mineView" hidden>
+        <p id="mineError" hidden></p>
+        <div id="mineBody"></div>
       </section>
 
       <!--
