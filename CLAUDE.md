@@ -118,12 +118,16 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven**
-- **Phase:** Implementation. 297 tests pass. **M1 is underway.** Seven of M0's fifty tasks
-  are open, and most are waiting on a person or a decision rather than on code: the
-  department board (M0-34), the restore **drill** (M0-38, needs a second person), CI
-  (M0-04), correlation ids (M0-03), a department registry (M0-51), backup **scheduling**
-  (M0-37, waits on P-08), and two half-done (M0-05 secrets, M0-11 payload versioning).
+- **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven, CI
+  running**
+- **Phase:** Implementation. 297 tests pass on every push. **M1 is underway.** Six of M0's
+  fifty tasks are open and most wait on a person or a decision rather than on code: the
+  department board (M0-34), the restore **drill** (M0-38, needs a second person),
+  correlation ids (M0-03), a department registry (M0-51), backup **scheduling** (M0-37,
+  waits on P-08), and two half-done (M0-05 secrets, M0-11 payload versioning).
+- **Repository:** `github.com/imtiazai004/Nawaz-s-nerve-center`, private, branch `main`.
+  **This says nothing about where the application runs** — P-08 is still open, and
+  on-premise remains a live option for a district whose internet is the unreliable part.
 - **Last updated:** 2026-08-02
 
 **The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
@@ -413,13 +417,11 @@ M0-19, both found by tests:
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **P-09, then M0-04 (CI).** CI is the next thing worth building and it is **blocked on a
-   question nobody has been asked: where does this repository live?** There is no git remote;
-   everything is on one disk. That is worth raising on its own — and a CI config for a
-   service nobody has chosen is speculative work.
-   It matters more than it did: an intermittent `Worker exited unexpectedly` has now appeared
-   **twice in roughly twelve runs**, and characterising an intermittent fault takes hundreds
-   of runs nobody has to remember to start. See the note in `CHANGELOG.md`, 2026-08-02.
+1. **M0-51 — the department registry.** There is no `department` table, so both the board and
+   the detail screen render departments as raw uuids to operators. The last code item not
+   waiting on somebody else, and what M2's gate needs first. Build the table and the
+   resolution; **do not invent the rows** — department names and structures for Bannu are
+   domain facts and stay unknown until verified.
 2. **M0-38 — the restore drill, by a second person.** No longer blocked on code: the runbook
    is written for someone who did not build this, and every step in it has been executed by
    the test suite against a real cluster. It needs an hour and a stopwatch.

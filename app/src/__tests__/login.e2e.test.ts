@@ -112,10 +112,37 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
    * The rapid-intake path: two taps and the button, no typing (M0-36). Returns the
    * incident id so assertions can be made against the incident rather than a form value.
    */
+  /**
+   * Submit a report and return **its** incident id.
+   *
+   * Waits for the id to *change*, not for `#sent` to appear. `#sent` stays visible after the
+   * first report, so waiting on it returns instantly on every subsequent one — and
+   * `lastIncidentId()` could still be the previous report's, read before the new enqueue had
+   * finished. That made a later assertion check the wrong incident: locally it passed on
+   * timing, and on CI's empty database it did not. A test that depends on how fast the
+   * machine is will eventually lie in whichever direction is least convenient.
+   */
   async function reportEmergency(category = 'rta'): Promise<string> {
+    const previous = await page.evaluate(() =>
+      (
+        globalThis as unknown as { __dnc: { lastIncidentId(): string | null } }
+      ).__dnc.lastIncidentId(),
+    );
+
     await page.click(`label[for="cat-${category}"]`);
     await page.click('label[for="sev-critical"]');
     await page.click('#submit');
+
+    await page.waitForFunction(
+      (prev: string | null) => {
+        const id = (
+          globalThis as unknown as { __dnc: { lastIncidentId(): string | null } }
+        ).__dnc.lastIncidentId();
+        return id !== null && id !== prev;
+      },
+      previous,
+      { timeout: 15_000 },
+    );
     await page.waitForSelector('#sent', { state: 'visible', timeout: 15_000 });
 
     const id = await page.evaluate(() =>
@@ -124,6 +151,7 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
       ).__dnc.lastIncidentId(),
     );
     expect(id).not.toBeNull();
+    expect(id).not.toBe(previous);
     return id!;
   }
 

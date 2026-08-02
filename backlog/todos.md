@@ -22,7 +22,7 @@ work. See `docs/06-open-questions.md`.
 | P-06 | Ask whether a Bannu place gazetteer already exists (Q-08) | `TODO` | Weeks of work vs a phone call |
 | P-07 | Identify a **named technical person** in the DC/AC office, or designate one | `TODO` | M5 handover. The office owning it and someone able to restore a backup at 02:00 are different facts |
 | P-08 | Hosting budget and its source | `TODO` | Decides cloud VM vs on-premise. Built so either works, so it is a deployment-time fork. **Now blocking something concrete:** the backup exists and nothing schedules it, because where it runs decides how |
-| P-09 | Where does the repository live? | `TODO` | New. There is no git remote — everything is local. Blocks **M0-04 (CI)**, and a repository with no off-machine copy is also a single disk away from losing the project |
+| P-09 | Where does the repository live? | `DONE` | GitHub, private: `imtiazai004/Nawaz-s-nerve-center`. Resolved 2026-08-02. **Separate from P-08** — the code being on GitHub says nothing about where the application runs, and on-premise remains a live and arguably better option |
 
 ---
 
@@ -42,7 +42,7 @@ the spine.
 | M0-01 | Repository scaffold, TypeScript, lint, format, test tooling | `DONE` | — | `npm run check` green: typecheck, lint, format, 32 tests |
 | M0-02 | Postgres + migration framework + local dev setup | `DONE` | — | Portable PG 17.10 on :5433, `scripts/dev-db.ps1`, forward-only migration runner |
 | M0-03 | Structured logging with correlation ids; health endpoint | `TODO` | M0-02 | **Half done.** `/health` reports dependency status (queries the DB, 503 when it is down) and `src/main.ts` logs structured lines. Missing: **correlation ids**, and the API server logs no requests at all |
-| M0-04 | CI: lint, typecheck, test on every commit | `BLOCKED` | M0-01 | Red build blocks merge. **Blocked on an unasked question: where does this repository live?** There is no remote — a CI config for a service nobody has chosen is speculative work. Needed more than it was: an intermittent worker crash has appeared twice in ~12 runs and characterising it needs hundreds, not a person running `npm run check` by hand |
+| M0-04 | CI: lint, typecheck, test on every commit | `DONE` | M0-01 | `.github/workflows/ci.yml`. Real PostgreSQL 17 and real Chromium — the suite is not worth running against a fake. **A missing `TEST_DATABASE_URL` under CI is a hard failure, not a skip**, so a broken secret cannot produce a green build that ran fifty tests instead of 297 |
 | M0-05 | Secret handling: env template, secret store, nothing in repo | `DOING` | M0-01 | `.env.example`, `.env` gitignored and verified unstaged. Real secret store pending deployment |
 
 ### The event core — `ADR-0001`
@@ -163,14 +163,13 @@ override, close — every step reachable, authorised and observable.
 - **M0-51**, a department registry. Departments have no table and render as uuids.
 - **Half-done:** M0-05 secrets, M0-11 payload versioning.
 
-**M0-04 (CI) is the next thing worth doing and it is blocked on a question nobody has been
-asked: where does this repository live?** There is no git remote. Writing a GitHub Actions
-workflow for a repository that may end up somewhere else is speculative work, so the question
-comes first — see P-09.
+**The repository is on GitHub and CI runs on every push** (P-09, M0-04). That also gives the
+intermittent `Worker exited unexpectedly` — twice in roughly twelve local runs — somewhere to
+be observed properly, rather than depending on one person noticing.
 
-It matters more than it did last week. An intermittent `Worker exited unexpectedly` has now
-appeared twice in roughly twelve runs, and characterising an intermittent fault needs hundreds
-of runs that nobody has to remember to start.
+**Next is M0-51, the department registry.** Departments have no table at all, so both the
+board and the incident detail screen render them as raw uuids to operators. It is the last
+code item not waiting on somebody else, and it is what M2's gate needs first.
 
 **M0-38 is now a scheduling problem, not an engineering one.** The runbook is written for
 someone who did not build this, and every step in it has been executed by the test suite

@@ -56,6 +56,14 @@ jobs:
       DATABASE_URL: postgres://postgres:ci_only_not_a_secret@127.0.0.1:5432/dnc_test
       NODE_ENV: test
 
+      # Point at the 17 binaries directly rather than trusting PATH.
+      #
+      # `/usr/bin/pg_dump` on Debian is `pg_wrapper`, which chooses a version — and with
+      # client 16 also on the image it chose 16, against a 17 server, which pg_dump refuses.
+      # The first CI run failed exactly there. `PG_BIN` is the seam `ops/backup.ts` already
+      # has for the portable local cluster; the same seam solves this.
+      PG_BIN: /usr/lib/postgresql/17/bin
+
     steps:
       - uses: actions/checkout@v4
 
@@ -81,7 +89,12 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
-          pg_dump --version
+          # Assert the version rather than print it. `pg_dump --version` on PATH reported 16
+          # on the first run while 17 was installed — a mismatch that showed up six steps
+          # later as a confusing test failure. Fail here, where the cause is obvious.
+          "$PG_BIN/pg_dump" --version
+          "$PG_BIN/pg_dump" --version | grep -q ' 17\.' \
+            || { echo "::error::pg_dump at \$PG_BIN is not version 17"; exit 1; }
 
       - name: Install dependencies
         working-directory: app
