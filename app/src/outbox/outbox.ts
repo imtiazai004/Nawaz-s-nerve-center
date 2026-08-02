@@ -104,6 +104,9 @@ export class Outbox {
   /** The sync currently running, if any. Overlapping callers join it rather than racing. */
   private inFlight: Promise<SyncResult> | null = null;
 
+  /** Set when `enqueue` lands mid-run, so the run that missed it can chain another. */
+  private arrivedDuringSync = false;
+
   constructor(options: OutboxOptions) {
     this.store = options.store;
     this.transport = options.transport;
@@ -128,6 +131,12 @@ export class Outbox {
     } as IncidentEvent;
 
     await this.store.put({ event: full, state: 'pending', attempts: 0 });
+
+    // Note that this arrived mid-run, if one is in progress. `runSync` snapshots the queue
+    // when it starts, so this event is not in the batch being sent — and without this flag
+    // nothing would send it until some external trigger came along. See `sync`.
+    if (this.inFlight !== null) this.arrivedDuringSync = true;
+
     return full;
   }
 
@@ -160,11 +169,35 @@ export class Outbox {
     // someone else is already taking.
     if (this.inFlight !== null) return this.inFlight;
 
+    this.arrivedDuringSync = false;
     this.inFlight = this.runSync().finally(() => {
       this.inFlight = null;
     });
 
-    return this.inFlight;
+    const result = await this.inFlight;
+
+    // Anything enqueued *during* that run was not in it.
+    //
+    // `runSync` reads the queue once, at the start. A report submitted while a sync was
+    // already in flight therefore missed the batch — and the caller that enqueued it got
+    // this run's result, which correctly says the server was reachable. Nothing was wrong
+    // with that answer and nothing would have sent the report: it would have sat in the
+    // outbox until the next `online` event, the next submit, or an app restart, while the
+    // screen said "Connected. Reports are delivered immediately."
+    //
+    // Not lost, but not delivered, and indistinguishable from delivered on screen. That is
+    // the same shape as the failures INV-01 keeps turning up.
+    //
+    // One follow-up run, not a loop: it clears the flag first, so a run that itself
+    // receives new work sets it again and chains exactly once more. A server that is
+    // unreachable or refusing does **not** trigger a retry here — that would busy-loop
+    // against a dead network, which is the normal state in Bannu, not an exception.
+    if (this.arrivedDuringSync && !result.offline && !result.authRequired) {
+      this.arrivedDuringSync = false;
+      return this.sync();
+    }
+
+    return result;
   }
 
   private async runSync(): Promise<SyncResult> {

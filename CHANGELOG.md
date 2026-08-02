@@ -1100,3 +1100,27 @@ one person can operate at 02:00.
 - **Open:** with M0-34 done, **every M0 task that is code is complete.** What remains needs a
   person (M0-38), a deployment decision (M0-37, M0-05, both on P-08), or something that does
   not exist yet (M0-11 needs a payload v2). M1 stalls on **Q-18** and Rescue 1122's number.
+
+## 2026-08-02 — The outbox could hold a report indefinitely while saying "delivered immediately"
+
+Found by a CI-only failure in the enrichment test, which turned out not to be a test problem.
+
+- **Fixed:** `runSync` reads the queue **once, at the start**. Anything enqueued while a sync
+  was already in flight therefore missed that batch — and the caller got the in-flight run's
+  result, which correctly reported the server as reachable. Nothing was wrong with that
+  answer, and **nothing would ever have sent the report**: it sat in the outbox until the
+  next `online` event, the next submit, or an app restart, while the status line said
+  *"Connected. Reports are delivered immediately."*
+  Not lost, but not delivered, and indistinguishable from delivered on screen. That is the
+  same shape as the failures INV-01 keeps turning up, and the third time this project has
+  found a connectivity claim that nothing had actually established.
+- **Added:** `enqueue` marks that it landed mid-run, and `sync` chains **one** follow-up run
+  when it did. Deliberately not a loop: the flag is cleared before the follow-up, so a run
+  that itself receives new work chains once more and no further.
+- **Decided:** a follow-up run happens only when the server was actually reached. Chaining on
+  an offline or refused result would busy-loop against a dead network — which in Bannu is the
+  normal state, not an exception. There is a test for that specifically, because it is the
+  obvious thing to get wrong while fixing the first half.
+- **Verified:** 338/338 tests across 21 files. The two new outbox tests drive the race
+  deterministically with a transport hook rather than hoping for the timing that CI happened
+  to produce.

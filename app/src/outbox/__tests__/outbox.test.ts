@@ -44,10 +44,13 @@ class FakeServer implements SyncTransport {
   offline = false;
   rejectIds = new Set<string>();
   pushCalls = 0;
+  /** Hook to create the mid-run race deterministically. */
+  beforePush: (() => void) | null = null;
   pullQueue: IncidentEvent[] = [];
 
   async push(events: readonly IncidentEvent[]) {
     this.pushCalls += 1;
+    this.beforePush?.();
     if (this.offline) throw new Error('network unreachable');
 
     const accepted: string[] = [];
@@ -335,5 +338,46 @@ describe('pull', () => {
 
     expect(result.pulled).toBe(0);
     expect(result.offline).toBe(true);
+  });
+
+  describe('work that arrives while a sync is already running', () => {
+    it('is sent without waiting for another trigger', async () => {
+      // `runSync` reads the queue once, at the start. A report submitted mid-run therefore
+      // missed the batch — and the caller got that run's result, which correctly said the
+      // server was reachable. Nothing was wrong with the answer and nothing would have sent
+      // the report: it sat in the outbox until the next `online` event, the next submit, or
+      // an app restart, while the screen said "Connected. Reports are delivered
+      // immediately." Not lost, but not delivered, and indistinguishable from delivered.
+      await outbox.enqueue(draft('reported'));
+
+      let enqueuedMidRun: Promise<unknown> | null = null;
+      server.beforePush = () => {
+        // Exactly the race: a second report arrives while the first batch is in flight.
+        enqueuedMidRun ??= outbox.enqueue(draft('action_logged'));
+      };
+
+      await outbox.sync();
+      await enqueuedMidRun;
+
+      expect(await outbox.pendingCount()).toBe(0);
+      expect(server.held.size).toBe(2);
+    });
+
+    it('does not retry against a server it could not reach', async () => {
+      // The follow-up run is for work that was missed, not for work that failed. Chaining
+      // on an offline result would busy-loop against a dead network — which in Bannu is the
+      // normal state, not an exception.
+      await outbox.enqueue(draft('reported'));
+      server.offline = true;
+      server.beforePush = () => {
+        void outbox.enqueue(draft('action_logged'));
+      };
+
+      const result = await outbox.sync();
+
+      expect(result.offline).toBe(true);
+      // One attempt against an unreachable server, not two.
+      expect(server.pushCalls).toBe(1);
+    });
   });
 });
