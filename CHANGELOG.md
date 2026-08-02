@@ -992,3 +992,25 @@ and because it was found after the M0-51 entry above was already written.
 - **Verified:** the real list reloaded cleanly and idempotently — the second run added exactly
   one person and one assignment (the previously-blocked TMA Bannu row) and nothing else, with
   both officers correctly attached to their own posts. 313/313 tests across 20 files.
+
+## 2026-08-02 — A CI flake, and a budget that was measuring the wrong thing
+
+- **Correction to the previous session summary:** CI was reported as green on `eafb446`. It
+  was not — that run failed and the claim was made without checking. Recorded because an
+  unverified green is worse than a red one.
+- **Fixed:** `rapidIntake.e2e.test.ts` waited on `#submit` to decide the app was ready.
+  `#submit` is in the **static HTML**, so it appears the moment the document parses, before
+  `boot()` has opened IndexedDB and published `__dnc`. Under the 4× CPU throttle the gap was
+  wide enough for CI to hit `Cannot read properties of undefined (reading 'store')`. Same
+  class as the login race found yesterday: **waiting on something that is already true.**
+  There is now a `waitForReady()` that waits for `__dnc`.
+- **Fixed, and this one is the more interesting half.** Moving the clock past `waitForReady()`
+  made the measured intake time drop from ~800ms to **264ms** — and nothing had got faster.
+  The measurement had simply stopped counting the load. The thesis asks for *"under 15
+  seconds **from open** to submitted"*, and an operator standing at a road accident is waiting
+  through startup exactly as much as through the taps. The clock now starts **before**
+  `page.reload()`, so it covers load, boot and interaction. **509ms at 4× throttle**, against
+  a 15,000ms budget.
+  The lesson is the one this project keeps relearning: a green number is not evidence until
+  you know what it measured. A fix that improves a metric by narrowing it is not a fix.
+- **Verified:** 313/313 tests across 20 files.

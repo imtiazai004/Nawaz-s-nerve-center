@@ -88,6 +88,27 @@ describe.skipIf(dbUrl === undefined)('M0-36: rapid intake', () => {
     await cdp.send('Emulation.setCPUThrottlingRate', { rate });
   }
 
+  /**
+   * Wait until the app is actually usable, not merely painted.
+   *
+   * `#submit` is in the static HTML, so it appears the moment the document parses — before
+   * `boot()` has opened IndexedDB and published `__dnc`. Waiting on it alone proved nothing,
+   * and under the 4× CPU throttle in test 5 the gap was wide enough that CI hit
+   * `Cannot read properties of undefined (reading 'store')`.
+   *
+   * It also makes the budget measurement honest. The clock is supposed to start "when the
+   * operator could first act", and an operator cannot act on a button whose handler is not
+   * attached — starting it at first paint quietly measured less than the real thing.
+   */
+  async function waitForReady(target: Page = page): Promise<void> {
+    await target.waitForSelector('#submit', { timeout: 30_000 });
+    await target.waitForFunction(
+      () => (globalThis as unknown as { __dnc?: unknown }).__dnc !== undefined,
+      undefined,
+      { timeout: 30_000 },
+    );
+  }
+
   async function queueLength(): Promise<number> {
     return page.evaluate(
       async () =>
@@ -102,7 +123,7 @@ describe.skipIf(dbUrl === undefined)('M0-36: rapid intake', () => {
   describe('the critical path', () => {
     it('1. needs no typing at all', async () => {
       await page.reload();
-      await page.waitForSelector('#submit');
+      await waitForReady();
 
       // Two taps and the button. Nothing on the critical path accepts text.
       const textInputs = await page.locator('#report input[type="text"], #report textarea').count();
@@ -141,10 +162,17 @@ describe.skipIf(dbUrl === undefined)('M0-36: rapid intake', () => {
       try {
         const before = await queueLength();
 
-        await page.reload();
-        // The clock starts when the operator could first act, not when navigation began.
-        await page.waitForSelector('#submit', { timeout: 30_000 });
+        // The clock starts at **open**, and open means the operator tapped the icon — not
+        // the moment the app finished booting.
+        //
+        // Worth stating, because fixing the readiness race briefly moved this line below
+        // `waitForReady()` and the measured time fell from ~800ms to ~260ms. Nothing got
+        // faster; the measurement stopped counting the load. The thesis asks for "under 15
+        // seconds from open to submitted", and an operator standing at a road accident is
+        // waiting through startup exactly as much as through the taps.
         const started = Date.now();
+        await page.reload();
+        await waitForReady();
 
         await page.click('label[for="cat-rta"]');
         await page.click('label[for="sev-critical"]');
@@ -175,7 +203,7 @@ describe.skipIf(dbUrl === undefined)('M0-36: rapid intake', () => {
       await context.setOffline(true);
       try {
         await page.reload();
-        await page.waitForSelector('#submit', { timeout: 30_000 });
+        await waitForReady();
         const before = await queueLength();
         const started = Date.now();
 
@@ -201,7 +229,7 @@ describe.skipIf(dbUrl === undefined)('M0-36: rapid intake', () => {
       const p = await denied.newPage();
       try {
         await p.goto(origin);
-        await p.waitForSelector('#submit', { timeout: 30_000 });
+        await waitForReady(p);
         const started = Date.now();
 
         await p.click('label[for="cat-medical"]');
@@ -220,7 +248,7 @@ describe.skipIf(dbUrl === undefined)('M0-36: rapid intake', () => {
 
     it('8. a report with no location or description is accepted (INV-01)', async () => {
       await page.reload();
-      await page.waitForSelector('#submit', { timeout: 30_000 });
+      await waitForReady();
 
       await page.click('label[for="cat-flood"]');
       await page.click('label[for="sev-critical"]');
