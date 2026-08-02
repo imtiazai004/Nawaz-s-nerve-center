@@ -399,7 +399,12 @@ async function handleIncidents(
       json(res, result.status, { error: result.error });
       return;
     }
-    json(res, 200, { state: result.state, events: result.events, actors: result.actors });
+    json(res, 200, {
+      state: result.state,
+      events: result.events,
+      actors: result.actors,
+      responsibleDepartments: result.responsibleDepartments,
+    });
     return;
   }
 

@@ -878,3 +878,61 @@ The last engineering item on the M0 gate. What remains of M0-38 is a person and 
 - **Known and benign:** GitHub warns that `actions/checkout@v4` and `actions/setup-node@v4`
   target Node 20 and are forced onto Node 24. Not a failure; recorded so the next person does
   not go looking.
+
+## 2026-08-02 — M0-51: the department registry, and the district's contact list
+
+The district supplied its contact list: 81 posts across ~79 offices, 43 with mobile numbers.
+This is the first verified domain data in the project — everything about Bannu until now was
+explicitly marked assumption.
+
+- **Incident, recorded first because it is mine.** The contact document was placed inside the
+  repository folder and an over-broad `git add -A` committed it in `1d15b77`, which was
+  pushed. Personal mobile numbers of ~40 named district officials are therefore in the
+  repository's history. It is now untracked and `*.docx` is gitignored, but **untracking does
+  not remove it from history** — that needs a rewrite and a force-push, which is the owner's
+  decision and is pending. The lesson is not "be careful with `git add -A`"; it is that a
+  repository shared with a human collaborator will receive files nobody told the tooling
+  about, and the ignore rules have to lead rather than follow.
+- **Added:** migration `0005_department_registry.sql`. `department` table, and
+  `seat.department_id` is now a **real foreign key** — it was a bare uuid referencing nothing,
+  which is why departments could never be named on a screen.
+- **Added:** the migration **backfills before it constrains**. Every pre-existing
+  `department_id` points at nothing, so the foreign key could not be added against the table
+  as it stood. The orphans get a department named `Unregistered department (a1b2…)` rather
+  than being nulled or deleted: an id that was never a department is a real gap, and a row
+  saying so on a board is a prompt to fix it. Nulling would have erased the evidence.
+- **Added:** `ops/directory.ts`. Idempotent — the district has more contacts coming.
+- **Decided: a directory entry is not an account.** `person.password_hash` is now nullable
+  and loaded people have none, so they can be notified and cannot sign in. Creating logins
+  for ~80 officials who have not been told the system exists would be ~80 credentials nobody
+  is watching, with passwords nobody chose. `login()` already failed closed on a null hash;
+  there is now a test pinning it rather than leaving it to the comparison happening to miss.
+- **Decided: conflicts are reported, never resolved.** The loader returns `problems` and the
+  caller must read them. It found one on the real list immediately — see Q-19.
+- **Decided: nothing is inferred.** The department is the row's own "Department/Office"
+  value, verbatim. `ADC (General)` is plainly a post under the DC Office and `DSP City` under
+  the DPO, but *how Bannu is organised* is a fact to confirm, not one to derive from a
+  spreadsheet column. Recorded as **Q-18**.
+- **Changed:** the board and the incident detail screen now show department **names**.
+  Correcting an earlier claim in this changelog and in `CLAUDE.md`: departments were not
+  being rendered as uuids, they were not being rendered **at all**. The uuid would have
+  appeared the moment anything tried.
+- **Changed:** every test that invented a department uuid now creates a real department row,
+  via `seedDepartment`/`ensureDepartment`. Seven suites. That the old behaviour worked is
+  precisely the bug — the database accepted an id that meant nothing.
+- **Open — Q-18, and it is the most consequential thing on the list.** Every loaded seat
+  defaults to `district` tier because the source has no tier column, and **the escalation
+  ladder walks tiers**. On this data it cannot escalate correctly. Also unresolved: which
+  offices are posts inside larger departments, and which of the ~79 are emergency responders
+  at all (routing should not offer Fisheries or the Press Club).
+- **Open — Q-19.** `03338887171` is listed for both `ADC (Finance & Planning) — Yousaf
+  Haroon` and `TMA Bannu — Yousaf Khan`. Different names, one number: a typo and a shared
+  handset need opposite fixes, so neither was loaded over the other and TMA Bannu is absent
+  until it is resolved. Two smaller ones: `AAC Bakakhel` carries the designation `AAC Miryan`,
+  and **Rescue 1122 has no contact number at all** — which is awkward, since Rescue 1122 is
+  the entire subject of M1.
+- **Changed:** Q-14 is now partially answered. The directory exists and the district has it.
+  The unanswered half is the expensive one: **who keeps it current**, given the system routes
+  emergencies by it.
+- **Verified:** 310/310 tests across 20 files, on the working database **and** on a freshly
+  created one with `CI=true` — the migration's backfill path only runs on the former.

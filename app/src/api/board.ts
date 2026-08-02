@@ -29,6 +29,7 @@ import {
 } from '../domain/events.js';
 import { districtSeverity, foldIncident, type IncidentState } from '../domain/incident.js';
 import { unmetObligations } from '../domain/notifications.js';
+import { departmentDirectory } from '../ops/directory.js';
 import { checkEscalation, PLACEHOLDER_SLA, type SlaTargets } from '../domain/sla.js';
 
 export interface BoardRow {
@@ -41,6 +42,14 @@ export interface BoardRow {
   readonly overriddenFrom: AssessedSeverity | 'unknown' | null;
   readonly category: string;
   readonly responsibleDepartmentIds: readonly Uuid[];
+  /**
+   * The same departments, named (M0-51).
+   *
+   * Ids are what the event log stores; names are the only form an operator can act on.
+   * Resolved server-side and sent alongside, so no screen is ever tempted to render the id
+   * because the name was one request away.
+   */
+  readonly responsibleDepartments: readonly string[];
   readonly occurredAt: Instant | null;
   /** How current this row is. The client renders it; it does not get to omit it (INV-02). */
   readonly lastRecordedAt: Instant | null;
@@ -126,7 +135,12 @@ export interface BoardOptions {
   readonly includeClosed?: boolean;
 }
 
-function toRow(state: IncidentState, now: Instant, targets: SlaTargets): BoardRow {
+function toRow(
+  state: IncidentState,
+  now: Instant,
+  targets: SlaTargets,
+  departments: Readonly<Record<string, { readonly name: string }>>,
+): BoardRow {
   const severity: Severity = state.severity?.value ?? 'unknown';
   const unmet = unmetObligations(state.notifications, now);
 
@@ -152,6 +166,9 @@ function toRow(state: IncidentState, now: Instant, targets: SlaTargets): BoardRo
     overriddenFrom: state.severity?.overriddenFrom?.value ?? null,
     category: state.category?.value ?? 'unknown',
     responsibleDepartmentIds: state.responsibleDepartmentIds,
+    // An id with no matching row is shown as an id rather than hidden. A department that
+    // vanished from the registry is a real problem, and a blank column would conceal it.
+    responsibleDepartments: state.responsibleDepartmentIds.map((id) => departments[id]?.name ?? id),
     occurredAt: state.occurredAt,
     lastRecordedAt: state.lastRecordedAt,
     acknowledgedAt: state.acknowledgedAt,
@@ -178,6 +195,10 @@ export async function buildBoard(
   const now = options.now ?? new Date().toISOString();
   const targets = options.targets ?? PLACEHOLDER_SLA;
 
+  // Fetched once for the whole board, not per row. Same reason the detail endpoint returns
+  // an actor directory with the events: a screen should never have to ask twice.
+  const departments = await departmentDirectory(pool);
+
   const grouped = await loadRecentIncidents(pool, options.days ?? 7, options.limit ?? 500);
 
   const visible: IncidentState[] = [];
@@ -199,7 +220,7 @@ export async function buildBoard(
   const live = visible.filter((s) => !CLOSED.has(s.status));
   const shown = options.includeClosed === true ? visible : live;
 
-  const rows = shown.map((s) => toRow(s, now, targets)).sort(compareRows);
+  const rows = shown.map((s) => toRow(s, now, targets, departments)).sort(compareRows);
   const summary = districtSeverity(live);
 
   return {

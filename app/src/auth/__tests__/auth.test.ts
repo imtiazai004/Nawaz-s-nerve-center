@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 
 import { createSyncServer } from '../../api/server.js';
 import { createPool, migrate, type Pool } from '../../db/pool.js';
+import { seedDepartment } from '../../testing/seed.js';
 import { loadIncident } from '../../db/eventStore.js';
 import { hashPassword, verifyPassword, assertUsable } from '../passwords.js';
 import { login, resolveSession, revokeAllForPerson, revokeSession } from '../sessions.js';
@@ -104,8 +105,8 @@ describe.skipIf(dbUrl === undefined)('authentication (integration)', () => {
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-    rescueDept = randomUUID();
-    policeDept = randomUUID();
+    rescueDept = await seedDepartment(pool, 'Rescue 1122 (test)');
+    policeDept = await seedDepartment(pool, 'Police (test)');
 
     rescueSeat = await makeSeat('Rescue 1122 Station In-Charge', rescueDept, 'station', false);
     policeSeat = await makeSeat('SHO Bannu City', policeDept, 'station', false);

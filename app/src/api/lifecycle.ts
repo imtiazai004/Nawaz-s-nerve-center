@@ -38,6 +38,7 @@ import {
   type Uuid,
 } from '../domain/events.js';
 import { foldIncident, type IncidentState } from '../domain/incident.js';
+import { departmentDirectory } from '../ops/directory.js';
 import type { Identity } from '../auth/sessions.js';
 
 /** What the intake endpoint fills in when a caller did not say. See `intake`. */
@@ -532,6 +533,7 @@ export async function readIncident(
       readonly state: IncidentState;
       readonly events: readonly IncidentEvent[];
       readonly actors: ActorDirectory;
+      readonly responsibleDepartments: readonly string[];
     }
   | { readonly ok: false; readonly status: number; readonly error: string }
 > {
@@ -550,5 +552,18 @@ export async function readIncident(
   // authority over it is itself a disclosure about another department's operations.
   if (!readable.allowed) return { ok: false, status: 404, error: 'no such incident' };
 
-  return { ok: true, state, events, actors: await actorsFor(pool, events) };
+  const [actors, departments] = await Promise.all([
+    actorsFor(pool, events),
+    departmentDirectory(pool),
+  ]);
+
+  return {
+    ok: true,
+    state,
+    events,
+    actors,
+    // Named, not just identified (M0-51). An unmatched id is shown as an id rather than
+    // hidden — a department missing from the registry is a problem, not a blank field.
+    responsibleDepartments: state.responsibleDepartmentIds.map((id) => departments[id]?.name ?? id),
+  };
 }

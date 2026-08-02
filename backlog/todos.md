@@ -108,7 +108,7 @@ the spine.
 | M0-33 | Central board — all active incidents, unstyled | `DONE` | M0-08 | `GET /incidents` + the screen. Folded on demand; **no board table**. Says how old it is, and says "NOT LIVE" when it cannot reach the server (INV-02). Summary reports worst-assessed and unassessed separately (ADR-0009). 12 + 7 tests |
 | M0-34 | Department board — same log, scoped by authority | `DOING` | M0-08, M0-20 | **Already provably the same source**: `buildBoard` scopes by the caller's seat, and the cross-department tests prove a station seat is never sent its neighbours' rows. What is missing is only a department-framed screen, not a second query |
 | M0-35 | Incident detail with full event history and provenance | `DONE` | M0-22 | Every value answers "who set this, when, why". An override shows both values with the reason and both seats named; actors are named by seat then person, never by uuid; an event nobody performed reads "the system"; late arrivals show their gap. 10 browser tests |
-| M0-51 | Department registry | `TODO` | — | New, surfaced by M0-35. There is **no `department` table** — `seat.department_id` is a bare uuid, so departments render as raw ids. Fine with one department; it is the first thing M2's gate needs |
+| M0-51 | Department registry | `DONE` | — | Migration 0005: `department` table, real FK from `seat`, `person.password_hash` nullable. `ops/directory.ts` loads the district's list idempotently and **reports conflicts rather than resolving them**. Board and detail now show department names. 22 tests. Structure and tiers remain unverified — **Q-18** |
 | M0-36 | **Rapid intake — measured against the 15s budget** | `DONE` | M0-14 | ~800ms at 4× CPU throttle. Two taps, no typing, submit-then-enrich. 10 tests |
 | M0-48 | Layered location capture that never blocks | `DONE` | M0-36 | New. GPS watched from open; whatever arrived by submit is attached. Captured layers recorded |
 
@@ -167,9 +167,13 @@ override, close — every step reachable, authorised and observable.
 intermittent `Worker exited unexpectedly` — twice in roughly twelve local runs — somewhere to
 be observed properly, rather than depending on one person noticing.
 
-**Next is M0-51, the department registry.** Departments have no table at all, so both the
-board and the incident detail screen render them as raw uuids to operators. It is the last
-code item not waiting on somebody else, and it is what M2's gate needs first.
+**The district's contact list is loaded** (M0-51): 79 offices, 81 posts, 39 officers, 38 of
+those posts vacant. Every remaining M0 item now waits on a person or a decision rather than
+on code — see **Q-18** (how Bannu is organised, and what tier each seat is: the escalation
+ladder cannot work until that is answered) and **Q-19** (two officers sharing one number).
+
+**Next code item is M0-03, correlation ids** — the API still logs no requests at all, which
+is the difference between diagnosing an incident at 02:00 and guessing.
 
 **M0-38 is now a scheduling problem, not an engineering one.** The runbook is written for
 someone who did not build this, and every step in it has been executed by the test suite

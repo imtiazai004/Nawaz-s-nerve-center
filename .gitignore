@@ -25,3 +25,18 @@ Thumbs.db
 .claude/settings.local.json
 
 web/dist/
+
+# Real contact data. Never committed.
+#
+# Personal mobile numbers of named district officials are operational data, not source.
+# Git history is permanent and hard to purge, and a private repo can be shared, forked or
+# have a collaborator added later. These live in the database, and reach it through a seed
+# file that stays out of the repository — the same rule as .env.
+*.docx
+
+# `**/` is load-bearing. A gitignore pattern containing a slash is anchored to the directory
+# holding the .gitignore, so `db/seed/*.json` matches only `<root>/db/seed/` — and the real
+# file lives at `app/db/seed/`. The first version of this rule silently matched nothing and
+# would have committed the contact list a second time. Verified with `git check-ignore -v`.
+**/db/seed/*.json
+!**/db/seed/*.example.json

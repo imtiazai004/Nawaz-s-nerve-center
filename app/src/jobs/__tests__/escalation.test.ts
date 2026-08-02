@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { createPool, migrate, type Pool } from '../../db/pool.js';
+import { seedDepartment } from '../../testing/seed.js';
 import { append, loadIncident } from '../../db/eventStore.js';
 import { foldIncident } from '../../domain/incident.js';
 import { runEscalationPass, nextSeatUp } from '../escalation.js';
@@ -37,7 +38,7 @@ describe.skipIf(dbUrl === undefined)('escalation job (INV-07)', () => {
     pool = createPool(dbUrl);
     await migrate(pool, migrationsDir);
 
-    department = randomUUID();
+    department = await seedDepartment(pool);
     stationSeat = await seat('Rescue Station In-Charge', department, 'station', true);
     tehsilSeat = await seat('Rescue Tehsil Supervisor', department, 'tehsil', true);
     // Department-agnostic, so it serves as the fallback rung above any department.
@@ -306,7 +307,7 @@ describe.skipIf(dbUrl === undefined)('escalation job (INV-07)', () => {
 
   describe('a vacant post never swallows an escalation (ADR-0004)', () => {
     it('escalates to an unheld seat and reports it as needing a human', async () => {
-      const dept = randomUUID();
+      const dept = await seedDepartment(pool);
       await seat('Understaffed Station', dept, 'station', true);
       const vacant = await seat('Vacant Tehsil Post', dept, 'tehsil', false);
 

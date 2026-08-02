@@ -28,6 +28,7 @@ import { buildBoard } from '../../api/board.js';
 import { seatOf } from '../../api/lifecycle.js';
 import { hashPassword } from '../../auth/passwords.js';
 import { login, resolveIdentity } from '../../auth/sessions.js';
+import { seedDepartment } from '../../testing/seed.js';
 import { runNotifyPass, inAppChannel, type NotificationChannel } from '../notify.js';
 
 const dbUrl = process.env['TEST_DATABASE_URL'];
@@ -60,9 +61,9 @@ describe.skipIf(dbUrl === undefined)('notifications (INV-03)', () => {
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-    rescueDept = randomUUID();
-    policeDept = randomUUID();
-    vacantDept = randomUUID();
+    rescueDept = await seedDepartment(pool, 'Rescue 1122 (test)');
+    policeDept = await seedDepartment(pool, 'Police (test)');
+    vacantDept = await seedDepartment(pool, 'Vacant Department (test)');
 
     const rescue = await actor('Rescue Duty Officer', rescueDept, 'station');
     rescueToken = rescue.token;

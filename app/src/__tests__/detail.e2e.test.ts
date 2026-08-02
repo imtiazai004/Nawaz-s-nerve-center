@@ -30,6 +30,7 @@ import type { IncidentEvent } from '../domain/events.js';
 import { buildWeb } from '../../build.mjs';
 import { hashPassword } from '../auth/passwords.js';
 import { login } from '../auth/sessions.js';
+import { seedDepartment } from '../testing/seed.js';
 
 const dbUrl = process.env['TEST_DATABASE_URL'];
 const here = dirname(fileURLToPath(import.meta.url));
@@ -64,7 +65,7 @@ describe.skipIf(dbUrl === undefined)('M0-35: incident detail', () => {
     await new Promise<void>((r) => api.listen(0, '127.0.0.1', r));
     origin = `http://127.0.0.1:${(api.address() as AddressInfo).port}`;
 
-    rescueDept = randomUUID();
+    rescueDept = await seedDepartment(pool, 'Rescue 1122 (test)');
     const rescue = await actor(RESCUE_OFFICER, RESCUE_SEAT_TITLE, rescueDept, 'station');
     const control = await actor('Control Room Operator', CONTROL_SEAT_TITLE, null, 'district');
     rescuePhone = rescue.phone;
@@ -258,7 +259,7 @@ describe.skipIf(dbUrl === undefined)('M0-35: incident detail', () => {
       category: 'security',
       severity: 'high',
     });
-    const otherDept = randomUUID();
+    const otherDept = await seedDepartment(pool, 'Other Department (test)');
     await post(`/incidents/${theirs['incidentId'] as string}/route`, controlRoomToken, {
       departmentIds: [otherDept],
       reason: 'police matter',

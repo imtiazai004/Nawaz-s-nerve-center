@@ -82,10 +82,49 @@ operator-transcribed. Probably the latter for v1.
 Whether citizens report directly, or only through departments and the control room. Large
 scope and trust implications. Explicitly out of MVP scope until decided.
 
-### Q-14 · Existing officer and contact directories `OPEN`
-Whether a current, maintained directory of district officers exists, or whether the
-platform becomes its home. If the latter, keeping it current is an ongoing operational
-burden that needs an owner.
+### Q-14 · Existing officer and contact directories `PARTIALLY ANSWERED 2026-08-02`
+**A list exists and the district supplied it** — 81 posts across ~79 offices, with 43
+contact numbers. Loaded via `db/seed/directory.json` (gitignored). More to follow, so the
+loader is idempotent.
+
+The remaining half of the question is unanswered and is the expensive half: **who keeps it
+current?** A directory is wrong within months of nobody owning it, and this system routes
+emergencies by it. Still needs an owner before the pilot.
+
+### Q-18 · How is Bannu actually organised? `HIGH`
+Raised by loading the contact list (M0-51), which the loader deliberately refused to guess
+at. Three distinct gaps:
+
+**1. Which offices are posts within a larger department?** The source has one column,
+"Department/Office", and it mixes both. `ADC (General)` is plainly a post in the DC Office;
+`DSP City` sits under the DPO; the four `AAC` entries are tehsil posts under the district
+administration. The registry currently holds each row as its own department, verbatim,
+because inventing the hierarchy would put a structure in the system that nobody in Bannu
+agreed to. **Needed before M2**, whose gate is "adding a fifth department is a configuration
+exercise" — that is meaningless if the first eighty are misfiled.
+
+**2. What tier is each seat?** Not in the source, so every loaded seat defaults to
+`district`. **This matters more than it sounds:** the escalation ladder walks tiers
+(`nextSeatUp`), so a roster where everything is one tier cannot escalate. AACs are tehsil;
+station-level posts exist under Police and Rescue. **Needed before escalation is trusted in
+the pilot.**
+
+**3. Which departments respond to emergencies?** ~79 offices are loaded, and most —
+Fisheries, Auqaf, Sports, Press Club — are not emergency responders. Routing should not
+offer them. Needs a marked subset.
+
+### Q-19 · Two officers, one mobile number `OPEN`
+The supplied list gives **03338887171** to both `ADC (Finance & Planning) — Yousaf Haroon`
+and `TMA Bannu — Yousaf Khan`. Different names, one number. Either a transcription error or
+a genuinely shared handset, and those need opposite fixes, so the loader reported it and
+loaded neither pairing over the other. The TMA Bannu row is **not in the system** until this
+is resolved.
+
+Two smaller ones from the same list:
+- `AAC Bakakhel` has the designation `AAC Miryan` — almost certainly a copy-paste, but it is
+  the district's document and not ours to correct.
+- **Rescue 1122 has no contact number.** Bakht Ullah Wazir is named as District Emergency
+  Officer with no number, and Rescue 1122 is the entire subject of M1.
 
 ### Q-15 · Secondary control room location `OPEN`
 `00-thesis.md` flags the control room as a single point of failure. Where the secondary

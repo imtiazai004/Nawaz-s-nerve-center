@@ -120,11 +120,15 @@ that blocks release on failure.
 
 - **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven, CI
   running**
-- **Phase:** Implementation. 297 tests pass on every push. **M1 is underway.** Six of M0's
+- **Phase:** Implementation. 310 tests pass on every push. **M1 is underway.** Five of M0's
   fifty tasks are open and most wait on a person or a decision rather than on code: the
   department board (M0-34), the restore **drill** (M0-38, needs a second person),
-  correlation ids (M0-03), a department registry (M0-51), backup **scheduling** (M0-37,
-  waits on P-08), and two half-done (M0-05 secrets, M0-11 payload versioning).
+  correlation ids (M0-03), backup **scheduling** (M0-37, waits on P-08), and two half-done
+  (M0-05 secrets, M0-11 payload versioning).
+- **The district's contact list is loaded** — 79 offices, 81 posts, 39 officers, 38 posts
+  vacant. **Its structure is not verified**: everything is flat and every seat is `district`
+  tier, which the escalation ladder cannot work with. That is **Q-18**, and it is the
+  highest-value unanswered question in the project right now.
 - **Repository:** `github.com/imtiazai004/Nawaz-s-nerve-center`, private, branch `main`.
   **This says nothing about where the application runs** — P-08 is still open, and
   on-premise remains a live option for a district whose internet is the unreliable part.
@@ -236,7 +240,7 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **297 tests passing** across 19 files, including **17 backup/restore tests that run a real
+- **310 tests passing** across 20 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -330,7 +334,28 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
     emergencies because a dump was old. INV-01 outranks a stale backup. Monitor `degraded`.
   - `docs/08-runbook.md` is the human version, written for whoever performs M0-38.
 
+- **`app/src/ops/directory.ts` + migration 0005 — the department registry (M0-51).**
+  - `seat.department_id` is now a **real foreign key** to a `department` table. It used to be
+    a bare uuid referencing nothing, which the database happily accepted.
+  - The district's contact list loads through `db/seed/directory.json` — **gitignored**. Real
+    officers' mobile numbers do not go in a repository: git history is permanent, and a
+    private repo can be shared or gain a collaborator later. Same rule as `.env`.
+  - **A directory entry is not an account.** People load with a null `password_hash`, meaning
+    they can be notified and cannot sign in. Creating logins for ~80 officials who have not
+    been told the system exists would be ~80 credentials nobody is watching.
+  - **Conflicts are reported, never resolved.** Two names on one number is either a typo or a
+    shared handset and those need opposite fixes; a seat already held is not reassigned by an
+    import, because a handover is a deliberate act. The loader returns `problems` and the
+    caller is expected to read them.
+  - **Nothing is inferred.** The department is the row's own "Department/Office" value,
+    verbatim. That `ADC (General)` sits under the DC Office is a fact about Bannu, not
+    something this code may decide — see **Q-18**, which also covers the tier gap that
+    currently stops the escalation ladder working on real data.
+
 **What does not exist yet**
+- **A verified department structure.** 79 offices loaded flat, every seat defaulted to
+  `district` tier. **The escalation ladder walks tiers, so it cannot work correctly on this
+  data yet** (Q-18). This is the most consequential open gap in the registry.
 - **A schedule for the backup.** `runBackup` is written, tested and callable; wiring it to a
   timer is a deployment decision that waits on P-08 (hosting).
 - **A performed restore drill (M0-38).** Now a scheduling problem, not an engineering one.
@@ -493,7 +518,7 @@ Build with Claude/
 │       ├── db/                ← pool, migration runner, event store
 │       ├── auth/              ← scrypt passwords, seat-scoped sessions (M0-19)
 │       ├── jobs/              ← escalation scan, notification pass, scheduler (M0-29, 32)
-│       ├── ops/               ← backup, restore, integrity verification (M0-37)
+│       ├── ops/               ← backup, restore (M0-37), department directory (M0-51)
 │       ├── main.ts            ← process entry: API + client + escalation loop
 │       ├── api/               ← sync protocol and the node:http server
 │       │   ├── lifecycle.ts   ← commands: intake, triage, route, ack, close (M0-24…31)

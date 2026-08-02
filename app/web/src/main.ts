@@ -322,6 +322,7 @@ async function boot(): Promise<void> {
     overdueByMinutes: number;
     notificationsFailed: number;
     notificationsUndelivered: number;
+    responsibleDepartments: string[];
   }
   interface BoardData {
     asOf: string;
@@ -418,7 +419,13 @@ async function boot(): Promise<void> {
 
         const meta = document.createElement('span');
         meta.className = 'meta';
-        meta.textContent = `${ago(row.occurredAt, at)}${
+        // Whose incident it is, by name (M0-51). "Not yet routed" is said out loud rather
+        // than left blank — an unrouted emergency is a state somebody has to act on.
+        const who =
+          row.responsibleDepartments.length > 0
+            ? row.responsibleDepartments.join(', ')
+            : 'not yet routed';
+        meta.textContent = `${who} · ${ago(row.occurredAt, at)}${
           row.escalationCount > 0 ? ` · escalated ${row.escalationCount}×` : ''
         }`;
 
@@ -576,6 +583,7 @@ async function boot(): Promise<void> {
       people: Record<string, string>;
       seats: Record<string, { title: string; tier: string }>;
     };
+    responsibleDepartments: string[];
   }
 
   /**
@@ -716,9 +724,24 @@ async function boot(): Promise<void> {
       ack.append(by);
     }
 
+    const dept = document.createElement('div');
+    dept.className = 'value';
+    dept.dataset['field'] = 'responsible';
+    const deptK = document.createElement('span');
+    deptK.className = 'k';
+    deptK.textContent = 'Responsible';
+    const deptV = document.createElement('span');
+    deptV.className = 'v';
+    deptV.textContent =
+      data.responsibleDepartments.length > 0
+        ? data.responsibleDepartments.join(', ')
+        : 'not yet routed';
+    dept.append(deptK, deptV);
+
     detailValues.replaceChildren(
       valueBlock('Severity', s.severity, data.actors, 'not yet assessed'),
       valueBlock('Category', s.category, data.actors, 'unknown'),
+      dept,
       ack,
     );
 

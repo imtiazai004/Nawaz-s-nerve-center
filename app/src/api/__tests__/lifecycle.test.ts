@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 
 import { createSyncServer } from '../server.js';
 import { createPool, migrate, type Pool } from '../../db/pool.js';
+import { seedDepartment } from '../../testing/seed.js';
 import { loadIncident } from '../../db/eventStore.js';
 import { hashPassword } from '../../auth/passwords.js';
 import { login } from '../../auth/sessions.js';
@@ -57,8 +58,8 @@ describe.skipIf(dbUrl === undefined)('incident lifecycle over HTTP (integration)
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-    rescueDept = randomUUID();
-    policeDept = randomUUID();
+    rescueDept = await seedDepartment(pool, 'Rescue 1122 (test)');
+    policeDept = await seedDepartment(pool, 'Police (test)');
 
     rescueSeat = await makeSeat('Rescue 1122 Station In-Charge', rescueDept, 'station');
     const rescueSupervisorSeat = await makeSeat(

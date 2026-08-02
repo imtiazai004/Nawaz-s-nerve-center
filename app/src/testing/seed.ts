@@ -22,6 +22,38 @@ export interface TestActor {
   readonly token: string;
 }
 
+/**
+ * A department row, because `seat.department_id` is a real foreign key from migration 0005.
+ *
+ * Before that, tests invented a uuid and the database accepted it — which was the whole
+ * problem: a department id that referenced nothing, rendered to operators as a uuid. Tests
+ * now have to create the thing they point at, exactly as the district does.
+ */
+export async function seedDepartment(pool: Pool, name?: string): Promise<string> {
+  return ensureDepartment(pool, randomUUID(), name);
+}
+
+/**
+ * Make sure a specific department id exists.
+ *
+ * Some suites pin a department to a constant so the same id appears in fixtures and
+ * assertions. Those ids used to reference nothing, which the database happily allowed — the
+ * exact bug M0-51 fixes. Rather than make every such suite remember to create the row, the
+ * helper they already call guarantees it.
+ */
+export async function ensureDepartment(
+  pool: Pool,
+  departmentId: string,
+  name?: string,
+): Promise<string> {
+  await pool.query(
+    `INSERT INTO department (department_id, code, name) VALUES ($1, $2, $3)
+     ON CONFLICT (department_id) DO NOTHING`,
+    [departmentId, `test-${departmentId}`, name ?? `Test Department ${departmentId.slice(0, 8)}`],
+  );
+  return departmentId;
+}
+
 export async function seedActor(
   pool: Pool,
   options: {
@@ -31,7 +63,10 @@ export async function seedActor(
     canBreakGlass?: boolean;
   } = {},
 ): Promise<TestActor> {
-  const departmentId = options.departmentId ?? randomUUID();
+  const departmentId =
+    options.departmentId === undefined
+      ? await seedDepartment(pool)
+      : await ensureDepartment(pool, options.departmentId);
 
   const seat = await pool.query<{ seat_id: string }>(
     `INSERT INTO seat (title, department_id, tier, can_break_glass)
