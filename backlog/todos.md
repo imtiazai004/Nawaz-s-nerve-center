@@ -145,6 +145,7 @@ question that was "waiting on the district" turned into a screen where they ente
 
 | M1-04 | Response action logging that says **when it happened** | `DONE` | — | `log_action` accepts an `occurredAt`. A crew writes up an hour of work at once, and recording all of it as happening when somebody found time to type would put a lie in the record a post-incident report is folded from. A stated time in the future is ignored. Same split as ADR-0002 |
 | M1-05 | Evidence: photographs and files on an incident | `DONE` | M1-04 | Migration 0012, `ops/evidence.ts`. **Bytes on disk, reference and hash in the database** — photographs inside the nightly dump would take it from megabytes to gigabytes and break the restore, and ADR-0011 sends that dump out of the district. The client never chooses the path; the declared content type never decides how it is served; a file whose hash no longer matches is still handed over, labelled `MISMATCH`, because withholding the only photograph of a scene is worse. 22 tests |
+| M1-01 | The department workspace — one screen for a shift | `DONE` | M1-03 | `web/src/workspace.ts`. Needs you now, in hand, what you can send — with acknowledge, dispatch, log and resolve **inline**, because anything that requires leaving the list to do is a reason not to do it. Scoped to the department: the board shows unrouted incidents to any seat (INV-01) and that is the wrong rule for a screen headed *needs you*. Empty says so in words. 13 browser tests |
 ### Operations
 
 | # | Task | Status | Depends on | Acceptance |

@@ -373,6 +373,83 @@
       .change[data-action="retired"] .what { color: var(--critical); }
       @media (max-width: 46rem) { .change { grid-template-columns: 1fr; } }
 
+      /* ------------------------------------------------------- the shift screen */
+      body:has(#shiftView:not([hidden])) main { max-width: 48rem; }
+
+      #shiftWho { margin: 0 0 0.2rem; font-weight: 700; color: var(--ink); font-size: 0.9rem; }
+      #shiftError {
+        margin: 0 0 0.8rem; padding: 0.6rem 0.8rem;
+        background: #f0dad6; color: var(--critical);
+        font-size: 0.88rem; font-weight: 600;
+      }
+      #shift .asof { font-size: 0.78rem; color: var(--slate); margin: 0 0 0.9rem; }
+      /* Stale is never rendered as current (INV-02). */
+      #shift .asof[data-stale="true"] { color: var(--critical); font-weight: 800; }
+
+      #shift .sectionhead {
+        font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em;
+        color: var(--slate); margin: 1.3rem 0 0.5rem;
+      }
+      /* Said in words. A blank area is indistinguishable from a screen that failed. */
+      #shift .quiet { margin: 0; font-size: 0.88rem; color: var(--slate); }
+      #shift .quiet.warn { color: var(--critical); font-weight: 700; }
+
+      .work {
+        background: var(--card); border: 1px solid var(--line); border-radius: 3px;
+        padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; cursor: pointer;
+      }
+      .work:hover, .work:focus-visible { background: #faf8f4; }
+      .work[data-overdue="true"] { border-left: 4px solid var(--critical); background: #f7e9e6; }
+      .work header {
+        display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem;
+        padding: 0; border: none;
+      }
+      .work .sev {
+        font-weight: 800; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em;
+      }
+      .work .sev[data-level="critical"] { color: var(--critical); }
+      .work .sev[data-level="unknown"]  { color: var(--pending); }
+      .work .cat { font-weight: 700; font-size: 0.95rem; }
+      .work .state { font-size: 0.78rem; color: var(--slate); }
+      .work .flag {
+        font-size: 0.72rem; font-weight: 800; color: var(--critical);
+        text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .work .flag.msg { color: var(--pending); }
+      .work .meta { margin: 0.25rem 0 0; font-size: 0.8rem; color: var(--slate); }
+
+      .work .actions { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.6rem; }
+      button.act {
+        margin: 0; padding: 0.5rem 0.9rem; min-height: 44px;
+        font: inherit; font-size: 0.85rem; font-weight: 700;
+        background: none; border: 1px solid var(--ink); border-radius: 2px; cursor: pointer;
+      }
+      button.act.primary { background: var(--ink); color: var(--paper); }
+      select.send { margin: 0; padding: 0.5rem; min-height: 44px; font: inherit; font-size: 0.85rem; }
+
+      #canSend .tallies { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 0.7rem; }
+      #canSend .tally {
+        padding: 0.35rem 0.65rem; background: var(--card);
+        border: 1px solid var(--line); border-radius: 3px;
+        font-size: 0.78rem; font-weight: 600;
+      }
+      #canSend .tally b { font-size: 1.05rem; display: block; }
+      #canSend .tally[data-kind="available"] { border-color: var(--ok); color: var(--ok); }
+      #canSend .tally[data-kind="outofservice"] { border-color: var(--critical); color: var(--critical); }
+
+      .unit {
+        display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem;
+        padding: 0.4rem 0.2rem; border-bottom: 1px solid var(--line); font-size: 0.85rem;
+      }
+      .unit .uname { font-weight: 700; }
+      .unit .uid { font-size: 0.78rem; color: var(--slate); font-variant-numeric: tabular-nums; }
+      /* Why, in words, every time. "Unavailable" sends an operator away to find out. */
+      .unit .why { font-size: 0.8rem; }
+      .unit[data-state="off"] .why { color: var(--critical); font-weight: 600; }
+      .unit[data-state="out"] .why { color: var(--pending); }
+      .unit .ready { font-size: 0.8rem; color: var(--ok); font-weight: 600; }
+      .unit .crewlist { flex-basis: 100%; font-size: 0.78rem; color: var(--slate); }
+
       /* ------------------------------------------------------------- the roster */
       body:has(#mineView:not([hidden])) main { max-width: 52rem; }
 
@@ -568,6 +645,12 @@
         pick any department. Routing signals and deadlines are deliberately not here — those
         are the district's decisions about a department, not the department's about itself.
       -->
+      <!--
+        The shift screen (M1-01). A duty officer's home: what needs them now, what is in
+        hand, and what they can send — in one place, because an operator with four tabs open
+        is an operator who has to remember which tab the overdue thing was in.
+      -->
+      <button type="button" id="navShift" hidden>My shift</button>
       <button type="button" id="navMine" hidden>My department</button>
     </nav>
 
@@ -698,6 +781,19 @@
         </nav>
         <p id="adminError" hidden></p>
         <div id="adminBody"></div>
+      </section>
+
+      <!--
+        The department workspace (M1-01).
+
+        Everything on it already existed as an endpoint. What did not exist was one place
+        answering "what needs me now" — and the sections are ordered the way somebody under
+        pressure needs them, not the way the data is stored.
+      -->
+      <section id="shiftView" hidden>
+        <p id="shiftWho" class="meta"></p>
+        <p id="shiftError" hidden></p>
+        <div id="shiftBody"></div>
       </section>
 
       <!-- A department's own roster. Same component, scoped to the caller's own seat. -->

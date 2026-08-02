@@ -23,6 +23,7 @@ import type { IncidentEvent } from '../../src/domain/events.js';
 import { buildCapture, describeFix, startLocationWatch, type Fix } from './location.js';
 import { mountAdmin, type AdminConsole } from './admin.js';
 import { mountRoster, type RosterPanel } from './roster.js';
+import { mountWorkspace, type Workspace } from './workspace.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -150,13 +151,17 @@ async function boot(): Promise<void> {
     // department of its own — the control room, the DC — has no "my department" to show, and
     // the two offices reach every roster through the console instead.
     navMine.hidden = !signedIn || identity?.departmentId === null;
+    // The shift screen is for somebody who holds a post. A seat with no department has no
+    // fleet and no departmental queue, so the board is already their whole view.
+    navShift.hidden = !signedIn || identity?.departmentId === null;
 
     if (!signedIn) {
       if (
         boardView.hidden === false ||
         inboxView.hidden === false ||
         adminView.hidden === false ||
-        mineView.hidden === false
+        mineView.hidden === false ||
+        shiftView.hidden === false
       ) {
         showView('report');
       }
@@ -356,6 +361,14 @@ async function boot(): Promise<void> {
   // A department's own roster (M1a-10) — the other door onto the same component the console
   // uses. The server resolves "my department" from the caller's seat, so a department
   // officer never has to know their own uuid and cannot change the answer by sending one.
+  // The shift screen (M1-01). Opening an incident from it goes through the same detail
+  // view the board uses — one definition of what an incident looks like, two ways in.
+  const navShift = el<HTMLButtonElement>('navShift');
+  const shiftView = el('shiftView');
+  const shift: Workspace = mountWorkspace((incidentId) => {
+    void openDetail(incidentId);
+  });
+
   const navMine = el<HTMLButtonElement>('navMine');
   const mineView = el('mineView');
   const mineError = el('mineError');
@@ -592,13 +605,16 @@ async function boot(): Promise<void> {
     showView(show ? 'board' : 'report');
   }
 
-  function showView(view: 'report' | 'board' | 'detail' | 'inbox' | 'admin' | 'mine'): void {
+  function showView(
+    view: 'report' | 'board' | 'detail' | 'inbox' | 'admin' | 'mine' | 'shift',
+  ): void {
     reportView.hidden = view !== 'report';
     boardView.hidden = view !== 'board';
     detailView.hidden = view !== 'detail';
     inboxView.hidden = view !== 'inbox';
     adminView.hidden = view !== 'admin';
     mineView.hidden = view !== 'mine';
+    shiftView.hidden = view !== 'shift';
 
     // Detail is reached from the board or the inbox, so whichever tab you came from stays
     // current while reading one.
@@ -607,6 +623,18 @@ async function boot(): Promise<void> {
     navBoard.setAttribute('aria-current', view === 'board' || view === 'detail' ? 'page' : 'false');
     navAdmin.setAttribute('aria-current', view === 'admin' ? 'page' : 'false');
     navMine.setAttribute('aria-current', view === 'mine' ? 'page' : 'false');
+    navShift.setAttribute('aria-current', view === 'shift' ? 'page' : 'false');
+
+    // Polling stops the moment the operator leaves. A background refresh against a screen
+    // nobody is looking at is a request the district's one server did not need to serve.
+    if (view !== 'shift') shift.stop();
+    if (view === 'shift' && identity !== null) {
+      void shift.show({
+        departmentId: identity.departmentId,
+        departmentName: identity.departmentName,
+        seatTitle: identity.seatTitle,
+      });
+    }
 
     if (view === 'admin') admin.show();
     if (view === 'mine') void mine.show(null);
@@ -768,6 +796,7 @@ async function boot(): Promise<void> {
   navInbox.addEventListener('click', () => showView('inbox'));
   navAdmin.addEventListener('click', () => showView('admin'));
   navMine.addEventListener('click', () => showView('mine'));
+  navShift.addEventListener('click', () => showView('shift'));
   el('back').addEventListener('click', () => showView('board'));
 
   // ------------------------------------------------------- incident detail (M0-35)

@@ -1422,3 +1422,26 @@ built rather than facts we were missing.
   A `UNIQUE` path reused between runs, two `examples` lists capped at ten, and a board
   summary capped at 500 incidents. Fixed to assert the actual claim rather than a total.
 - **Tests:** 498 → 520.
+
+## 2026-08-03 — The shift screen (M1-01)
+
+- **Added:** `web/src/workspace.ts` and a **My shift** tab. Three sections in the order
+  somebody under pressure needs them: *needs you now*, *in hand*, *what you can send*.
+- **Everything on it already existed as an endpoint.** What did not exist was one place
+  answering "what needs me now" — and an operator with four tabs open is an operator who has
+  to remember which tab the overdue thing was in. Acknowledge, dispatch, log and resolve all
+  happen inline: anything that requires leaving the list to do is a reason not to do it.
+- **Scoped to the department, and that is a decision rather than a filter.** The board shows
+  a department every *unrouted* incident, because an emergency nobody may see is an emergency
+  nobody picks up (INV-01). That is right for the board and wrong for a screen headed *needs
+  you now* — since ADR-0010 there is somebody who owns an unassigned emergency, and burying a
+  duty officer's own work under the district's teaches them to stop reading the list. Caught
+  by the browser test, which found a Rescue officer's shift screen full of other people's
+  emergencies.
+- **Empty states say so in words** — *nothing is waiting*, *no vehicles are recorded for this
+  department*. A blank area and a screen that failed to load look identical, and reading the
+  second as the first is how somebody concludes there is no emergency when there is.
+- **Polling stops when the operator leaves the screen**, with a test that watches for
+  requests over twelve seconds and expects none. The district runs one server, and it is also
+  handling emergencies.
+- **Tests:** 520 → 533.
