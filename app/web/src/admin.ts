@@ -101,6 +101,21 @@ interface ConfigChange {
   before: unknown;
 }
 
+interface IntegrityFinding {
+  code: string;
+  severity: 'blocking' | 'serious' | 'note';
+  what: string;
+  consequence: string;
+  count: number;
+  examples: string[];
+}
+
+interface IntegrityReport {
+  asOf: string;
+  findings: IntegrityFinding[];
+  summary: { blocking: number; serious: number; notes: number };
+}
+
 type Tab = 'departments' | 'deadlines' | 'roster' | 'performance' | 'history';
 
 /** A number, or a dash. Never a zero standing in for "we do not know". */
@@ -359,12 +374,77 @@ export function mountAdmin(): AdminConsole {
     return card;
   }
 
+  /**
+   * The configuration sweep, at the top of the departments screen (W-01).
+   *
+   * Here rather than on a tab of its own, because a report nobody opens is a report that
+   * does not exist. This is the screen the two offices are on when they can act on a
+   * finding, and every finding names its consequence rather than only its count — "37 vacant
+   * posts" is a number somebody scrolls past.
+   */
+  function integrityPanel(report: IntegrityReport): HTMLElement {
+    const panel = document.createElement('section');
+    panel.id = 'integrity';
+    panel.dataset['worst'] =
+      report.summary.blocking > 0 ? 'blocking' : report.summary.serious > 0 ? 'serious' : 'clear';
+
+    if (report.findings.length === 0) {
+      panel.append(
+        text(
+          'p',
+          'clear',
+          'Every department has a post, a routing signal and somebody to call.',
+        ),
+      );
+      return panel;
+    }
+
+    panel.append(
+      text(
+        'h4',
+        'sectionhead',
+        `Needs attention — ${String(report.summary.blocking)} blocking, ` +
+          `${String(report.summary.serious)} serious`,
+      ),
+    );
+
+    for (const f of report.findings) {
+      const row = document.createElement('details');
+      row.className = 'finding';
+      row.dataset['severity'] = f.severity;
+      // Blocking findings are open by default; a collapsed one is a finding nobody read.
+      row.open = f.severity === 'blocking';
+
+      const head = document.createElement('summary');
+      head.append(text('span', 'sev', f.severity));
+      head.append(text('span', 'what', f.what));
+      head.append(text('span', 'count', String(f.count)));
+      row.append(head);
+
+      row.append(text('p', 'consequence', f.consequence));
+      const list = document.createElement('ul');
+      for (const e of f.examples) list.append(text('li', '', e));
+      if (f.count > f.examples.length) {
+        list.append(text('li', 'more', `… and ${String(f.count - f.examples.length)} more`));
+      }
+      row.append(list);
+      panel.append(row);
+    }
+
+    return panel;
+  }
+
   async function renderDepartments(mine: number): Promise<void> {
-    const departments = await api<DepartmentView[]>('GET', '/admin/departments');
+    const [departments, report] = await Promise.all([
+      api<DepartmentView[]>('GET', '/admin/departments'),
+      api<IntegrityReport>('GET', '/admin/integrity'),
+    ]);
     if (departments === null) return;
 
     const wrap = document.createElement('div');
     wrap.id = 'adminDepartments';
+
+    if (report !== null) wrap.append(integrityPanel(report));
 
     const add = document.createElement('form');
     add.id = 'addDepartment';

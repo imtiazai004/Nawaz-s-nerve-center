@@ -242,6 +242,31 @@
         color: var(--slate); margin: 1.2rem 0 0.5rem;
       }
 
+      /* The configuration sweep (W-01). Consequence before count, always. */
+      #integrity { margin-bottom: 1rem; }
+      #integrity .clear { font-size: 0.85rem; color: var(--ok); font-weight: 600; margin: 0; }
+      .finding {
+        border-left: 4px solid var(--line);
+        background: var(--card);
+        padding: 0.4rem 0.7rem;
+        margin-bottom: 0.35rem;
+        font-size: 0.85rem;
+      }
+      .finding[data-severity="blocking"] { border-left-color: var(--critical); }
+      .finding[data-severity="serious"]  { border-left-color: var(--pending); }
+      .finding summary { cursor: pointer; display: flex; gap: 0.6rem; align-items: baseline; }
+      .finding .sev {
+        font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--slate); min-width: 4.5rem;
+      }
+      .finding[data-severity="blocking"] .sev { color: var(--critical); }
+      .finding[data-severity="serious"]  .sev { color: var(--pending); }
+      .finding .what { font-weight: 600; flex: 1; }
+      .finding .count { font-weight: 800; font-variant-numeric: tabular-nums; }
+      .finding .consequence { margin: 0.35rem 0 0.2rem; color: var(--slate); font-size: 0.8rem; }
+      .finding ul { margin: 0.2rem 0 0.2rem 1.1rem; padding: 0; font-size: 0.8rem; }
+      .finding .more { color: var(--slate); font-style: italic; }
+
       #addDepartment {
         display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: stretch;
         margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line);

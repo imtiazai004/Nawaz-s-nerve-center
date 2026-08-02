@@ -34,6 +34,7 @@ import {
   setRetired,
   setTarget,
   slaForConsole,
+  integrity,
   type AdminResult,
 } from './admin.js';
 import { districtPerformance } from './performance.js';
@@ -487,6 +488,11 @@ async function handleAdmin(
 
   if (req.method === 'GET' && pathname === '/admin/performance') {
     send(await districtPerformance(pool, identity));
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/integrity') {
+    send(await integrity(pool, identity));
     return;
   }
 

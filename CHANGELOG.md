@@ -1341,3 +1341,23 @@ built rather than facts we were missing.
 - **Added:** `backlog/for-the-district.md` — the single list of everything waiting on the
   owner, at their request. `CLAUDE.md` §5b now points at it rather than duplicating it.
 - **Added:** `backlog/week-of-2026-08-02.md` — this week's plan, written before starting.
+
+## 2026-08-02 — The configuration sweep (W-01)
+
+- **Added:** `src/ops/integrity.ts`, `npm run sweep`, and `GET /admin/integrity`, surfaced at
+  the top of the console's Departments tab. Eleven checks, each written as *how the district
+  can be misconfigured such that an emergency reaches nobody and nothing anywhere says so*.
+- **It reports and never fixes.** Every finding is a decision for the district or a fact
+  somebody has to look at; a sweep that quietly corrected things would destroy the evidence
+  that anything was wrong, and would make the next report look clean while the district was
+  still misconfigured. A test pins that it changes no rows.
+- **Findings are graded by consequence, not tidiness** — `blocking` means an emergency will
+  reach nobody, and every finding states what it costs rather than only how many there are. A
+  test fails any finding whose consequence is shorter than a sentence or hedges with "may
+  cause".
+- **First run against the district's real data: 0 blocking, 3 serious, 1 note.** 77
+  departments no routing signal points at (R-04), 37 posts nobody holds (R-02), Rescue 1122's
+  stand-in number (R-01), and the shared handset from Q-19. Everything it found was already
+  on the district's list, which is the result worth having: no unknown structural damage
+  under the roster loaded before routing existed.
+- **Tests:** 451 → 463.

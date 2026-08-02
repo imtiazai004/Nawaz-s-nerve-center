@@ -38,6 +38,7 @@ import {
   type Department,
 } from '../db/configStore.js';
 import type { RoutingSignal, SignalKind } from '../domain/routing.js';
+import { sweep, type IntegrityReport } from '../ops/integrity.js';
 
 export type AdminResult<T> =
   | { readonly ok: true; readonly value: T }
@@ -395,6 +396,22 @@ export async function slaForConsole(
 //------------------------------------------------------------------------------
 // The configuration history
 //------------------------------------------------------------------------------
+
+/**
+ * What is wrong with the district's configuration, right now (W-01).
+ *
+ * On the console rather than only in a terminal, because the findings are the two offices'
+ * to act on: a post nobody holds, a department no signal reaches, a stand-in number still
+ * standing in. Nothing here is a decision this system gets to make.
+ */
+export async function integrity(
+  pool: Pool,
+  identity: Identity,
+): Promise<AdminResult<IntegrityReport>> {
+  const denied = requireAdministration<IntegrityReport>(identity);
+  if (denied !== null) return denied;
+  return { ok: true, value: await sweep(pool) };
+}
 
 export async function configHistory(
   pool: Pool,
