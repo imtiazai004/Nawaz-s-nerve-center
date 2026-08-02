@@ -959,3 +959,36 @@ and because it was found after the M0-51 entry above was already written.
   different clothes.
 - **Open:** unchanged and still the owner's decision — commit `1d15b77` continues to hold the
   contact list in history. Removing it needs a rewrite and a force-push.
+
+## 2026-08-02 — Q-19 resolved: a phone number identifies an account, not a person
+
+- **Resolved: Q-19.** The owner confirmed that `03338887171` genuinely covers two posts —
+  `ADC (Finance & Planning) — Yousaf Haroon` and `TMA Bannu — Yousaf Khan`. An office handset
+  serving two offices is ordinary here, so **the schema was wrong, not the data**. A directory
+  that refuses to describe the district it describes is not a directory.
+- **Added:** migration `0006_shared_handsets.sql`. `person.phone` was `UNIQUE`, which made
+  the district's reality unrepresentable — but `phone` is also the login identifier, and
+  dropping uniqueness outright would leave "who is signing in?" with two candidates and no
+  rule for choosing. So uniqueness **moved to where it is load-bearing**: a person who can
+  authenticate (`password_hash IS NOT NULL`) must own their number; a directory contact —
+  notifiable, no credentials — may share one.
+- **Changed:** `login()` now selects only rows with a password hash. Without it the query
+  could return the contact row and the account row and pick arbitrarily between them.
+- **Changed:** the loader matches a row to a person by **name and number**, not number alone.
+  Matching on phone would have handed the second post to whichever officer was inserted
+  first — silently, and looking entirely correct. There is a test for exactly that.
+- **Changed:** the loader now returns `notes` as well as `problems`. A **problem** means a row
+  did not load; a **note** means it did and somebody should still look. A shared handset is
+  real *and* is precisely the shape a mistyped digit takes, so it loads and stays visible
+  rather than becoming silent on the second run.
+- **Decided, both accepted as given by the owner:** `AAC Bakakhel` keeps the designation
+  `AAC Miryan` from the source — it is the district's document, and quietly correcting it
+  would put a change in the roster that nobody in Bannu made. And **Rescue 1122 loads with a
+  vacant post**, having no number in the list.
+- **Open, and worth restating rather than filing away:** Rescue 1122 being vacant is not a
+  small gap. M1 is entirely about Rescue 1122, notifications reach a seat through its holder,
+  and a vacant seat is what the escalation ladder is built to surface rather than swallow.
+  **M1 cannot demonstrate a full incident lifecycle until that number exists.**
+- **Verified:** the real list reloaded cleanly and idempotently — the second run added exactly
+  one person and one assignment (the previously-blocked TMA Bannu row) and nothing else, with
+  both officers correctly attached to their own posts. 313/313 tests across 20 files.

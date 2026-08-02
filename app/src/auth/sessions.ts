@@ -70,11 +70,23 @@ export async function login(
   phone: string,
   password: string,
 ): Promise<LoginResult | null> {
+  // Only people who can actually authenticate are candidates.
+  //
+  // A phone number no longer identifies exactly one person: two officers may share an office
+  // handset, and both are in the directory (migration 0006). Directory entries have no
+  // password hash and cannot sign in, so excluding them here keeps "who is signing in?"
+  // single-valued. Without this filter the query could return the contact row and the
+  // account row and pick between them arbitrarily.
   const res = await pool.query<{
     person_id: string;
     password_hash: string;
     disabled_at: string | null;
-  }>('SELECT person_id, password_hash, disabled_at FROM person WHERE phone = $1', [phone]);
+  }>(
+    `SELECT person_id, password_hash, disabled_at
+       FROM person
+      WHERE phone = $1 AND password_hash IS NOT NULL`,
+    [phone],
+  );
 
   const row = res.rows[0];
 

@@ -120,15 +120,18 @@ that blocks release on failure.
 
 - **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven, CI
   running**
-- **Phase:** Implementation. 310 tests pass on every push. **M1 is underway.** Five of M0's
+- **Phase:** Implementation. 313 tests pass on every push. **M1 is underway.** Five of M0's
   fifty tasks are open and most wait on a person or a decision rather than on code: the
   department board (M0-34), the restore **drill** (M0-38, needs a second person),
   correlation ids (M0-03), backup **scheduling** (M0-37, waits on P-08), and two half-done
   (M0-05 secrets, M0-11 payload versioning).
-- **The district's contact list is loaded** — 79 offices, 81 posts, 39 officers, 38 posts
+- **The district's contact list is loaded** — 79 offices, 81 posts, 40 officers, 38 posts
   vacant. **Its structure is not verified**: everything is flat and every seat is `district`
   tier, which the escalation ladder cannot work with. That is **Q-18**, and it is the
   highest-value unanswered question in the project right now.
+- **Rescue 1122's post is vacant** — no contact number was supplied. M1 is entirely about
+  Rescue 1122, and notifications reach a seat through its holder, so **M1 cannot demonstrate
+  a full lifecycle until that number exists** (Q-19).
 - **Repository:** `github.com/imtiazai004/Nawaz-s-nerve-center`, private, branch `main`.
   **This says nothing about where the application runs** — P-08 is still open, and
   on-premise remains a live option for a district whose internet is the unreliable part.
@@ -240,7 +243,7 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **310 tests passing** across 20 files, including **17 backup/restore tests that run a real
+- **313 tests passing** across 20 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -343,10 +346,15 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
   - **A directory entry is not an account.** People load with a null `password_hash`, meaning
     they can be notified and cannot sign in. Creating logins for ~80 officials who have not
     been told the system exists would be ~80 credentials nobody is watching.
-  - **Conflicts are reported, never resolved.** Two names on one number is either a typo or a
-    shared handset and those need opposite fixes; a seat already held is not reassigned by an
-    import, because a handover is a deliberate act. The loader returns `problems` and the
-    caller is expected to read them.
+  - **Conflicts are reported, never resolved.** A seat already held is not reassigned by an
+    import, because a handover is a deliberate act. The loader returns `problems` (did not
+    load) and `notes` (loaded, look at it), and the caller is expected to read both.
+  - **A phone number identifies an account, not a person** (migration 0006, Q-19). Two
+    officers genuinely share `03338887171`, which is ordinary here — so uniqueness moved to
+    where it is load-bearing: a person who can authenticate must own their number, a
+    directory contact may share one. `login()` considers only rows with a password hash, so
+    "who is signing in?" still has exactly one answer. Shared handsets are still surfaced as
+    a note on every load, because a mistyped digit looks identical.
   - **Nothing is inferred.** The department is the row's own "Department/Office" value,
     verbatim. That `ADC (General)` sits under the DC Office is a fact about Bannu, not
     something this code may decide — see **Q-18**, which also covers the tier gap that

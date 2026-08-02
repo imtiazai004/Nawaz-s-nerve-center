@@ -16,11 +16,15 @@ import { dirname, join } from 'node:path';
 
 import { createPool, migrate, type Pool } from '../../db/pool.js';
 import { login } from '../../auth/sessions.js';
+import { hashPassword } from '../../auth/passwords.js';
 import { codeFor, departmentDirectory, loadDirectory, normalisePhone } from '../directory.js';
 
 const dbUrl = process.env['TEST_DATABASE_URL'];
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsDir = join(here, '..', '..', '..', 'db', 'migrations');
+
+/** Long enough for `assertUsable`; only ever used by fixtures in this file. */
+const ACCOUNT_PASSWORD = 'directory-test-account-2026';
 
 describe('slug and phone normalisation', () => {
   it('makes a stable slug from a department name', () => {
@@ -126,20 +130,6 @@ describe.skipIf(dbUrl === undefined)('loading a directory (integration)', () => 
   });
 
   describe('what it refuses to do', () => {
-    it('reports two different names on one number instead of merging them', async () => {
-      // Either a typo or a shared handset, and those need opposite fixes. This is not a
-      // hypothetical: the district's first list has exactly one such pair in it.
-      const out = await loadDirectory(pool, [
-        { department: dept('D1'), designation: 'Post One', name: 'Test Four', phone: phone(4) },
-        { department: dept('D2'), designation: 'Post Two', name: 'Test Five', phone: phone(4) },
-      ]);
-
-      expect(out.problems).toHaveLength(1);
-      expect(out.problems[0]!.problem).toMatch(/same number, different name/);
-      // The first row still loaded. One bad pairing does not cost us the rest of the list.
-      expect(out.people).toBe(1);
-    });
-
     it('will not quietly hand a held seat to someone else', async () => {
       // A handover is a deliberate, auditable act (docs/04-authority-model.md), not something
       // an import does because a spreadsheet changed.
@@ -160,6 +150,93 @@ describe.skipIf(dbUrl === undefined)('loading a directory (integration)', () => 
       const out = await loadDirectory(pool, [{ department: '  ', name: 'Nobody' }]);
       expect(out.problems).toHaveLength(1);
       expect(out.seats).toBe(0);
+    });
+  });
+
+  describe('two officers on one handset (Q-19)', () => {
+    it('loads both, and says so', async () => {
+      // Confirmed by the owner as ordinary here: an office handset covering two posts. Both
+      // load — but it is surfaced as a note, because a mistyped digit produces exactly this
+      // shape and nothing in the data distinguishes them.
+      const shared = phone(4);
+      const out = await loadDirectory(pool, [
+        { department: dept('D1'), designation: 'Post One', name: 'Test Four', phone: shared },
+        { department: dept('D2'), designation: 'Post Two', name: 'Test Five', phone: shared },
+      ]);
+
+      expect(out.problems).toEqual([]);
+      expect(out.people).toBe(2);
+      expect(out.assignments).toBe(2);
+
+      expect(out.notes).toHaveLength(1);
+      expect(out.notes[0]!.problem).toMatch(/shared handset, both loaded/);
+    });
+
+    it('keeps each officer attached to their own post', async () => {
+      // The failure this guards: matching a row to a person by phone alone would hand the
+      // second post to whichever officer was inserted first, silently.
+      const shared = phone(5);
+      await loadDirectory(pool, [
+        { department: dept('E1'), designation: 'Post One', name: 'Test Six', phone: shared },
+        { department: dept('E2'), designation: 'Post Two', name: 'Test Seven', phone: shared },
+      ]);
+
+      const held = await pool.query<{ title: string; full_name: string }>(
+        `SELECT s.title, p.full_name
+           FROM seat s
+           JOIN department d ON d.department_id = s.department_id
+           JOIN duty_assignment a ON a.seat_id = s.seat_id AND a.to_at IS NULL
+           JOIN person p ON p.person_id = a.person_id
+          WHERE d.name IN ($1, $2)
+          ORDER BY s.title`,
+        [dept('E1'), dept('E2')],
+      );
+
+      expect(held.rows).toEqual([
+        { title: 'Post One', full_name: 'Test Six' },
+        { title: 'Post Two', full_name: 'Test Seven' },
+      ]);
+    });
+
+    it('still refuses two accounts on one number', async () => {
+      // Uniqueness moved rather than disappeared (migration 0006). A directory contact may
+      // share a handset; two people who can *sign in* may not, because "who is signing in?"
+      // has to have exactly one answer.
+      const shared = phone(6);
+      await pool.query('INSERT INTO person (full_name, phone, password_hash) VALUES ($1,$2,$3)', [
+        'Account One',
+        shared,
+        'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      ]);
+
+      await expect(
+        pool.query('INSERT INTO person (full_name, phone, password_hash) VALUES ($1,$2,$3)', [
+          'Account Two',
+          shared,
+          'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+        ]),
+      ).rejects.toThrow();
+    });
+
+    it('signs in the account holder, not the contact sharing their number', async () => {
+      const shared = phone(7);
+      await loadDirectory(pool, [
+        {
+          department: dept('F1'),
+          designation: 'Contact Post',
+          name: 'Directory Only',
+          phone: shared,
+        },
+      ]);
+      await pool.query('INSERT INTO person (full_name, phone, password_hash) VALUES ($1,$2,$3)', [
+        'Real Account',
+        shared,
+        await hashPassword(ACCOUNT_PASSWORD),
+      ]);
+
+      const result = await login(pool, shared, ACCOUNT_PASSWORD);
+      expect(result).not.toBeNull();
+      expect(result!.identity.fullName).toBe('Real Account');
     });
   });
 

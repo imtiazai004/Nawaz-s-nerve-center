@@ -17,9 +17,15 @@
  * 2. **A directory entry is not an account.** People are loaded with no password hash, which
  *    means they cannot sign in. The system needs to notify these officers; it has no mandate
  *    to create logins for people who have not been told it exists.
- * 3. **Conflicts are reported, never resolved.** Two different names on one mobile number is
- *    either a typo or a shared handset, and the two need opposite fixes. Guessing produces a
- *    directory that is confidently wrong, which is worse than one that is visibly incomplete.
+ * 3. **Conflicts are reported, never resolved.** The loader does not decide anything a human
+ *    should. Where a resolution has been given it is honoured; where none has, the row is
+ *    left out and named, because a directory that is confidently wrong is worse than one
+ *    that is visibly incomplete.
+ *
+ * Two kinds of outcome, and the difference matters. A **problem** means a row did not load.
+ * A **note** means it did, and somebody should still know — a shared handset is real and
+ * ordinary here, and it is also the shape a transcription error takes, so it is never
+ * silent.
  *
  * Idempotent: run it again after the district sends more rows and only the new ones land.
  */
@@ -50,6 +56,13 @@ export interface DirectoryOutcome {
   readonly vacant: number;
   /** Rows that could not be loaded without a guess. Never silently dropped. */
   readonly problems: readonly DirectoryProblem[];
+  /**
+   * Rows that **did** load but that somebody should still look at.
+   *
+   * A shared handset is ordinary in this district and is also exactly what a mistyped digit
+   * looks like. Loading it and saying nothing would make the two indistinguishable.
+   */
+  readonly notes: readonly DirectoryProblem[];
 }
 
 /** A stable slug for a department name. Deterministic, so re-running matches what is there. */
@@ -92,6 +105,7 @@ export async function loadDirectory(
   rows: readonly DirectoryRow[],
 ): Promise<DirectoryOutcome> {
   const problems: DirectoryProblem[] = [];
+  const notes: DirectoryProblem[] = [];
   let departments = 0;
   let seats = 0;
   let people = 0;
@@ -151,19 +165,22 @@ export async function loadDirectory(
 
     const owner = phoneOwner.get(phone);
     if (owner !== undefined && owner !== fullName) {
-      // Either a typo in the source or a genuinely shared handset. Those need opposite
-      // fixes, and picking one would put a confident falsehood in the roster.
-      problems.push({
+      // An office handset covering two posts, confirmed by the owner as ordinary here
+      // (Q-19). Both officers load. It is still surfaced, because a mistyped digit produces
+      // exactly this shape and the two are indistinguishable from the data alone.
+      notes.push({
         row,
-        problem: `phone ${phone} is already listed for "${owner}" — same number, different name`,
+        problem: `phone ${phone} is also listed for "${owner}" — shared handset, both loaded`,
       });
-      continue;
     }
     phoneOwner.set(phone, fullName);
 
-    const existingPerson = await pool.query<{ person_id: string; full_name: string }>(
-      'SELECT person_id, full_name FROM person WHERE phone = $1',
-      [phone],
+    // Matched on name **and** number, not number alone. Since 0006 a number can belong to
+    // more than one person, so looking up by phone would otherwise hand this row whichever
+    // officer happened to be inserted first and quietly attach the post to them.
+    const existingPerson = await pool.query<{ person_id: string }>(
+      'SELECT person_id FROM person WHERE phone = $1 AND full_name = $2',
+      [phone, fullName],
     );
 
     let personId = existingPerson.rows[0]?.person_id;
@@ -175,12 +192,6 @@ export async function loadDirectory(
       );
       personId = created.rows[0]!.person_id;
       people += 1;
-    } else if (existingPerson.rows[0]!.full_name !== fullName) {
-      problems.push({
-        row,
-        problem: `phone ${phone} is already in the database for "${existingPerson.rows[0]!.full_name}"`,
-      });
-      continue;
     }
 
     // One officer can hold several posts — the same ADC covers General and Relief, and one
@@ -213,7 +224,7 @@ export async function loadDirectory(
     }
   }
 
-  return { departments, seats, people, assignments, vacant, problems };
+  return { departments, seats, people, assignments, vacant, problems, notes };
 }
 
 export interface DepartmentSummary {

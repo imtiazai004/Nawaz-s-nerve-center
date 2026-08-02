@@ -113,18 +113,29 @@ the pilot.**
 Fisheries, Auqaf, Sports, Press Club — are not emergency responders. Routing should not
 offer them. Needs a marked subset.
 
-### Q-19 · Two officers, one mobile number `OPEN`
-The supplied list gives **03338887171** to both `ADC (Finance & Planning) — Yousaf Haroon`
-and `TMA Bannu — Yousaf Khan`. Different names, one number. Either a transcription error or
-a genuinely shared handset, and those need opposite fixes, so the loader reported it and
-loaded neither pairing over the other. The TMA Bannu row is **not in the system** until this
-is resolved.
+### Q-19 · Two officers, one mobile number `RESOLVED 2026-08-02`
+**Answer: keep both.** `03338887171` genuinely covers `ADC (Finance & Planning) — Yousaf
+Haroon` and `TMA Bannu — Yousaf Khan`. Source: project owner, 2026-08-02.
 
-Two smaller ones from the same list:
-- `AAC Bakakhel` has the designation `AAC Miryan` — almost certainly a copy-paste, but it is
-  the district's document and not ours to correct.
+An office handset covering two posts is ordinary here, so the schema was wrong rather than
+the data. Migration 0006 moves phone uniqueness to where it is load-bearing: **a person who
+can authenticate must own their number; a directory contact may share one.** `login()` now
+considers only rows with a password hash, so "who is signing in?" keeps exactly one answer.
+
+The pairing is still surfaced as a **note** on every load. It is real, and it is also
+precisely the shape a mistyped digit takes — nothing in the data distinguishes them.
+
+Two smaller ones from the same list, both **accepted as given** by the owner on the same
+date:
+- `AAC Bakakhel` carries the designation `AAC Miryan`. Loaded verbatim. It is the district's
+  document, and correcting it here would put a change into the roster that nobody in Bannu
+  made.
 - **Rescue 1122 has no contact number.** Bakht Ullah Wazir is named as District Emergency
-  Officer with no number, and Rescue 1122 is the entire subject of M1.
+  Officer with no number, so the post is loaded **vacant**. Worth restating because it is not
+  a small gap: Rescue 1122 is the entire subject of M1, notifications reach a seat through
+  its holder, and a vacant seat is exactly what the escalation ladder is designed to surface
+  rather than swallow. **M1 cannot demonstrate a full incident lifecycle until this number
+  exists.**
 
 ### Q-15 · Secondary control room location `OPEN`
 `00-thesis.md` flags the control room as a single point of failure. Where the secondary
