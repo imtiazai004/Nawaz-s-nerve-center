@@ -221,13 +221,35 @@ describe.skipIf(dbUrl === undefined)('the roster (integration)', () => {
       expect(res.status).toBe(403);
     });
 
-    it('lets the administration place a post at any tier', async () => {
+    /**
+     * Tier is derived, not chosen — by anybody.
+     *
+     * The administration can create a post in any department; what it cannot do is make that
+     * post district-tier while the department is ordinary, because migration 0010 derives
+     * tier from `is_administration` at the database. That is stricter than the API check
+     * above it, deliberately: a tier that drifts out of step with the office it belongs to is
+     * a silent widening of who may read what, and one enforcement point beats two.
+     */
+    it('gives an ordinary department a department-tier post even when the DC asks otherwise', async () => {
       const res = await call('POST', `/roster/${policeDept}/posts`, dcToken, {
-        title: `Tehsil Coordinator ${RUN}`,
-        tier: 'tehsil',
+        title: `Coordinator ${RUN}`,
+        tier: 'district',
       });
       expect(res.status).toBe(201);
-      expect(res.body['tier']).toBe('tehsil');
+      expect(res.body['tier']).toBe('department');
+    });
+
+    it('gives an administrative office district-tier posts without being asked', async () => {
+      const admin = await call('GET', '/admin/departments', dcToken);
+      const office = (
+        admin.body as unknown as { departmentId: string; isAdministration: boolean }[]
+      ).filter((d) => d.isAdministration)[0]!;
+
+      const res = await call('POST', `/roster/${office.departmentId}/posts`, dcToken, {
+        title: `Additional Officer ${RUN}`,
+      });
+      expect(res.status).toBe(201);
+      expect(res.body['tier']).toBe('district');
     });
   });
 

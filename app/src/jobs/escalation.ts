@@ -78,17 +78,39 @@ export async function nextSeatUp(
                WHERE d.seat_id = s.seat_id AND d.to_at IS NULL
             ) AS has_holder
        FROM seat s
+       LEFT JOIN department d ON d.department_id = s.department_id
       WHERE s.tier = ANY($1::text[])
-        AND (s.department_id = $2 OR s.department_id IS NULL)`,
+        AND s.retired_at IS NULL
+        AND (
+              s.department_id = $2
+              OR s.department_id IS NULL
+              -- The rung above a department **is** the administration (ADR-0010), and an
+              -- administrative office is a department with an id. Without this clause the
+              -- ladder could only climb to a department-agnostic seat, so an escalation out
+              -- of a department reached the DC Office only if somebody happened to have
+              -- created a seat with no department at all. Exposed by migration 0010, which
+              -- moved every real district-tier post into one of the two offices.
+              OR d.is_administration
+            )
+      -- Stable, so two runs against the same data escalate to the same seat. Arbitrary row
+      -- order would make "why did it go there?" unanswerable after the fact.
+      ORDER BY s.created_at, s.seat_id`,
     [higher, departmentId],
   );
 
   for (const tier of higher) {
     const atTier = res.rows.filter((r) => r.tier === tier);
-    // Same department first, then the department-agnostic control-room seats.
+    // A **held** seat first, in every case, before any unheld one.
+    //
+    // Preference within that: the incident's own department, then a department-agnostic
+    // control-room seat, then an administrative office. Only once nothing at this rung has a
+    // holder does an empty post get picked — and picking one is correct rather than a
+    // fallback failure. ADR-0004: a post with nobody in it must never *swallow* an
+    // obligation, so the escalation lands there and is reported as needing a human.
     const preferred =
       atTier.find((r) => r.department_id === departmentId && r.has_holder) ??
       atTier.find((r) => r.department_id === null && r.has_holder) ??
+      atTier.find((r) => r.has_holder) ??
       atTier.find((r) => r.department_id === departmentId) ??
       atTier[0];
 
@@ -213,7 +235,7 @@ export async function runEscalationPass(
     );
     const departmentId = state.responsibleDepartmentIds[0] ?? null;
 
-    const next = await nextSeatUp(pool, currentTier ?? 'station', departmentId);
+    const next = await nextSeatUp(pool, currentTier ?? 'department', departmentId);
 
     if (next === null) {
       // Already at the top of the ladder and still unacknowledged. There is nothing left

@@ -8,13 +8,13 @@ export const POLICE = 'dept-police';
 export const rescueOperator: Seat = {
   seatId: 'seat-rescue-duty',
   departmentId: RESCUE,
-  tier: 'station',
+  tier: 'department',
 };
 
 export const rescueSupervisor: Seat = {
-  seatId: 'seat-rescue-tehsil',
+  seatId: 'seat-rescue-supervisor',
   departmentId: RESCUE,
-  tier: 'tehsil',
+  tier: 'department',
 };
 
 export const controlRoom: Seat = {
@@ -33,7 +33,7 @@ export const dc: Seat = {
 export const policeOperator: Seat = {
   seatId: 'seat-police-duty',
   departmentId: POLICE,
-  tier: 'station',
+  tier: 'department',
 };
 
 let counter = 0;

@@ -1308,3 +1308,36 @@ built rather than facts we were missing.
   holder and number included, into a table that is rendered on a screen and copied into every
   backup leaving the district. Now summarised. Pinned by a test.
 - **Tests:** 410 → 450, across 28 files.
+
+## 2026-08-02 — Two rungs in the database, and what that exposed
+
+- **Added:** migration `0010_two_tiers.sql`. `Tier` collapses from
+  `station | tehsil | district | provincial` to `department | district`, matching ADR-0010.
+- **This was filed as cosmetic and was not.** The district's contact list has no tier column,
+  so `ops/directory.ts` defaulted **all 83 loaded posts to `district`** — and `evaluateRead`
+  widened at tehsil. In the district's real roster, cross-department access was denied to
+  nobody: the Education duty officer could read Rescue 1122's incidents. A default I
+  introduced, not a fact the district gave, which is why the migration corrects it rather
+  than reporting it.
+- **Changed:** tier is now **derived from the department** — `district` iff the office is
+  administrative or the seat belongs to no department — and a trigger enforces it. A tier that
+  can drift out of step with `is_administration` is a silent widening of who may read what.
+- **Fixed:** `nextSeatUp` could not see the administration. It only considered seats in the
+  incident's own department or with no department at all, so once migration 0010 moved every
+  district-tier post into one of the two offices, an escalation out of a department could
+  only reach the DC if somebody had happened to create a department-agnostic seat. It also
+  now prefers a **held** seat at the rung above before any empty one, and orders candidates
+  deterministically — an arbitrary escalation target makes "why did it go there?"
+  unanswerable afterwards.
+- **Fixed:** `departmentsForConsole` ran **one query per department** to fetch routing
+  signals. The comment immediately below it explains why `loadSlaConfiguration` reads its
+  whole table at once; I wrote that comment and then did the opposite one function later. Now
+  four queries whatever the district's size.
+- **Added:** `scripts/reset-test-db.mjs` and `npm run test:reset`. The local test database is
+  never cleaned and had reached **1528 departments** where Bannu has 79, which is how the N+1
+  was found — a browser test began timing out rendering a screen no real district produces. A
+  test database that drifts that far lies in both directions. CI is unaffected; it starts a
+  fresh container every run.
+- **Added:** `backlog/for-the-district.md` — the single list of everything waiting on the
+  owner, at their request. `CLAUDE.md` §5b now points at it rather than duplicating it.
+- **Added:** `backlog/week-of-2026-08-02.md` — this week's plan, written before starting.

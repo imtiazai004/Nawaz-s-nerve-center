@@ -39,7 +39,15 @@ export interface DirectoryRow {
   readonly designation?: string;
   readonly name?: string;
   readonly phone?: string;
-  readonly tier?: 'station' | 'tehsil' | 'district' | 'provincial';
+  /**
+   * Ignored on load, and kept only so an existing seed file still parses.
+   *
+   * The source list has no tier column, so this defaulted every one of the district's 83
+   * posts to `district` — which, with the old four-value ladder, let every department read
+   * every other department's incidents. Tier is now derived from the department by a
+   * database trigger (migration 0010) and is not a thing a seed file gets to state.
+   */
+  readonly tier?: string;
 }
 
 export interface DirectoryProblem {

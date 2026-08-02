@@ -28,7 +28,8 @@ import type { Uuid } from '../domain/events.js';
 import { inTransaction, recordChange, type ConfigActor } from './configStore.js';
 import { hashPassword } from '../auth/passwords.js';
 
-export type Tier = 'station' | 'tehsil' | 'district' | 'provincial';
+export type { Tier } from '../domain/authority.js';
+import type { Tier } from '../domain/authority.js';
 
 export interface RosterPerson {
   readonly personId: Uuid;

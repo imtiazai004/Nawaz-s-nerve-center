@@ -88,7 +88,7 @@ describe.skipIf(dbUrl === undefined)('the administration console (integration)',
 
     rescueDept = await seedDepartment(pool, 'Rescue (admin test)');
     rescueToken = (
-      await seedActor(pool, { title: 'Rescue Duty', departmentId: rescueDept, tier: 'station' })
+      await seedActor(pool, { title: 'Rescue Duty', departmentId: rescueDept, tier: 'department' })
     ).token;
   }, 60_000);
 

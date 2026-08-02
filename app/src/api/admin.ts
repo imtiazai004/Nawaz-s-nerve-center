@@ -32,7 +32,7 @@ import {
   retireRoutingSignal,
   setDepartmentRetired,
   setSlaTarget,
-  signalsForDepartment,
+  loadRoutingSignals,
   updateDepartment,
   type ConfigActor,
   type Department,
@@ -104,23 +104,45 @@ export async function departmentsForConsole(
   const denied = requireAdministration<readonly DepartmentView[]>(identity);
   if (denied !== null) return denied;
 
-  const [departments, sla, staffing] = await Promise.all([
+  // Four queries, whatever the district's size.
+  //
+  // This loop used to call `signalsForDepartment` per department — one round trip each. With
+  // Bannu's 79 that is 79 sequential queries on every open of the console, and it grows with
+  // every department somebody adds. A test database that had accumulated 1528 departments
+  // turned it into a screen that never finished loading, which is how it was found; the
+  // production symptom would have been a console that felt broken on the night it mattered.
+  //
+  // `loadSlaConfiguration` right below already carries a comment explaining why it reads the
+  // whole table in one query. I wrote that comment and then did the opposite one function
+  // later.
+  const [departments, sla, staffing, signals] = await Promise.all([
     listDepartments(pool),
     loadSlaConfiguration(pool),
     seatCounts(pool),
+    signalsByDepartment(pool),
   ]);
 
-  const views: DepartmentView[] = [];
-  for (const d of departments) {
-    views.push({
+  return {
+    ok: true,
+    value: departments.map((d) => ({
       ...d,
-      signals: await signalsForDepartment(pool, d.departmentId),
+      signals: signals[d.departmentId] ?? [],
       slaOverrides: sla.byDepartment[d.departmentId] ?? {},
       seats: staffing[d.departmentId]?.seats ?? 0,
       vacantSeats: staffing[d.departmentId]?.vacant ?? 0,
-    });
+    })),
+  };
+}
+
+/** Every live routing signal, grouped by department. One query. */
+async function signalsByDepartment(pool: Pool): Promise<Readonly<Record<string, RoutingSignal[]>>> {
+  const all = await loadRoutingSignals(pool);
+  const out: Record<string, RoutingSignal[]> = {};
+  for (const s of all) (out[s.departmentId] ??= []).push(s);
+  for (const list of Object.values(out)) {
+    list.sort((a, b) => a.kind.localeCompare(b.kind) || a.pattern.localeCompare(b.pattern));
   }
-  return { ok: true, value: views };
+  return out;
 }
 
 async function seatCounts(

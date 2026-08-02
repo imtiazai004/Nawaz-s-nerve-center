@@ -32,15 +32,16 @@ describe.skipIf(dbUrl === undefined)('escalation job (INV-07)', () => {
   let pool: Pool;
   let department: string;
   let stationSeat: string;
-  let tehsilSeat: string;
 
   beforeAll(async () => {
     pool = createPool(dbUrl);
     await migrate(pool, migrationsDir);
 
     department = await seedDepartment(pool);
-    stationSeat = await seat('Rescue Station In-Charge', department, 'station', true);
-    tehsilSeat = await seat('Rescue Tehsil Supervisor', department, 'tehsil', true);
+    stationSeat = await seat('Rescue Station In-Charge', department, 'department', true);
+    // A second post in the same department. There is no rung between them (ADR-0010) —
+    // it exists so the ladder has something to *not* climb to.
+    await seat('Rescue Supervisor', department, 'department', true);
     // Department-agnostic, so it serves as the fallback rung above any department.
     await seat('District Control Room', null, 'district', true);
   }, 60_000);
@@ -131,24 +132,42 @@ describe.skipIf(dbUrl === undefined)('escalation job (INV-07)', () => {
     return (await loadIncident(pool, incidentId)).filter((e) => e.type === 'escalated');
   }
 
+  /**
+   * The ladder has two rungs now (ADR-0010, migration 0010).
+   *
+   * These tests used to climb station → tehsil → district, and the middle rung was fiction:
+   * the district's contact list has no tier column, so every real seat defaulted to
+   * `district` and there was never a tehsil above anything. What the ladder actually does in
+   * Bannu is one step — a department, then the administration — and that is what is asserted
+   * here.
+   */
   describe('the ladder', () => {
-    it('finds the tehsil seat above a station seat in the same department', async () => {
-      const next = await nextSeatUp(pool, 'station', department);
-      expect(next?.seatId).toBe(tehsilSeat);
-      expect(next?.hasHolder).toBe(true);
-    });
-
-    it('falls back to a department-agnostic seat when the department has none', async () => {
+    it('escalates from a department straight to a district seat', async () => {
       // Asserted on tier rather than identity: district seats are department-agnostic by
       // design, so any held district seat is a correct answer. Pinning one id would only
       // pass on an empty database, and this one is append-only and never cleaned.
-      const next = await nextSeatUp(pool, 'tehsil', department);
+      const next = await nextSeatUp(pool, 'department', department);
       expect(next?.tier).toBe('district');
       expect(next?.hasHolder).toBe(true);
     });
 
-    it('returns null at the top of the ladder', async () => {
-      expect(await nextSeatUp(pool, 'provincial', department)).toBeNull();
+    it('has no rung inside a department, however many posts it holds', async () => {
+      // Both of this department's seats are `department` tier — the trigger in migration
+      // 0010 derives tier from the office, so a department cannot create a rung above itself
+      // by naming a post "Supervisor".
+      const tiers = await pool.query<{ tier: string }>(
+        'SELECT DISTINCT tier FROM seat WHERE department_id = $1',
+        [department],
+      );
+      expect(tiers.rows.map((r) => r.tier)).toEqual(['department']);
+      expect(await nextSeatUp(pool, 'department', department)).not.toBeNull();
+    });
+
+    it('returns null at the top, because there is nothing above the district', async () => {
+      // Q-10, closed: provincial escalation is out of scope. An emergency that reaches the
+      // top unacknowledged surfaces as *needs a human, urgently* rather than climbing to a
+      // rung that does not exist.
+      expect(await nextSeatUp(pool, 'district', department)).toBeNull();
     });
   });
 
@@ -165,7 +184,17 @@ describe.skipIf(dbUrl === undefined)('escalation job (INV-07)', () => {
 
       const escalations = await escalationsFor(incidentId);
       expect(escalations).toHaveLength(1);
-      expect((escalations[0]!.payload as { toSeatId: string }).toSeatId).toBe(tehsilSeat);
+
+      // Onto a **district** seat, not onto a second post inside the same department.
+      // Before ADR-0010 this asserted a "tehsil supervisor" rung that the district's real
+      // roster never had — every loaded post defaulted to `district`, so the middle of the
+      // ladder was a fiction the tests were keeping alive.
+      const toSeatId = (escalations[0]!.payload as { toSeatId: string }).toSeatId;
+      const tier = await pool.query<{ tier: string }>('SELECT tier FROM seat WHERE seat_id = $1', [
+        toSeatId,
+      ]);
+      expect(tier.rows[0]?.tier).toBe('district');
+
       // A system escalation names no person — it was not a human decision.
       expect(escalations[0]!.actorPersonId).toBeNull();
     });
@@ -196,7 +225,12 @@ describe.skipIf(dbUrl === undefined)('escalation job (INV-07)', () => {
         await runEscalationPass(pool, { now: minutesLater(30), incidentIds: [incidentId] });
 
       expect(afterFirst).toBe(1);
-      expect(await escalationsFor(incidentId)).toHaveLength(2);
+
+      // **One**, not two. The ladder has a single rung now (ADR-0010): a department, then
+      // the administration, then nothing. Five passes in quick succession produce exactly
+      // the one escalation the first pass produced — which is the property INV-08 is about,
+      // and it is a stronger statement with two rungs than it was with four.
+      expect(await escalationsFor(incidentId)).toHaveLength(1);
     });
 
     it('a late-arriving incident gets its grace window rather than instant escalation', async () => {
@@ -307,9 +341,38 @@ describe.skipIf(dbUrl === undefined)('escalation job (INV-07)', () => {
 
   describe('a vacant post never swallows an escalation (ADR-0004)', () => {
     it('escalates to an unheld seat and reports it as needing a human', async () => {
+      // A department whose escalation lands on an **unheld district post**. Migration 0010
+      // derives tier from the office, so the vacant post has to sit in an administrative one
+      // — which is the real shape of this failure anyway: the rung above a department is the
+      // administration, and the question is what happens when nobody is in it.
       const dept = await seedDepartment(pool);
-      await seat('Understaffed Station', dept, 'station', true);
-      const vacant = await seat('Vacant Tehsil Post', dept, 'tehsil', false);
+      await seat('Understaffed Station', dept, 'department', true);
+      const adminDept = await seedDepartment(
+        pool,
+        `Vacant Administration ${randomUUID().slice(0, 8)}`,
+      );
+      await pool.query('UPDATE department SET is_administration = true WHERE department_id = $1', [
+        adminDept,
+      ]);
+      const vacant = await seat('Vacant District Post', adminDept, 'district', false);
+
+      // Empty every **other** district post for the duration, and put them back afterwards.
+      //
+      // Not a trick to make the test pass — it is the only way to construct the scenario at
+      // all. The ladder now prefers any *held* seat at the rung above, which is correct and
+      // is what makes the district's real configuration safe: with two administrative
+      // offices staffed, an escalation reaches a person. This test is about the case where
+      // it cannot, so every other person at that rung has to be off duty.
+      const others = await pool.query<{
+        assignment_id: string;
+        seat_id: string;
+        person_id: string;
+      }>(
+        `UPDATE duty_assignment d SET to_at = now()
+           FROM seat s
+          WHERE s.seat_id = d.seat_id AND s.tier = 'district' AND d.to_at IS NULL
+        RETURNING d.assignment_id, d.seat_id, d.person_id`,
+      );
 
       const incidentId = randomUUID();
       const occurredAt = new Date(Date.now() - 30 * MINUTE).toISOString();
@@ -340,18 +403,63 @@ describe.skipIf(dbUrl === undefined)('escalation job (INV-07)', () => {
         } as unknown as IncidentEvent,
       ]);
 
-      const outcome = await runEscalationPass(pool, {
-        now: minutesLater(30),
-        incidentIds: [incidentId],
-      });
+      // Everything the assertions need is read **while the district is still unstaffed**.
+      // Reading it afterwards asked whether the chosen seat had a holder once everyone had
+      // been put back on duty, which is a different question with the opposite answer.
+      let outcome;
+      let payload: { toSeatId: string; trigger: string } | undefined;
+      let chosenSeatWasEmpty = false;
+      let escalationCount = 0;
+
+      try {
+        outcome = await runEscalationPass(pool, {
+          now: minutesLater(30),
+          incidentIds: [incidentId],
+        });
+
+        const escalations = await escalationsFor(incidentId);
+        escalationCount = escalations.length;
+        payload = escalations[0]?.payload as { toSeatId: string; trigger: string } | undefined;
+
+        if (payload !== undefined) {
+          const held = await pool.query<{ n: string }>(
+            `SELECT count(*)::text AS n FROM duty_assignment
+              WHERE seat_id = $1 AND to_at IS NULL`,
+            [payload.toSeatId],
+          );
+          chosenSeatWasEmpty = Number(held.rows[0]!.n) === 0;
+        }
+      } finally {
+        // Back on duty, whatever happened above. A failing assertion must not leave the rest
+        // of this file running against a district with nobody at the top of the ladder.
+        for (const row of others.rows) {
+          await pool.query('INSERT INTO duty_assignment (seat_id, person_id) VALUES ($1, $2)', [
+            row.seat_id,
+            row.person_id,
+          ]);
+        }
+      }
 
       expect(outcome.noHolder).toContain(incidentId);
-      const escalations = await escalationsFor(incidentId);
-      expect(escalations).toHaveLength(1);
-      const payload = escalations[0]!.payload as { toSeatId: string; trigger: string };
-      expect(payload.toSeatId).toBe(vacant);
+      expect(escalationCount).toBe(1);
+
+      // Asserted as "the seat it landed on had nobody in it" rather than "it landed on the
+      // seat this test created". Several district posts were unheld at that moment — the ones
+      // relieved above among them — and which unheld one wins is not what this invariant is
+      // about. ADR-0004's claim is that the escalation **lands** and is **reported**, not
+      // that it lands anywhere in particular.
+      expect(chosenSeatWasEmpty).toBe(true);
+      expect(payload?.toSeatId).toBeTruthy();
+      // The post this test created is a live, unheld district post, so the scenario really
+      // did offer the ladder somewhere empty to go.
+      const stillThere = await pool.query<{ tier: string; retired_at: string | null }>(
+        'SELECT tier, retired_at FROM seat WHERE seat_id = $1',
+        [vacant],
+      );
+      expect(stillThere.rows[0]).toEqual({ tier: 'district', retired_at: null });
+
       // Distinguishable from an ordinary missed deadline, for whoever reviews it after.
-      expect(payload.trigger).toBe('no_duty_holder');
+      expect(payload?.trigger).toBe('no_duty_holder');
     });
   });
 
@@ -362,8 +470,16 @@ describe.skipIf(dbUrl === undefined)('escalation job (INV-07)', () => {
 
       const state = foldIncident(incidentId, await loadIncident(pool, incidentId));
       expect(state.escalationCount).toBe(1);
-      expect(state.currentEscalationSeatId).toBe(tehsilSeat);
       expect(state.acknowledgedAt).toBeNull();
+
+      // The seat it now sits on is a district one. Asserted on tier rather than on a fixed
+      // id: any held district seat is a correct answer, and this database is append-only and
+      // never cleaned, so pinning one would only pass on an empty cluster.
+      expect(state.currentEscalationSeatId).not.toBeNull();
+      const tier = await pool.query<{ tier: string }>('SELECT tier FROM seat WHERE seat_id = $1', [
+        state.currentEscalationSeatId,
+      ]);
+      expect(tier.rows[0]?.tier).toBe('district');
     });
   });
 

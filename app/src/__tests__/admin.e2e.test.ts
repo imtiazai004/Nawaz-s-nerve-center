@@ -100,7 +100,7 @@ describe.skipIf(dbUrl === undefined)('M1a: the administration console', () => {
       departmentId: dcDept,
       tier: 'district',
     });
-    rescue = await seedActor(pool, { title: `Rescue Duty (e2e ${RUN})`, tier: 'station' });
+    rescue = await seedActor(pool, { title: `Rescue Duty (e2e ${RUN})`, tier: 'department' });
 
     // This suite asserts exactly where an emergency goes, so it needs to own the district's
     // routing configuration. See the same note in `api/__tests__/admin.test.ts`.

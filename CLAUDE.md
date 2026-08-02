@@ -586,27 +586,16 @@ M0-19, both found by tests:
 
 ## 5b. What is waiting on the district
 
-**Standing instruction from the owner, 2026-08-02: do not wait for any of this.** Build the
-place the answer goes, put a visible placeholder in it, and keep moving. The district enters
-the real value from the console at its own pace.
+**One list, one file: [`backlog/for-the-district.md`](backlog/for-the-district.md).** Twelve
+items needing a number, a decision, an account or a person, plus six decisions I made on the
+district's behalf that they may reverse.
 
-This section exists so that instruction does not turn into forgetting. Everything here is a
-real gap; none of it blocks a single line of code.
+**Do not duplicate that list here.** Two copies of it would disagree within a week, which is
+the failure this whole project is built to avoid.
 
-**Nothing in this list is a reason to stop.** If a new one appears, add a row, put a
-placeholder behind it, and carry on.
-
-| # | What is needed | Who from | What was put in meanwhile | Consequence until it arrives |
-|---|---|---|---|---|
-| **R-01** | **Rescue 1122's contact number.** The district's list names Bakht Ullah Wazir as District Emergency Officer with no number | DC / AC HQ | `1111111`, **flagged as a placeholder** (migration 0008) | Alerts to that post are recorded as **failed, loudly** — a stand-in is never dialled and never counted as reached. The post is filled so the roster is complete and editable |
-| **R-02** | **The rest of the contact list.** 38 of 81 posts are vacant; the owner has said more rows will follow | DC / AC HQ | Vacant posts loaded as vacant, flagged on the department's card, **and now editable from the roster screen by the department itself** (M1a-10) | A department with routing signals and no reachable holder is shown as exactly that. Nobody has to wait for a developer to fix a number |
-| **R-03** | **Real acknowledgement deadlines** per department (Q-06) | DC / AC HQ | The install defaults — 5 / 15 / 60 / 240 / 15 minutes — seeded into `sla_target` | The board measures against the defaults. **Inherited values now render differently from chosen ones**, so nobody mistakes one for a decision |
-| **R-04** | **Routing signals** — which department answers for which kind of emergency (ADR-0010) | DC / AC HQ | None. Deliberately none | Every emergency lands as **unassigned** on both administrative dashboards until a signal exists. Loud by design, not a defect |
-| **R-05** | **WhatsApp / SMS / voice accounts** (P-11, ADR-0012) — Meta business account with **pre-approved templates**, an SMS gateway, a telephony provider, and a **GSM modem + SIM** for the DC server | District procurement | The in-app inbox, which needs no provider | Notifications reach the app and nothing else. **Longest lead time in the project** — Meta must approve the alert wording before a single alert can be sent |
-| **R-06** | **A Google Cloud Storage bucket and service account** (P-12, ADR-0011) | District IT | Local verified dumps only | Backups exist and stay in the building. Fire, flood or theft takes the record with it |
-| **R-07** | **The AC Headquarter standby machine and a link between the two offices** (M0-54, ADR-0011) | District IT | Single node in the DC office | A dead DC machine stops the district until it is repaired |
-| **R-08** | **A restore drill with a second person** (M0-38) | Allah Nawaz Khan + one other | The runbook, and a test suite that executes every step against a real cluster | Nobody in Bannu has personally restored this system. That is a different fact from "restore works" |
-| **R-09** | **Urdu, Pashto, or both** (Q-09) | DC / AC HQ | English | Decides whether right-to-left layout is needed, which is cheaper to do early than late |
+**The standing rule, from the owner (2026-08-02):** *do not wait for any of it.* Build the
+place the answer goes, put a **visibly** fake placeholder in it, add a row to that file, and
+keep moving. See §7 for both halves of that rule — the second half is not optional.
 
 ## 6. Repository map
 

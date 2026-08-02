@@ -93,7 +93,7 @@ function text(v: unknown): string | undefined {
 }
 
 function isTier(v: unknown): v is Tier {
-  return v === 'station' || v === 'tehsil' || v === 'district' || v === 'provincial';
+  return v === 'department' || v === 'district';
 }
 
 /** Turn a store refusal into an HTTP one. 409: well-formed request, state disagrees. */
@@ -151,17 +151,20 @@ export async function addPost(
   if (title === undefined) return refuse(400, 'a post needs a title');
   if (title.length > 200) return refuse(400, 'that title is too long');
 
-  // A department creating its own posts gets `station`; only the administration may place a
-  // post at a tier that can read across the district (`evaluateRead` widens at `tehsil`).
-  // Left open, a department could mint itself a seat that sees every incident in Bannu.
-  const requested = isTier(input.tier) ? input.tier : 'station';
-  const tier: Tier = identity.isAdministration ? requested : 'station';
-  if (!identity.isAdministration && isTier(input.tier) && input.tier !== 'station') {
+  // Tier is not really a parameter any more.
+  //
+  // Migration 0010 derives it from the department at the database, because a tier that can
+  // drift out of step with `is_administration` is a silent widening of who may read what.
+  // The check below therefore refuses an impossible request rather than guarding the write:
+  // a department asking for a district post is asking to see every incident in Bannu, and it
+  // should be told no rather than quietly given something else.
+  if (!identity.isAdministration && isTier(input.tier) && input.tier !== 'department') {
     return refuse(
       403,
-      'only the DC Office and the AC Headquarter Office may place a post above station tier',
+      'only the DC Office and the AC Headquarter Office hold district-tier posts (ADR-0010)',
     );
   }
+  const tier: Tier = 'department';
 
   return settle(await createPost(pool, departmentId, title, tier, actorOf(identity)));
 }

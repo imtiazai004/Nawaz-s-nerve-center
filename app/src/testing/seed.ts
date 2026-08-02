@@ -59,7 +59,7 @@ export async function seedActor(
   options: {
     title?: string;
     departmentId?: string;
-    tier?: 'station' | 'tehsil' | 'district' | 'provincial';
+    tier?: 'department' | 'district';
     canBreakGlass?: boolean;
   } = {},
 ): Promise<TestActor> {
@@ -68,13 +68,27 @@ export async function seedActor(
       ? await seedDepartment(pool)
       : await ensureDepartment(pool, options.departmentId);
 
+  // Asking for a district-tier seat means asking for an administrative office.
+  //
+  // Migration 0010 derives tier from the department, so a seat in an ordinary department is
+  // `department` tier whatever the INSERT says — and a test that asked for `district` and
+  // silently got `department` would go on to fail somewhere far away, as a 403 on the board
+  // rather than as "this seat is not what you asked for". Marking the office administrative
+  // is the honest way to get the thing the caller wanted, and it matches ADR-0010: the only
+  // district-tier posts belong to the two offices, or to no department at all.
+  if (options.tier === 'district') {
+    await pool.query('UPDATE department SET is_administration = true WHERE department_id = $1', [
+      departmentId,
+    ]);
+  }
+
   const seat = await pool.query<{ seat_id: string }>(
     `INSERT INTO seat (title, department_id, tier, can_break_glass)
      VALUES ($1, $2, $3, $4) RETURNING seat_id`,
     [
       options.title ?? 'Test Duty Seat',
       departmentId,
-      options.tier ?? 'station',
+      options.tier ?? 'department',
       options.canBreakGlass ?? false,
     ],
   );

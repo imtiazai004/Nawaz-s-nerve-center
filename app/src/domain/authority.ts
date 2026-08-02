@@ -11,10 +11,24 @@
 
 import type { Uuid } from './events.js';
 
-/** Where a seat sits in the escalation hierarchy. Higher tier wins a conflict. */
-export type Tier = 'station' | 'tehsil' | 'district' | 'provincial';
+/**
+ * Where a seat sits in the ladder. Higher wins a conflict. **There are two rungs.**
+ *
+ * This was `station | tehsil | district | provincial` — a generic hierarchy invented before
+ * anybody had told us how Bannu is organised. ADR-0010 replaced it with the district's own
+ * answer, and migration 0010 collapsed the column to match.
+ *
+ * The two dead values were not harmless while they lasted. The contact list has no tier
+ * column, so the loader defaulted all 83 of the district's posts to `district` — and
+ * `evaluateRead` widened at tehsil, which meant every department could read every other
+ * department's incidents. Four values nobody chose from produced a default nobody noticed.
+ *
+ * A seat is `district` exactly when its office is administrative, or when it belongs to no
+ * department at all. That is not a caller's choice: a database trigger derives it (0010).
+ */
+export type Tier = 'department' | 'district';
 
-export const TIER_ORDER: readonly Tier[] = ['station', 'tehsil', 'district', 'provincial'];
+export const TIER_ORDER: readonly Tier[] = ['department', 'district'];
 
 export function tierRank(t: Tier): number {
   return TIER_ORDER.indexOf(t);
@@ -117,9 +131,10 @@ export interface ReadAttempt {
  *
  * Two deliberate widenings:
  *
- * - **Tehsil and above may read everything.** Not a convenience. Those tiers hold the
- *   routing and override authority in the policy table, and authority to change a value you
- *   are not allowed to look at is not authority, it is guesswork.
+ * - **The two administrative offices may read everything.** Not a convenience. They hold
+ *   the routing and override authority in the policy table, and authority to change a value
+ *   you are not allowed to look at is not authority, it is guesswork. This used to say
+ *   "tehsil and above", which in the district's real data meant everybody — see `Tier`.
  * - **An unrouted incident is readable by any seat.** Until routing has happened nobody owns
  *   it, and an emergency nobody is permitted to see is an emergency nobody picks up
  *   (INV-01). The window is small and closes at the first `routed` event.
@@ -136,7 +151,7 @@ export function evaluateRead(attempt: ReadAttempt): Decision {
     return { allowed: true, as: 'owner' };
   }
 
-  if (tierRank(attempt.seat.tier) >= tierRank('tehsil')) {
+  if (tierRank(attempt.seat.tier) >= tierRank('district')) {
     return { allowed: true, as: 'override' };
   }
 
@@ -197,7 +212,7 @@ export function defaultRules(responsibleDepartmentId: Uuid | null): readonly Aut
     {
       fieldKey: 'incident.responsibleDepartment',
       ownerDepartmentId: null,
-      overrideTiers: ['tehsil', 'district'],
+      overrideTiers: ['district'],
       reasonRequired: true,
       visibleToOwner: 'yes_and_notify',
     },
