@@ -21,7 +21,8 @@ work. See `docs/06-open-questions.md`.
 | P-05 | Map what each department already reports upward (Q-02) | `DONE` | Reframed as an export target, collected during M1/M2 onboarding |
 | P-06 | Ask whether a Bannu place gazetteer already exists (Q-08) | `TODO` | Weeks of work vs a phone call |
 | P-07 | Identify a **named technical person** in the DC/AC office, or designate one | `TODO` | M5 handover. The office owning it and someone able to restore a backup at 02:00 are different facts |
-| P-08 | Hosting budget and its source | `TODO` | Decides cloud VM vs on-premise. Built so either works, so it is a deployment-time fork |
+| P-08 | Hosting budget and its source | `TODO` | Decides cloud VM vs on-premise. Built so either works, so it is a deployment-time fork. **Now blocking something concrete:** the backup exists and nothing schedules it, because where it runs decides how |
+| P-09 | Where does the repository live? | `TODO` | New. There is no git remote — everything is local. Blocks **M0-04 (CI)**, and a repository with no off-machine copy is also a single disk away from losing the project |
 
 ---
 
@@ -41,7 +42,7 @@ the spine.
 | M0-01 | Repository scaffold, TypeScript, lint, format, test tooling | `DONE` | — | `npm run check` green: typecheck, lint, format, 32 tests |
 | M0-02 | Postgres + migration framework + local dev setup | `DONE` | — | Portable PG 17.10 on :5433, `scripts/dev-db.ps1`, forward-only migration runner |
 | M0-03 | Structured logging with correlation ids; health endpoint | `TODO` | M0-02 | **Half done.** `/health` reports dependency status (queries the DB, 503 when it is down) and `src/main.ts` logs structured lines. Missing: **correlation ids**, and the API server logs no requests at all |
-| M0-04 | CI: lint, typecheck, test on every commit | `TODO` | M0-01 | Red build blocks merge |
+| M0-04 | CI: lint, typecheck, test on every commit | `BLOCKED` | M0-01 | Red build blocks merge. **Blocked on an unasked question: where does this repository live?** There is no remote — a CI config for a service nobody has chosen is speculative work. Needed more than it was: an intermittent worker crash has appeared twice in ~12 runs and characterising it needs hundreds, not a person running `npm run check` by hand |
 | M0-05 | Secret handling: env template, secret store, nothing in repo | `DOING` | M0-01 | `.env.example`, `.env` gitignored and verified unstaged. Real secret store pending deployment |
 
 ### The event core — `ADR-0001`
@@ -115,8 +116,8 @@ the spine.
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M0-37 | Automated backup | `TODO` | M0-02 | Runs on schedule, verified non-empty. **Nothing exists yet — this is code, and M0-38 cannot start until it does** |
-| M0-38 | **Restore drill, actually performed** | `TODO` | M0-37 | Executed end to end, timed, documented. Blocked on M0-37 as well as on a second person |
+| M0-37 | Automated backup | `DOING` | M0-02 | Backup, restore, verification and the ledger are **built and tested** — a real `pg_dump` → `psql` round trip, 17 tests. `/health` reports staleness. **Nothing schedules it yet**: that is a deployment decision waiting on P-08 (hosting) |
+| M0-38 | **Restore drill, actually performed** | `TODO` | M0-37 | No longer blocked on code. `docs/08-runbook.md` is written for someone who did not build this, and the path in it has been executed by the test suite. **Needs a second person**, timed, with what actually happened written down |
 | M0-39 | Invariant test suite scaffold (INV-01…08) | `DONE` | M0-04 | **All eight covered.** INV-04, 06, 07, 08 at the domain layer; INV-01 by `spine.e2e.test.ts`; INV-05 by 25 direct-HTTP refusals; INV-02 by `board.e2e.test.ts` 5–6; INV-03 by 6 domain tests plus `notify.test.ts`. Where each lives is named in the invariant file's header |
 
 ---
@@ -157,14 +158,23 @@ override, close — every step reachable, authorised and observable.
 
 - **The department board (M0-34).** Already *served* — `buildBoard` scopes by the caller's
   seat — so what is missing is a department-framed screen, not a second query.
-- **Operations.** M0-37 backup, M0-38 restore drill, M0-04 CI, M0-03 correlation ids.
+- **Operations.** M0-04 CI, M0-03 correlation ids. Backup and restore are built (M0-37);
+  scheduling waits on P-08, and the drill (M0-38) waits on a person.
 - **M0-51**, a department registry. Departments have no table and render as uuids.
 - **Half-done:** M0-05 secrets, M0-11 payload versioning.
 
-**Next is M0-37 and M0-38 — backup and a restore drill.** With the invariants covered and the
-lifecycle closed, the largest remaining risk stops being "does it work" and becomes "can it
-be brought back". That is also the last open item on the M0 gate, and it needs code before it
-needs a second person.
+**M0-04 (CI) is the next thing worth doing and it is blocked on a question nobody has been
+asked: where does this repository live?** There is no git remote. Writing a GitHub Actions
+workflow for a repository that may end up somewhere else is speculative work, so the question
+comes first — see P-09.
+
+It matters more than it did last week. An intermittent `Worker exited unexpectedly` has now
+appeared twice in roughly twelve runs, and characterising an intermittent fault needs hundreds
+of runs that nobody has to remember to start.
+
+**M0-38 is now a scheduling problem, not an engineering one.** The runbook is written for
+someone who did not build this, and every step in it has been executed by the test suite
+against a real cluster. What it needs is a second person, an hour, and a stopwatch.
 
 Before M1 gets far it needs two answers: **Q-08** (does a Bannu place gazetteer already
 exist — weeks of work versus a phone call) and **Q-06** (real SLA targets, since the

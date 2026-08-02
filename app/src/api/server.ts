@@ -24,6 +24,7 @@ import {
 } from './lifecycle.js';
 import { buildBoard } from './board.js';
 import { inbox, markSeen } from './notifications.js';
+import { backupHealth } from '../ops/backup.js';
 
 /**
  * The sync server. Plain `node:http`, no framework — see ADR-0007.
@@ -472,7 +473,18 @@ export function createSyncServer(options: ServerOptions): Server {
         if (req.method === 'GET' && url.pathname === '/health') {
           try {
             await pool.query('SELECT 1');
-            json(res, 200, { ok: true, db: 'up', authMode });
+            // Backup freshness lives here because /health is the one endpoint anybody
+            // actually checks. A backup that stopped working three weeks ago and told
+            // nobody is the normal way this goes wrong (M0-37, ADR-0005).
+            //
+            // **Reported as `degraded`, never as a failing status code.** A 503 here would
+            // take the node out of a load balancer and stop the district reporting
+            // emergencies — because a backup was old. That trade is unacceptable in both
+            // directions: INV-01 outranks a stale dump, and an operator who cannot file a
+            // report has no way to know a backup was the reason. Liveness and the backup
+            // obligation are different questions and this answers both separately.
+            const backup = await backupHealth(pool);
+            json(res, 200, { ok: true, db: 'up', authMode, degraded: !backup.ok, backup });
           } catch {
             // A health check that hides a dead database is worse than none.
             json(res, 503, { ok: false, db: 'down', authMode });

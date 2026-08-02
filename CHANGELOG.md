@@ -753,3 +753,72 @@ acknowledge, escalate, override, close — every step reachable, authorised and 
   board screen) so nobody re-adds a stub for them.
 - **Verified:** `npm run check` green three consecutive times — typecheck, lint, formatting,
   **280/280 tests across 18 files**.
+
+## 2026-08-02 — M0-37: a backup, and a restore that has actually been run
+
+The last engineering item on the M0 gate. What remains of M0-38 is a person and a stopwatch.
+
+- **Added:** `app/src/ops/backup.ts`, `restore.ts`, migration `0004_backup_ledger.sql`, and
+  `docs/08-runbook.md`. In TypeScript rather than a shell script because the hosting decision
+  is still open (P-08) — a PowerShell-only backup would have been a Windows commitment made
+  by accident — and because a backup nobody has tested is the least trustworthy component in
+  any system, so it belongs where the test suite can reach it.
+- **The round trip is real.** 17 tests run `pg_dump` against the live cluster, write a file,
+  replay it into a genuinely separate database with `psql`, and then **fold the restored
+  events and compare**. Counting rows proves the data arrived; folding proves the *system*
+  arrived — ordering, payloads, provenance. A restore that got the count right and the order
+  wrong would pass a row count and fail an audit (ADR-0008).
+- **Decided: the attempt is recorded before the dump starts.** Same shape as a notification
+  attempt (M0-32), same reason: a process killed mid-dump leaves a visible `running` row
+  rather than no row at all, and a gap in that table is the one thing nobody would notice.
+- **Decided: a dump is verified, not assumed.** `pg_dump` exiting 0 is not evidence — an
+  empty file, a truncated file and a file full of errors can all exit 0. Size, checksum and
+  **the event count inside the file** are checked, and a dump holding fewer events than the
+  live database is recorded as a **failure**, not a warning. INV-01 does not stop applying
+  because the failure happened during maintenance.
+- **Decided: never restore in place.** The target is always named by the caller. A tool whose
+  easiest path overwrites production is a tool that eventually overwrites production, at
+  02:00, by someone who meant to type something else.
+- **Decided: `ON_ERROR_STOP=1` is mandatory.** Without it `psql` reports success after
+  replaying a dump that half-failed — you get a database, it is missing things, and nothing
+  said so. That is the single most dangerous default in the whole procedure.
+- **Added: `verifyRestoredIntegrity`, which checks the triggers and not just the rows.** A
+  restore that brings back the data but not the append-only guard gives you a database where
+  the event log **can be edited**, and nobody finds out until an audit. The data would be
+  back and the whole of ADR-0001 would be gone.
+- **Caught while writing it, worth recording.** The first version of that integrity probe ran
+  `UPDATE ... WHERE false`. The guard is a **row-level** trigger, so a probe matching no rows
+  fires nothing — it reported a perfectly healthy restore as broken. It now targets a real
+  row, inside a transaction that is **always** rolled back, so that on the one database where
+  the check matters — the one missing its guard — the probe cannot itself be the thing that
+  rewrites history.
+- **Caught before shipping, and the more dangerous of the two.** `/health` was briefly wired
+  to return **503 when the backup was stale**. A load balancer would have taken the node out
+  of rotation and stopped the district reporting emergencies — because a dump was old. It
+  reports `degraded: true` at status 200 instead. **INV-01 outranks a stale backup**, and
+  liveness and the backup obligation are different questions that now get different answers.
+- **Open:** nothing schedules the backup yet. `runBackup` is written, tested and callable;
+  wiring it to a timer is a deployment decision that waits on **P-08 (hosting)** — which has
+  therefore moved from a theoretical question to one blocking something concrete.
+- **Open:** M0-38 is now a scheduling problem rather than an engineering one. The runbook is
+  written for someone who did not build this, and every step in it has been executed by the
+  test suite against a real cluster. **It still needs a second person**, and a restore
+  procedure only ever performed by its author is a document, not a backup strategy.
+- **Verified:** typecheck, lint, formatting, **297/297 tests across 19 files** — green on six
+  of seven consecutive runs. Stated precisely rather than rounded up, because of the next
+  point.
+- **Open — the intermittent worker crash is now a pattern, not a one-off.** `Worker exited
+  unexpectedly` has appeared **twice in roughly twelve full runs** (246/248 in the M0-33 pass,
+  285/297 here), and four deliberate attempts to reproduce it immediately afterwards were all
+  clean. It is not correlated with the new suite as far as can be told from two samples.
+  Recorded rather than dismissed: it is the same shape as the fault that once hid ten results
+  behind a green run. The difference remains that `pool: 'forks'` makes it **fail loudly
+  instead of passing falsely**, which is the property that was bought.
+  **This is now the strongest argument for M0-04 (CI):** one person running the suite by hand
+  a dozen times is not a sample size, and characterising an intermittent fault needs
+  hundreds of runs nobody has to remember to start.
+- **Open — P-09, a new question: where does this repository live?** There is no git remote;
+  everything is on one disk. Raised because it **blocks M0-04 (CI)** — a workflow written for
+  a service nobody has chosen is speculative work — and because a project with no off-machine
+  copy is one disk failure from being gone, which is a poor look for the week the backup
+  system was built.
