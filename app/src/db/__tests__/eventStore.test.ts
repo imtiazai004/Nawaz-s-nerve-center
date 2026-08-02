@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import { append, loadIncident, loadSince, lateArrivals } from '../eventStore.js';
+import { append, currentCursor, loadIncident, loadSince, lateArrivals } from '../eventStore.js';
 import { createPool, migrate, type Pool } from '../pool.js';
 import { compareEvents, foldIncident } from '../../domain/incident.js';
 import type { IncidentEvent, Severity } from '../../domain/events.js';
@@ -170,14 +170,17 @@ describe.skipIf(url === undefined)('event store (integration)', () => {
 
   describe('sync cursor', () => {
     it('returns only events after the cursor, and advances it', async () => {
-      const before = await loadSince(pool, 0, 10_000);
+      // `currentCursor` rather than paging the whole log. An earlier version took the
+      // `nextCursor` of a 10,000-row page, which is the end of the log right up until the
+      // log has more than ten thousand events in it — and then it quietly is not.
+      const before = await currentCursor(pool);
       await append(pool, [
         ev('reported', { reportId: randomUUID(), category: 'rta', severity: 'low' }),
       ]);
 
-      const after = await loadSince(pool, before.nextCursor);
+      const after = await loadSince(pool, before);
       expect(after.events.some((e) => e.incidentId === incidentId)).toBe(true);
-      expect(after.nextCursor).toBeGreaterThan(before.nextCursor);
+      expect(after.nextCursor).toBeGreaterThan(before);
 
       const drained = await loadSince(pool, after.nextCursor);
       expect(drained.events).toHaveLength(0);
@@ -187,7 +190,7 @@ describe.skipIf(url === undefined)('event store (integration)', () => {
       // Every event written in one transaction shares a recorded_at. A timestamp cursor
       // would resume past the whole batch and lose the remainder — invisibly, and forever.
       const batch = Array.from({ length: 5 }, (_, i) => ev('action_logged', { note: `step ${i}` }));
-      const start = (await loadSince(pool, 0, 10_000)).nextCursor;
+      const start = await currentCursor(pool);
       await append(pool, batch);
 
       const seen: string[] = [];

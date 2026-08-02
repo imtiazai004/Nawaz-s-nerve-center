@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse, type Server } 
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 
-import { append, loadSince } from '../db/eventStore.js';
+import { append, currentCursor, loadSince } from '../db/eventStore.js';
 import type { Pool } from '../db/pool.js';
 import type { IncidentEvent } from '../domain/events.js';
 import {
@@ -226,16 +226,12 @@ async function handlePush(
   const toStore = attributed as unknown as readonly IncidentEvent[];
   const result = await append(pool, toStore);
 
-  const cursorRow = await pool.query<{ max: string | null }>(
-    'SELECT MAX(seq)::text AS max FROM incident_event',
-  );
-
   const response: PushResponse = {
     accepted: valid.map((e) => e.eventId),
     rejected,
     appended: result.appended,
     duplicates: result.duplicates,
-    cursor: Number(cursorRow.rows[0]?.max ?? 0),
+    cursor: await currentCursor(pool),
   };
 
   json(res, 200, response);

@@ -1,7 +1,15 @@
 /**
  * Build the web client into `web/dist`.
  *
- * esbuild only — it already ships with vitest, so this adds no dependency (ADR-0007).
+ * esbuild only, and it is **declared** in package.json rather than borrowed.
+ *
+ * It used to be imported without being declared, on the reasoning that vitest already ships
+ * it so nothing new was being installed. True, and still a phantom dependency: the import
+ * resolved because npm happened to hoist another package's internals to the top level. It
+ * would break on a vite bump, on a stricter package manager, or on a clean install that
+ * deduped differently — and it would break the *build*, at a moment nobody was touching the
+ * build. Declaring it installs nothing extra (it dedupes to the same copy) and costs one
+ * line; the alternative was a failure mode with no obvious cause. See ADR-0007.
  * The service worker is a separate entry point because it must be served from the origin
  * root as its own file; a bundler that inlined it would silently limit its scope.
  */

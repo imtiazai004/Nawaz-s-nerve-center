@@ -154,6 +154,22 @@ export async function loadRecentIncidents(
   return [...byIncident.values()];
 }
 
+/**
+ * The server's current position in the log.
+ *
+ * Exists because the alternative kept being "read a big page and take its `nextCursor`",
+ * which is only the end of the log while the log is smaller than the page. Two tests were
+ * written that way, passed for months, and started failing the day the test database grew
+ * past ten thousand events — a cursor that silently stops meaning "the end" is exactly the
+ * failure `loadSince` warns about in its own comment.
+ */
+export async function currentCursor(pool: Pool): Promise<number> {
+  const res = await pool.query<{ max: string | null }>(
+    'SELECT MAX(seq)::text AS max FROM incident_event',
+  );
+  return Number(res.rows[0]?.max ?? 0);
+}
+
 export interface Page {
   readonly events: readonly IncidentEvent[];
   /** Pass back as `cursor` to continue. */
