@@ -14,6 +14,7 @@
 import type { Pool } from '../db/pool.js';
 import type { SlaTargets } from '../domain/sla.js';
 import { runEscalationPass, type EscalationOutcome } from './escalation.js';
+import { runNotifyPass, type NotificationChannel, type NotifyOutcome } from './notify.js';
 
 /**
  * Arbitrary but fixed. Advisory locks are keyed by number and share one namespace across
@@ -32,14 +33,22 @@ export interface SchedulerOptions {
    */
   readonly targets?: SlaTargets;
   readonly onOutcome?: (outcome: EscalationOutcome) => void;
+  readonly onNotify?: (outcome: NotifyOutcome) => void;
   readonly onError?: (error: unknown) => void;
+  /** Injectable so a test can supply a channel that fails on purpose. */
+  readonly channel?: NotificationChannel;
+}
+
+export interface PassOutcome {
+  readonly escalation: EscalationOutcome;
+  readonly notification: NotifyOutcome;
 }
 
 export interface Scheduler {
   start(): void;
   stop(): Promise<void>;
   /** Run one pass now, respecting the lock. Exposed for tests and for an operator. */
-  tick(): Promise<EscalationOutcome | null>;
+  tick(): Promise<PassOutcome | null>;
 }
 
 /**
@@ -51,7 +60,8 @@ export interface Scheduler {
 export async function runLockedPass(
   pool: Pool,
   targets?: SlaTargets,
-): Promise<EscalationOutcome | null> {
+  channel?: NotificationChannel,
+): Promise<PassOutcome | null> {
   const client = await pool.connect();
   try {
     const got = await client.query<{ locked: boolean }>(
@@ -61,7 +71,13 @@ export async function runLockedPass(
     if (got.rows[0]?.locked !== true) return null;
 
     try {
-      return await runEscalationPass(pool, targets === undefined ? {} : { targets });
+      // Escalation first, then notification, and the order matters: an escalation appended
+      // this tick moves the obligation to a new seat, and the notify pass reads state, so
+      // that seat is told in the same tick rather than one interval later. A minute of
+      // silence after an escalation is a minute nobody is moving.
+      const escalation = await runEscalationPass(pool, targets === undefined ? {} : { targets });
+      const notification = await runNotifyPass(pool, channel === undefined ? {} : { channel });
+      return { escalation, notification };
     } finally {
       await client.query('SELECT pg_advisory_unlock($1)', [ESCALATION_LOCK_KEY]);
     }
@@ -78,10 +94,13 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   let running: Promise<unknown> | null = null;
   let stopped = false;
 
-  async function tick(): Promise<EscalationOutcome | null> {
+  async function tick(): Promise<PassOutcome | null> {
     try {
-      const outcome = await runLockedPass(pool, options.targets);
-      if (outcome !== null) options.onOutcome?.(outcome);
+      const outcome = await runLockedPass(pool, options.targets, options.channel);
+      if (outcome !== null) {
+        options.onOutcome?.(outcome.escalation);
+        options.onNotify?.(outcome.notification);
+      }
       return outcome;
     } catch (err) {
       // A failed pass must never kill the scheduler. An escalation loop that stops after

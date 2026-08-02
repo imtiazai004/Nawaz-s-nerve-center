@@ -320,6 +320,8 @@ async function boot(): Promise<void> {
     escalationCount: number;
     overdue: boolean;
     overdueByMinutes: number;
+    notificationsFailed: number;
+    notificationsUndelivered: number;
   }
   interface BoardData {
     asOf: string;
@@ -329,6 +331,7 @@ async function boot(): Promise<void> {
       overdue: number;
       worst: string | null;
       unassessed: number;
+      notificationsUnmet: number;
     };
     incidents: BoardRow[];
   }
@@ -374,6 +377,9 @@ async function boot(): Promise<void> {
         data.summary.worst ?? 'none',
       ),
       tally('unassessed', 'not yet assessed', String(data.summary.unassessed)),
+      // INV-03, on the board, in words: "a message that did not reach the duty officer
+      // surfaces as an unmet obligation, not as a log line."
+      tally('unmet', 'nobody reached', String(data.summary.notificationsUnmet)),
     );
 
     boardRows.replaceChildren(
@@ -417,6 +423,19 @@ async function boot(): Promise<void> {
         }`;
 
         div.append(sev, cat, state, meta);
+
+        // Spelled out, on the row, next to the incident it concerns. A count in a corner
+        // tells you the district has a problem; this tells you which incident nobody is
+        // coming to (INV-03).
+        if (row.notificationsFailed > 0 || row.notificationsUndelivered > 0) {
+          const unmet = document.createElement('span');
+          unmet.className = 'flag unmet';
+          unmet.textContent =
+            row.notificationsFailed > 0
+              ? `could not notify the duty seat (${row.notificationsFailed})`
+              : `notified, nobody has picked it up (${row.notificationsUndelivered})`;
+          div.append(unmet);
+        }
         return div;
       }),
     );

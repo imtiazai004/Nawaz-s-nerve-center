@@ -232,6 +232,7 @@ function eventFor(
   identity: Identity,
   now: string,
   clientSeq: number,
+  state: IncidentState,
 ): IncidentEvent {
   const envelope = {
     eventId: randomUUID(),
@@ -289,7 +290,11 @@ function eventFor(
         ...envelope,
         type: 'reassigned',
         payload: {
-          fromDepartmentIds: [],
+          // Who is losing it, recorded at the moment it happens. An earlier version wrote
+          // an empty array here, which made the event unable to answer half of what a
+          // handover is — and the department being handed *from* is the one that has to be
+          // told it is no longer going.
+          fromDepartmentIds: state.responsibleDepartmentIds,
           toDepartmentIds: command.departmentIds,
           reason: command.reason,
         },
@@ -363,7 +368,7 @@ export async function applyCommand(
   // and strictly later than everything already stored — but a consistent sequence keeps
   // the comparator's tie-breaks meaningful when a server event and an offline batch land
   // in the same millisecond (ADR-0008).
-  const event = eventFor(command, incidentId, identity, now, state.eventCount + 1);
+  const event = eventFor(command, incidentId, identity, now, state.eventCount + 1, state);
 
   await append(pool, [event]);
 

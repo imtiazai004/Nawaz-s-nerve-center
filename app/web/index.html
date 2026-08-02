@@ -204,6 +204,9 @@
       #boardSummary .tally[data-kind="worst-critical"] { border-color: var(--critical); color: var(--critical); }
       #boardSummary .tally[data-kind="unassessed"] { border-color: var(--pending); color: var(--pending); }
       #boardSummary .tally[data-kind="overdue"] { border-color: var(--critical); color: var(--critical); }
+      #boardSummary .tally[data-kind="unmet"] { border-color: var(--critical); color: var(--critical); }
+      /* An unmet obligation spans the row, because it concerns the whole incident. */
+      .row .unmet { grid-column: 1 / -1; }
 
       #boardRows { border-top: 1px solid var(--line); }
       .row {

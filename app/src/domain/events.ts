@@ -42,6 +42,16 @@ export type SourceChannel = 'web' | 'mobile' | 'sms' | 'call' | 'radio' | 'walk_
 export type EscalationTrigger = 'sla_breach' | 'manual' | 'severity' | 'no_duty_holder';
 
 /**
+ * Why someone is being told. Every one of these is an obligation arriving at a seat.
+ *
+ * `lost_responsibility` is the odd one and the reason this is an enum rather than a
+ * boolean: the department a reassignment takes an incident *away from* has to be told too
+ * (`visible_to_owner: yes_and_notify` in docs/04-authority-model.md). A handover nobody
+ * announced is how two departments each assume the other went.
+ */
+export type NotifyReason = 'routed' | 'reassigned' | 'lost_responsibility' | 'escalated';
+
+/**
  * Carried by every event without exception.
  *
  * `occurredAt` is when it happened, per the actor's device. `recordedAt` is when the
@@ -77,7 +87,22 @@ interface Payloads {
   reported: { reportId: Uuid; category: string; severity: Severity; placeId?: Uuid };
   triaged: { severity: Severity; category: string; reason?: string };
   routed: { departmentIds: readonly Uuid[]; ruleId: Uuid | 'manual'; reason?: string };
-  notified: { attemptId: Uuid; seatId: Uuid; channel: SourceChannel };
+  /**
+   * A notification was **attempted**. Not "sent", and certainly not "received".
+   *
+   * Recorded before delivery is tried, so a crash between the two leaves a visibly pending
+   * obligation rather than nothing at all. INV-03 turns on this trio staying three separate
+   * facts: an attempt, and then either a delivery or a failure. Collapsing them into a
+   * boolean on the incident is the failure the invariant names.
+   */
+  notified: { attemptId: Uuid; seatId: Uuid; channel: SourceChannel; reason: NotifyReason };
+  notification_delivered: { attemptId: Uuid; seatId: Uuid; channel: SourceChannel };
+  notification_failed: {
+    attemptId: Uuid;
+    seatId: Uuid;
+    channel: SourceChannel;
+    failure: string;
+  };
   acknowledged: { seatId: Uuid };
   assigned: { resourceIds: readonly Uuid[] };
   action_logged: { note: string; evidenceIds?: readonly Uuid[] };

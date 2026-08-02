@@ -39,7 +39,7 @@ const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest'];
  * Network-only. If the network is down the request fails, which is correct: the outbox
  * treats a failed push as "still queued" and tries again.
  */
-const NEVER_CACHE = ['/sync', '/health', '/auth', '/incidents'];
+const NEVER_CACHE = ['/sync', '/health', '/auth', '/incidents', '/notifications'];
 
 function isNeverCache(url: URL): boolean {
   return NEVER_CACHE.some(

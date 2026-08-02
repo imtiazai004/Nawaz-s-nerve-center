@@ -28,6 +28,7 @@ import {
   type Uuid,
 } from '../domain/events.js';
 import { districtSeverity, foldIncident, type IncidentState } from '../domain/incident.js';
+import { unmetObligations } from '../domain/notifications.js';
 import { checkEscalation, PLACEHOLDER_SLA, type SlaTargets } from '../domain/sla.js';
 
 export interface BoardRow {
@@ -48,6 +49,16 @@ export interface BoardRow {
   /** Past its acknowledgement deadline and still unacknowledged. Decided server-side. */
   readonly overdue: boolean;
   readonly overdueByMinutes: number;
+  /**
+   * Notifications that have not reached anybody — INV-03's "unmet obligation".
+   *
+   * Two numbers, not one. `failed` means the attempt could not be made at all (a vacant
+   * post, a dead gateway) and needs someone to fix a roster or a channel. `undelivered`
+   * means it was queued and nobody has picked it up, which needs someone to pick up a
+   * phone. Collapsing them would leave the control room unable to tell which.
+   */
+  readonly notificationsFailed: number;
+  readonly notificationsUndelivered: number;
 }
 
 export interface Board {
@@ -61,6 +72,13 @@ export interface Board {
     readonly worst: AssessedSeverity | null;
     /** How many nobody has assessed. Never folded into `worst` (ADR-0009). */
     readonly unassessed: number;
+    /**
+     * Incidents where somebody was supposed to be told and demonstrably was not.
+     *
+     * INV-03 in one number, on the board, where the invariant says it must be — *an unmet
+     * obligation, not a log line*.
+     */
+    readonly notificationsUnmet: number;
   };
   readonly incidents: readonly BoardRow[];
 }
@@ -110,6 +128,7 @@ export interface BoardOptions {
 
 function toRow(state: IncidentState, now: Instant, targets: SlaTargets): BoardRow {
   const severity: Severity = state.severity?.value ?? 'unknown';
+  const unmet = unmetObligations(state.notifications, now);
 
   const verdict =
     state.occurredAt === null || state.lastRecordedAt === null
@@ -139,6 +158,8 @@ function toRow(state: IncidentState, now: Instant, targets: SlaTargets): BoardRo
     escalationCount: state.escalationCount,
     overdue: state.acknowledgedAt === null && (verdict?.shouldEscalate ?? false),
     overdueByMinutes: Math.round(verdict?.overdueByMinutes ?? 0),
+    notificationsFailed: unmet.filter((u) => u.why === 'failed').length,
+    notificationsUndelivered: unmet.filter((u) => u.why === 'undelivered').length,
   };
 }
 
@@ -189,6 +210,9 @@ export async function buildBoard(
       overdue: rows.filter((r) => r.overdue).length,
       worst: summary.worst,
       unassessed: summary.unassessed,
+      notificationsUnmet: rows.filter(
+        (r) => r.notificationsFailed > 0 || r.notificationsUndelivered > 0,
+      ).length,
     },
     incidents: rows,
   };

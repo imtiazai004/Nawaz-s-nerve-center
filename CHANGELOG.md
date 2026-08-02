@@ -703,3 +703,53 @@ it. `ADR-0003` has been true in the data since week one and invisible to every h
   that nothing sends — and INV-03 is the only invariant with no test at all.
 - **Verified:** `npm run check` green three consecutive times — typecheck, lint, formatting,
   **258/258 tests across 17 files**.
+
+## 2026-08-02 — M0-32: notifications, and the eighth invariant finally has a test
+
+INV-03 has been the one invariant with nothing guarding it since the first day. It is now
+the one with tests in two places, and the lifecycle is closed: capture, route, notify,
+acknowledge, escalate, override, close — every step reachable, authorised and observable.
+
+- **Added:** `domain/notifications.ts`, `jobs/notify.ts`, `api/notifications.ts`, and two
+  new event types — `notification_delivered` and `notification_failed`.
+- **The order of operations is the whole design, and it looks redundant until it isn't.**
+  Obligations are derived from **state**; `notified` is appended **before** delivery is
+  attempted; only then is the outcome recorded. A crash between attempting and recording
+  therefore leaves a **pending** attempt, which the board shows as unmet — the correct
+  answer, because we genuinely do not know whether anyone was told. Attempting first and
+  recording afterwards would leave nothing at all, and INV-03 would be defeated by a process
+  dying quietly rather than by anybody's mistake.
+- **Decided: three states, never two.** Queued is not delivered. An attempt stays `pending`
+  until the seat holder's client actually collects it. A system that reports "sent" as
+  "delivered" is telling the control room an officer knows about an emergency when nothing
+  has established that — and the control room will act on it.
+- **Decided: a vacant post fails loudly**, the same rule ADR-0004 already forces on
+  escalation and for the same reason. Nobody is coming, so somebody has to be told that
+  nobody is coming. A skipped notification would have been the quietest possible failure.
+- **Decided: failures and silences are counted separately, on the board.** "Could not notify
+  the duty seat" needs a roster fixed; "notified, nobody has picked it up" needs a phone
+  answered. One number would leave the control room unable to tell which, and INV-03's
+  wording — *an unmet obligation, not a log line* — is satisfied by neither if they are
+  merged into something ambiguous.
+- **Decided: no inbox table.** The inbox is a query over the event log — attempts for my
+  seat with nothing settling them — so there is no second store to drift from the record
+  (root idea #4). Same reasoning as the board having no board table.
+- **Decided: in-app only, and said plainly rather than glossed.** Q-07 (which channels
+  actually work in Bannu) is unanswered, so no vendor is assumed and none is invented. **An
+  officer who is not looking at the app is not reached.** That is a real gap, it is M3's to
+  close, and `NotificationChannel` is the seam SMS and voice slot into without touching any
+  of the ledger around them. Q-07 has moved up the priority list as a result: the thing that
+  would make an SMS trustworthy is now built and waiting for a channel to put under it.
+- **Fixed:** `reassigned` events were being written with `fromDepartmentIds: []`. Found by
+  building the notification rules, which need to know **who is losing an incident** in order
+  to tell them — and a handover nobody announced is how two departments each assume the
+  other went. The event now records both sides; the fold falls back to current state for the
+  events already written that way, so no history is lost.
+- **Added:** `reassignedFrom` on the projection, for the same reason. A handover has two
+  sides and the state could previously only describe one.
+- **Changed: M0-39 is `DONE` — all eight invariants have permanent tests.** Not true of any
+  previous milestone report. The invariant file's header now names where each one lives,
+  including the two that cannot be domain tests (INV-01 in the spine gate, INV-02 on the
+  board screen) so nobody re-adds a stub for them.
+- **Verified:** `npm run check` green three consecutive times — typecheck, lint, formatting,
+  **280/280 tests across 18 files**.

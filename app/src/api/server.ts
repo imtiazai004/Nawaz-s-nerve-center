@@ -23,6 +23,7 @@ import {
   type CommandKind,
 } from './lifecycle.js';
 import { buildBoard } from './board.js';
+import { inbox, markSeen } from './notifications.js';
 
 /**
  * The sync server. Plain `node:http`, no framework — see ADR-0007.
@@ -519,6 +520,43 @@ export function createSyncServer(options: ServerOptions): Server {
 
         // Everything below requires a session. There is no path around this check, and no
         // reliance on the UI hiding anything (INV-05).
+        // The operator's inbox (M0-32). Behind a session, scoped to the seat — never to the
+        // person, so a handover moves the post's messages with the post (ADR-0004).
+        if (url.pathname === '/notifications' || url.pathname.startsWith('/notifications/')) {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+
+          if (req.method === 'GET' && url.pathname === '/notifications') {
+            if (identity.seatId === null) {
+              // Holding no seat is not an error here: there is genuinely nothing addressed
+              // to you, and an empty inbox says that more honestly than a 403.
+              json(res, 200, { notifications: [] });
+              return;
+            }
+            json(res, 200, { notifications: await inbox(pool, identity.seatId) });
+            return;
+          }
+
+          const seen = /^\/notifications\/([^/]+)\/seen$/.exec(url.pathname);
+          if (req.method === 'POST' && seen !== null) {
+            const result = await markSeen(pool, seen[1]!, identity);
+            if (!result.ok) {
+              json(res, result.status, { error: result.error });
+              return;
+            }
+            json(res, 200, { ok: true });
+            return;
+          }
+
+          json(res, 404, { error: 'not found' });
+          return;
+        }
+
         const incidentRoute = matchIncidentRoute(url.pathname);
 
         if (incidentRoute !== null) {

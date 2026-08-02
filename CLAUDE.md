@@ -118,11 +118,12 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · **a board, and an incident you can interrogate**
-- **Phase:** Implementation. 258 tests pass. **M1 is underway.** Do not read the green gate
-  as "M0 is finished" — nine of M0's forty-nine tasks are open: the department board
-  (M0-34), notifications (M0-32), backup and restore (M0-37, 38), CI (M0-04), correlation
-  ids (M0-03). See `backlog/todos.md`.
+- **Milestone:** M0 — The Spine · **the lifecycle is closed and all eight invariants are
+  tested**
+- **Phase:** Implementation. 280 tests pass. **M1 is underway.** Seven of M0's fifty tasks
+  are open: the department board (M0-34), backup and restore (M0-37, 38), CI (M0-04),
+  correlation ids (M0-03), a department registry (M0-51), and two half-done
+  (M0-05 secrets, M0-11 payload versioning). See `backlog/todos.md`.
 - **Last updated:** 2026-08-02
 
 **The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
@@ -231,11 +232,13 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **258 tests passing** across 17 files, including permanent tests for INV-04 to INV-08, 17
-  database integration tests, 25 auth tests, 43 lifecycle tests, 12 board tests, 7 board
-  browser tests, **10 incident-detail browser tests**, 18 escalation tests, 6 real-browser
-  durability tests, 13 offline-launch tests, 15 login tests, 10 rapid-intake tests, and the
-  14-step M0 gate.
+- **280 tests passing** across 18 files. **Every one of the eight invariants now has a
+  permanent test**, and the invariant file's header names where each lives — four at the
+  domain layer, INV-01 in the spine gate, INV-05 in the auth refusals, INV-02 on the board
+  screen, INV-03 in both places. Plus 17 database integration tests, 25 auth tests, 43
+  lifecycle tests, 12 board and 7 board-browser tests, 10 incident-detail browser tests,
+  **16 notification tests**, 18 escalation tests, 6 real-browser durability tests, 13
+  offline-launch tests, 15 login tests, 10 rapid-intake tests, and the 14-step M0 gate.
 - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
 - **`app/src/api/board.ts` — the central board (M0-33).** `GET /incidents`, folded on demand
@@ -272,6 +275,25 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
     retitles it throughout history. The alternative is denormalising names into every event.
     Right trade for M0; a real limitation, not an oversight.
 
+- **`app/src/jobs/notify.ts` + `src/domain/notifications.ts` + `src/api/notifications.ts` —
+  notifications with tracked delivery (M0-32, INV-03).**
+  - **The order of operations is the design.** Obligations are derived from *state*, the
+    `notified` event is appended **before** delivery is attempted, and only then is the
+    outcome recorded. A crash in between leaves a **pending** attempt, which the board shows
+    as unmet — the correct answer, because we genuinely do not know whether anyone was told.
+    Attempting first would leave nothing, and INV-03 would fall to a process dying quietly.
+  - **Three states, never two.** Queued is not delivered. An attempt stays pending until the
+    seat holder's client actually collects it via `POST /notifications/:id/seen`.
+  - **A vacant post fails loudly**, exactly as in escalation (ADR-0004). Nobody is coming, so
+    somebody has to be told that nobody is coming.
+  - **Failures and silences are counted separately, on the board.** One needs a roster fixed,
+    the other needs a phone answered.
+  - **There is no inbox table.** The inbox is a query over the event log — attempts for my
+    seat with no outcome yet — so nothing can disagree with the record.
+  - **The channel is in-app only.** Q-07 (which channels actually work in Bannu) is
+    unanswered, so no vendor is assumed. An officer not looking at the app is **not reached**
+    — a real gap, M3's to close. `NotificationChannel` is the seam SMS and voice slot into.
+
 **What does not exist yet**
 - **The department board (M0-34) as a screen.** Already served — `buildBoard` scopes by the
   caller's seat and the tests prove a station seat is never *sent* its neighbours' rows.
@@ -281,9 +303,8 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
   it is the first thing M2's gate ("adding a fifth department is a configuration exercise")
   will need.
 - No map, no officer directory, no reports, no alerts.
-- **Notifications (M0-32).** Reassignment and district acknowledgement both owe the owning
-  department a notification, and nothing sends one. INV-03 has no test until a channel
-  exists — the gap is real, not bookkeeping.
+- **A notification that reaches someone who is not looking at the app.** See above: the gap
+  is the *channel*, not the ledger. M3, blocked on Q-07.
 - **Any backup at all (M0-37), and therefore the restore drill (M0-38).** M0-38 is often
   described as "needs a person, not code" — that is only half true. There is no scheduled
   backup to restore *from* yet. M0-37 is code, and it comes first.
@@ -366,14 +387,18 @@ M0-19, both found by tests:
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **M0-32, one notification channel.** Not cosmetic: reassignment and district
-   acknowledgement both owe the owning department a notification that nothing sends, and
-   INV-03 has no test until a channel exists.
-3. M0-37 then M0-38 — an automated backup, then a restore drill performed by someone who is
-   not the original developer. **The last open M0 gate item, and it needs code first.**
-4. **Q-06 — real SLA targets, agreed with each department.** More urgent than it was: the
-   board now renders "past deadline" from `PLACEHOLDER_SLA`, so a guess has become something
-   an operator reads as fact.
+1. **M0-37 then M0-38 — an automated backup, then a restore drill** performed by someone who
+   is not the original developer. **The last open M0 gate item, and it needs code first.**
+   With the lifecycle closed and every invariant tested, the largest remaining risk stops
+   being "does it work" and becomes "can it be brought back".
+2. **Q-06 — real SLA targets, agreed with each department.** More urgent than it was: the
+   board renders "past deadline" from `PLACEHOLDER_SLA`, and the notification deadline now
+   sits under it too, so a guess has become something an operator reads as fact.
+3. **Q-07 — which notification channels actually work in Bannu.** Was an M3 question; it has
+   moved up, because in-app delivery does not reach an officer who is not looking at the app
+   and the ledger that would make SMS trustworthy is now built and waiting.
+4. M0-04, CI. `npm run check` is green only because someone remembers to run it, and there
+   are now eighteen test files to forget.
 5. Q-08 — the Place gazetteer for Bannu. M1 needs it, and it may already exist somewhere
    (revenue records, PDMA mapping) — weeks of work versus a phone call.
 6. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
@@ -422,11 +447,12 @@ Build with Claude/
 │       │   └── sla.ts         ← deadlines and the occurred/recorded split (ADR-0002)
 │       ├── db/                ← pool, migration runner, event store
 │       ├── auth/              ← scrypt passwords, seat-scoped sessions (M0-19)
-│       ├── jobs/              ← escalation scan + scheduler (M0-29)
+│       ├── jobs/              ← escalation scan, notification pass, scheduler (M0-29, 32)
 │       ├── main.ts            ← process entry: API + client + escalation loop
 │       ├── api/               ← sync protocol and the node:http server
 │       │   ├── lifecycle.ts   ← commands: intake, triage, route, ack, close (M0-24…31)
-│       │   └── board.ts       ← the central board projection (M0-33). No board table
+│       │   ├── board.ts       ← the central board projection (M0-33). No board table
+│       │   └── notifications.ts ← the seat's inbox (M0-32). No inbox table either
 │       ├── outbox/            ← the offline substrate (ADR-0002)
 │       │   └── adapters/      ← IndexedDB store, HTTP transport, browser harness
 │       ├── __tests__/         ← spine.e2e.test.ts — THE M0 GATE

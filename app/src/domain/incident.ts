@@ -45,12 +45,37 @@ export interface ResponseAction {
   readonly note: string;
 }
 
+/**
+ * One notification attempt and what became of it.
+ *
+ * Kept as a list on the incident, never reduced to `notified: true` — that reduction is
+ * precisely what INV-03 forbids, because it is the step that makes a failure invisible.
+ */
+export interface NotificationAttempt {
+  readonly attemptId: Uuid;
+  readonly seatId: Uuid;
+  readonly channel: string;
+  readonly reason: string;
+  readonly attemptedAt: Instant;
+  readonly state: 'pending' | 'delivered' | 'failed';
+  /** Why it failed. Present only when `state` is `failed`. */
+  readonly failure?: string;
+  readonly settledAt?: Instant;
+}
+
 export interface IncidentState {
   readonly incidentId: Uuid;
   readonly status: IncidentStatus;
   readonly severity: Provenanced<Severity> | null;
   readonly category: Provenanced<string> | null;
   readonly responsibleDepartmentIds: readonly Uuid[];
+  /**
+   * Departments that held this and no longer do.
+   *
+   * Kept because a handover has two sides. The department losing an incident has to be told
+   * it is no longer theirs, and without this the projection cannot say who that was.
+   */
+  readonly reassignedFrom: readonly Uuid[];
   readonly reportIds: readonly Uuid[];
   readonly acknowledgedAt: Instant | null;
   readonly acknowledgedBySeatId: Uuid | null;
@@ -58,6 +83,8 @@ export interface IncidentState {
   readonly currentEscalationSeatId: Uuid | null;
   readonly assignedResourceIds: readonly Uuid[];
   readonly actions: readonly ResponseAction[];
+  /** Every attempt, in order, with its outcome. Never collapsed to a boolean (INV-03). */
+  readonly notifications: readonly NotificationAttempt[];
   readonly mergedIncidentIds: readonly Uuid[];
   readonly resolution: string | null;
   readonly closureNotes: string | null;
@@ -170,6 +197,7 @@ export function foldIncident(
   let severity: Provenanced<Severity> | null = null;
   let category: Provenanced<string> | null = null;
   let responsibleDepartmentIds: readonly Uuid[] = [];
+  const reassignedFrom: Uuid[] = [];
   const reportIds: Uuid[] = [];
   let acknowledgedAt: Instant | null = null;
   let acknowledgedBySeatId: Uuid | null = null;
@@ -177,6 +205,8 @@ export function foldIncident(
   let currentEscalationSeatId: Uuid | null = null;
   const assignedResourceIds: Uuid[] = [];
   const actions: ResponseAction[] = [];
+  // Keyed by attemptId so an outcome updates its attempt rather than appending beside it.
+  const notifications = new Map<Uuid, NotificationAttempt>();
   const mergedIncidentIds: Uuid[] = [];
   let resolution: string | null = null;
   let closureNotes: string | null = null;
@@ -247,6 +277,15 @@ export function foldIncident(
       }
 
       case 'reassigned': {
+        // Prefer what the event recorded; fall back to what we currently believe, so an
+        // event written before `fromDepartmentIds` was populated still yields the truth.
+        const from =
+          e.payload.fromDepartmentIds.length > 0
+            ? e.payload.fromDepartmentIds
+            : responsibleDepartmentIds;
+        for (const id of from) {
+          if (!reassignedFrom.includes(id)) reassignedFrom.push(id);
+        }
         responsibleDepartmentIds = [...e.payload.toDepartmentIds];
         break;
       }
@@ -308,9 +347,52 @@ export function foldIncident(
         break;
       }
 
-      case 'notified':
+      case 'notified': {
+        notifications.set(e.payload.attemptId, {
+          attemptId: e.payload.attemptId,
+          seatId: e.payload.seatId,
+          channel: e.payload.channel,
+          reason: e.payload.reason,
+          attemptedAt: e.occurredAt,
+          state: 'pending',
+        });
+        break;
+      }
+
+      case 'notification_delivered': {
+        const attempt = notifications.get(e.payload.attemptId);
+        // An outcome for an attempt we never saw is not discarded — it is still evidence
+        // that something was delivered, and dropping it would make the ledger disagree with
+        // the log it is folded from.
+        notifications.set(e.payload.attemptId, {
+          attemptId: e.payload.attemptId,
+          seatId: e.payload.seatId,
+          channel: e.payload.channel,
+          reason: attempt?.reason ?? 'unknown',
+          attemptedAt: attempt?.attemptedAt ?? e.occurredAt,
+          state: 'delivered',
+          settledAt: e.occurredAt,
+        });
+        break;
+      }
+
+      case 'notification_failed': {
+        const attempt = notifications.get(e.payload.attemptId);
+        notifications.set(e.payload.attemptId, {
+          attemptId: e.payload.attemptId,
+          seatId: e.payload.seatId,
+          channel: e.payload.channel,
+          reason: attempt?.reason ?? 'unknown',
+          attemptedAt: attempt?.attemptedAt ?? e.occurredAt,
+          state: 'failed',
+          failure: e.payload.failure,
+          settledAt: e.occurredAt,
+        });
+        break;
+      }
+
       case 'late_arrival_flagged':
-        // Recorded for audit and the notification projection; no effect on incident state.
+        // Recorded for audit; no effect on incident state.
         break;
     }
   }
@@ -321,6 +403,7 @@ export function foldIncident(
     severity,
     category,
     responsibleDepartmentIds,
+    reassignedFrom,
     reportIds,
     acknowledgedAt,
     acknowledgedBySeatId,
@@ -328,6 +411,7 @@ export function foldIncident(
     currentEscalationSeatId,
     assignedResourceIds,
     actions,
+    notifications: [...notifications.values()],
     mergedIncidentIds,
     resolution,
     closureNotes,

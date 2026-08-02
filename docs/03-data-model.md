@@ -58,7 +58,9 @@ payload           jsonb — type-specific
 | `reported` | A report was linked to this incident | report_id, initial category, location capture |
 | `triaged` | Severity and category set or revised | severity, category, reason if revised |
 | `routed` | Responsible department(s) assigned | department_ids, rule_id or `manual`, reason |
-| `notified` | A notification was attempted | notification_attempt_id, channel, endpoint, seat |
+| `notified` | A notification was **attempted** — not sent, not received | attempt_id, channel, seat, reason |
+| `notification_delivered` | An attempt actually reached a human | attempt_id, seat, channel |
+| `notification_failed` | An attempt could not be made or did not arrive | attempt_id, seat, channel, **failure** |
 | `acknowledged` | A duty seat accepted responsibility | seat_id, elapsed vs SLA |
 | `assigned` | Team, vehicle, or resource committed | resource refs |
 | `action_logged` | A response action was recorded | free text, evidence refs |

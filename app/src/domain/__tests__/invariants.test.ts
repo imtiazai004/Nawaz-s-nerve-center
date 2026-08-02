@@ -15,15 +15,21 @@
  *   - INV-05 (the UI is never the enforcement layer) — `src/auth/__tests__/auth.test.ts`,
  *     every refusal made by direct HTTP call, never through a rendered page.
  *
- * Two are still uncovered and stay listed here so the gap is visible rather than forgotten:
- *   - INV-02 (stale data is never rendered as current) — needs the boards, M0-33..35.
- *   - INV-03 (a notification failure is never invisible) — needs a notification channel
- *     with tracked delivery state, M0-32. There is nothing to test until that exists.
+ *   - INV-03 (a notification failure is never invisible) — the domain half is below; the
+ *     running-system half is `src/jobs/__tests__/notify.test.ts`, which proves a failed
+ *     attempt reaches the central board rather than a log line.
+ *
+ * One is still uncovered and stays listed here so the gap is visible rather than forgotten:
+ *   - INV-02 (stale data is never rendered as current) — enforced by the board and detail
+ *     screens and tested there (`board.e2e.test.ts` tests 5 and 6), but it has no
+ *     domain-level guard, because staleness is a property of a rendering rather than of a
+ *     fold. If a third screen is built, that test is the one to copy.
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { foldIncident, districtSeverity } from '../incident.js';
+import { foldIncident, districtSeverity, type NotificationAttempt } from '../incident.js';
+import { unmetObligations } from '../notifications.js';
 import { evaluateWrite, defaultRules } from '../authority.js';
 import { checkEscalation } from '../sla.js';
 import {
@@ -80,6 +86,96 @@ describe('INV-04 — an aggregate never hides a critical', () => {
     ]);
 
     expect(districtSeverity([...unassessed, low])).toEqual({ worst: 'low', unassessed: 20 });
+  });
+});
+
+describe('INV-03 — a notification failure is never invisible', () => {
+  const attempt = (over: Partial<NotificationAttempt> = {}): NotificationAttempt => ({
+    attemptId: 'a-1',
+    seatId: 'seat-rescue',
+    channel: 'web',
+    reason: 'routed',
+    attemptedAt: '2026-08-02T10:00:00.000Z',
+    state: 'pending',
+    ...over,
+  });
+
+  it('a failed attempt is an unmet obligation immediately', () => {
+    // No waiting period. We already know nobody was reached, and a delay before saying so
+    // is a delay before anybody can fix it.
+    const unmet = unmetObligations(
+      [attempt({ state: 'failed', failure: 'no_duty_holder' })],
+      '2026-08-02T10:00:01.000Z',
+    );
+    expect(unmet).toHaveLength(1);
+    expect(unmet[0]!.why).toBe('failed');
+  });
+
+  it('a pending attempt becomes an unmet obligation once it has waited too long', () => {
+    const later = '2026-08-02T10:30:00.000Z';
+    expect(unmetObligations([attempt()], later)[0]?.why).toBe('undelivered');
+  });
+
+  it('reports a failure and a silence as different things', () => {
+    // One needs a roster fixed, the other needs a phone answered. A single number would
+    // leave the control room unable to tell which.
+    const unmet = unmetObligations(
+      [attempt({ attemptId: 'a-1', state: 'failed', failure: 'x' }), attempt({ attemptId: 'a-2' })],
+      '2026-08-02T10:30:00.000Z',
+    );
+    expect(unmet.map((u) => u.why).sort()).toEqual(['failed', 'undelivered']);
+  });
+
+  it('never treats a delivered attempt as unmet', () => {
+    const delivered = attempt({ state: 'delivered', settledAt: '2026-08-02T10:00:30.000Z' });
+    expect(unmetObligations([delivered], '2026-08-03T10:00:00.000Z')).toHaveLength(0);
+  });
+
+  it('keeps every attempt on the incident rather than collapsing them to a boolean', () => {
+    // The literal words of the invariant: "NotificationAttempt is never collapsed into a
+    // boolean on the incident". The collapse is the step that makes a failure invisible.
+    const state = foldIncident(INCIDENT, [
+      ev('reported', { reportId: 'r', category: 'rta', severity: 'high' }),
+      ev('notified', { attemptId: 'a-1', seatId: 'seat-a', channel: 'web', reason: 'routed' }),
+      ev('notified', { attemptId: 'a-2', seatId: 'seat-b', channel: 'web', reason: 'escalated' }),
+      ev('notification_failed', {
+        attemptId: 'a-2',
+        seatId: 'seat-b',
+        channel: 'web',
+        failure: 'no_duty_holder',
+      }),
+    ]);
+
+    expect(state.notifications).toHaveLength(2);
+    expect(state.notifications.find((n) => n.attemptId === 'a-1')?.state).toBe('pending');
+
+    const failed = state.notifications.find((n) => n.attemptId === 'a-2');
+    expect(failed?.state).toBe('failed');
+    // The reason survives the fold. "It failed" without "why" is not actionable.
+    expect(failed?.failure).toBe('no_duty_holder');
+  });
+
+  it('an outcome never rewrites the attempt it settles', () => {
+    // Append-only, all the way down: the delivery does not erase when it was attempted, so
+    // "how long did this sit unread" stays answerable (ADR-0001).
+    const state = foldIncident(INCIDENT, [
+      ev('reported', { reportId: 'r', category: 'rta', severity: 'high' }),
+      ev(
+        'notified',
+        { attemptId: 'a-1', seatId: 'seat-a', channel: 'web', reason: 'routed' },
+        { occurredAt: '2026-08-02T10:00:00.000Z' },
+      ),
+      ev(
+        'notification_delivered',
+        { attemptId: 'a-1', seatId: 'seat-a', channel: 'web' },
+        { occurredAt: '2026-08-02T10:04:00.000Z' },
+      ),
+    ]);
+
+    const settled = state.notifications[0]!;
+    expect(settled.state).toBe('delivered');
+    expect(settled.attemptedAt).toBe('2026-08-02T10:00:00.000Z');
+    expect(settled.settledAt).toBe('2026-08-02T10:04:00.000Z');
   });
 });
 

@@ -98,7 +98,7 @@ the spine.
 | M0-30 | Reassignment by control room, with reason | `DONE` | M0-22 | `POST /incidents/:id/reassign`. Reason enforced (INV-06). **Notification of the department losing it waits on M0-32** |
 | M0-31 | Resolve and close with evidence | `DONE` | M0-07 | `resolve` then `close`; closing an unresolved incident is refused, because an incident closed with no recorded outcome is the failure the closure-completeness metric measures |
 | M0-49 | Incident read endpoint, authority-scoped | `DONE` | M0-20 | New. `GET /incidents/:id` returns state **and** full history, so provenance is renderable without a second request. Cross-department reads answered as *not found*, never *forbidden* |
-| M0-32 | One notification channel with tracked delivery state (INV-03) | `TODO` | M0-27 | Failure is visible, not a log line. **Now the only lifecycle gap** — reassignment and district acknowledgement both owe the owning department a notification |
+| M0-32 | One notification channel with tracked delivery state (INV-03) | `DONE` | M0-27 | Attempt recorded **before** delivery is tried, so a crash leaves a visible pending obligation. Three states, never two — queued is not delivered. A vacant post fails loudly instead of swallowing it. Failures and silences counted separately **on the board**. In-app channel only; SMS/voice is M3, blocked on Q-07. 16 + 6 tests |
 
 ### Views
 
@@ -117,7 +117,7 @@ the spine.
 |---|---|---|---|---|
 | M0-37 | Automated backup | `TODO` | M0-02 | Runs on schedule, verified non-empty. **Nothing exists yet — this is code, and M0-38 cannot start until it does** |
 | M0-38 | **Restore drill, actually performed** | `TODO` | M0-37 | Executed end to end, timed, documented. Blocked on M0-37 as well as on a second person |
-| M0-39 | Invariant test suite scaffold (INV-01…08) | `DOING` | M0-04 | INV-04, 06, 07, 08 at the domain layer; **INV-01 by `spine.e2e.test.ts` and INV-05 by the 25 direct-HTTP refusals in `auth.test.ts`** — both are system properties a pure-domain test cannot show. Remaining: INV-02 (needs the boards, M0-33…35) and INV-03 (needs M0-32) |
+| M0-39 | Invariant test suite scaffold (INV-01…08) | `DONE` | M0-04 | **All eight covered.** INV-04, 06, 07, 08 at the domain layer; INV-01 by `spine.e2e.test.ts`; INV-05 by 25 direct-HTTP refusals; INV-02 by `board.e2e.test.ts` 5–6; INV-03 by 6 domain tests plus `notify.test.ts`. Where each lives is named in the invariant file's header |
 
 ---
 
@@ -151,19 +151,20 @@ through a browser. That was the largest open block and it is closed.
 
 What remains open in M0, eleven of forty-nine:
 
+**All eight invariants now have permanent tests** (M0-39), which was not true of any previous
+milestone report. The lifecycle is complete: capture, route, notify, acknowledge, escalate,
+override, close — every step reachable, authorised and observable.
+
 - **The department board (M0-34).** Already *served* — `buildBoard` scopes by the caller's
   seat — so what is missing is a department-framed screen, not a second query.
-- **Notifications.** M0-32, and it is load-bearing rather than cosmetic: reassignment and
-  district acknowledgement both owe the owning department a notification that nothing sends
-  yet, and INV-03 has no test until a channel exists.
 - **Operations.** M0-37 backup, M0-38 restore drill, M0-04 CI, M0-03 correlation ids.
-- **New:** M0-51, a department registry. Departments have no table and render as uuids.
-- **Half-done:** M0-05 secrets, M0-11 payload versioning, M0-39 invariant coverage.
+- **M0-51**, a department registry. Departments have no table and render as uuids.
+- **Half-done:** M0-05 secrets, M0-11 payload versioning.
 
-**M1 — Rescue 1122 in full — continues from here.** Next is **M0-32**, one notification
-channel. It is the last piece of the lifecycle that is genuinely absent rather than merely
-unrendered: two commands already owe a department a notification that nothing sends, and
-INV-03 is the only invariant with no test at all.
+**Next is M0-37 and M0-38 — backup and a restore drill.** With the invariants covered and the
+lifecycle closed, the largest remaining risk stops being "does it work" and becomes "can it
+be brought back". That is also the last open item on the M0 gate, and it needs code before it
+needs a second person.
 
 Before M1 gets far it needs two answers: **Q-08** (does a Bannu place gazetteer already
 exist — weeks of work versus a phone call) and **Q-06** (real SLA targets, since the
