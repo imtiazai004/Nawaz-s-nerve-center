@@ -25,6 +25,14 @@ export interface Identity {
   /** Null when the person holds no seat right now — authenticated, but with no authority. */
   readonly seatId: string | null;
   readonly departmentId: string | null;
+  /**
+   * The department's name, so a screen can say whose view it is showing.
+   *
+   * Null for a department-agnostic seat — the control room and the DC — which is how
+   * "district-wide" is expressed rather than being a separate flag.
+   */
+  readonly departmentName: string | null;
+  readonly seatTitle: string | null;
   readonly tier: Tier | null;
   readonly canBreakGlass: boolean;
 }
@@ -42,7 +50,9 @@ interface IdentityRow {
   person_id: string;
   full_name: string;
   seat_id: string | null;
+  seat_title: string | null;
   department_id: string | null;
+  department_name: string | null;
   tier: Tier | null;
   can_break_glass: boolean | null;
 }
@@ -52,7 +62,9 @@ function toIdentity(r: IdentityRow): Identity {
     personId: r.person_id,
     fullName: r.full_name,
     seatId: r.seat_id,
+    seatTitle: r.seat_title,
     departmentId: r.department_id,
+    departmentName: r.department_name,
     tier: r.tier,
     canBreakGlass: r.can_break_glass === true,
   };
@@ -118,13 +130,16 @@ export async function resolveIdentity(pool: Pool, personId: string): Promise<Ide
     `SELECT p.person_id,
             p.full_name,
             s.seat_id,
+            s.title        AS seat_title,
             s.department_id,
+            dep.name       AS department_name,
             s.tier,
             s.can_break_glass
        FROM person p
        LEFT JOIN duty_assignment d
               ON d.person_id = p.person_id AND d.to_at IS NULL
        LEFT JOIN seat s ON s.seat_id = d.seat_id
+       LEFT JOIN department dep ON dep.department_id = s.department_id
       WHERE p.person_id = $1 AND p.disabled_at IS NULL`,
     [personId],
   );

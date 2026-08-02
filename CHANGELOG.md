@@ -1062,3 +1062,41 @@ one person can operate at 02:00.
   person (M0-38), a deployment decision (M0-37 scheduling, M0-05), or a thing that does not
   exist yet (M0-11 needs a payload v2). M1 is the work now, and it stalls on **Q-18** (tiers)
   and Rescue 1122's number.
+
+## 2026-08-02 — M0-34: the department board and the seat inbox, and two tests that were grading their own homework
+
+- **Added: the seat inbox**, and it closes a loop that had been open at its last step. Until
+  now **nothing in the browser ever called `/notifications`** — attempts were created, stayed
+  `pending` for ever, and the central board carried them as unmet obligations permanently.
+  M0-32 built the ledger and the delivery semantics; this is the part with a human in it.
+- **Decided: delivery is recorded when the operator says they have seen it, never on render.**
+  Marking items delivered because a list drew them would make "delivered" mean "the tab was
+  open", which is exactly the overclaim INV-03 exists to prevent. The consequence is
+  deliberate: an unopened notification keeps the board red until somebody acts.
+- **Changed: the department board is the same `buildBoard`, the same projection, the same
+  query.** Scoping falls out of the seat, so there is nothing that could disagree with the
+  district view. What differs is the label — and it now **names** the department.
+- **Fixed: the board said "your department" to everyone, including the district control
+  room.** It read `identity.departmentId`, which the client's `Identity` interface did not
+  declare, so `undefined === null` was false every time. It shipped, and nothing objected.
+- **Fixed, and this is the one that matters: `web/` was never in `tsconfig.json`.** The PWA —
+  service worker, offline logic, intake, everything an operator touches — is built by
+  esbuild, which **strips** types without checking them. So the operator-facing half of the
+  system had no type safety at all, for months, silently. Turning it on immediately produced
+  seven errors including the bug above. `include` is now `["src", "web/src", "build.mjs"]`,
+  and `npm run lint` covers `web/src` too.
+- **Fixed: `board.e2e.test.ts` had been asserting less than it claimed.** Its `seedIncident`
+  helper routed each incident by calling the API **as the signed-in station officer**, who
+  has no authority to route — every call returned **403 and was thrown away**. The tests
+  passed regardless, because an *unrouted* incident is readable by everyone (deliberate: an
+  emergency nobody may see is an emergency nobody picks up). So *"lists live incidents scoped
+  to the seat"* was green while proving nothing whatsoever about scoping. Routing now goes
+  through a district-tier seat and **the status is asserted**.
+  A test helper that ignores a status code is a test that grades its own homework, and it
+  took building something that genuinely needed the routing to have happened to notice.
+- **Removed:** `lastClientSeq` in the web client — assigned, incremented, never read. The
+  outbox owns sequencing; a second counter beside it only suggested otherwise.
+- **Verified:** 336/336 tests across 21 files.
+- **Open:** with M0-34 done, **every M0 task that is code is complete.** What remains needs a
+  person (M0-38), a deployment decision (M0-37, M0-05, both on P-08), or something that does
+  not exist yet (M0-11 needs a payload v2). M1 stalls on **Q-18** and Rescue 1122's number.

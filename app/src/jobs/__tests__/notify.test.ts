@@ -227,7 +227,9 @@ describe.skipIf(dbUrl === undefined)('notifications (INV-03)', () => {
         personId: 'x',
         fullName: 'Control',
         seatId: randomUUID(),
+        seatTitle: 'District Control Room',
         departmentId: null,
+        departmentName: null,
         tier: 'district',
         canBreakGlass: false,
       })!;

@@ -23,6 +23,7 @@ import { createSyncServer } from '../api/server.js';
 import { createPool, migrate, type Pool } from '../db/pool.js';
 import { buildWeb } from '../../build.mjs';
 import { seedActor, TEST_PASSWORD, type TestActor } from '../testing/seed.js';
+import { runNotifyPass } from '../jobs/notify.js';
 
 const dbUrl = process.env['TEST_DATABASE_URL'];
 const here = dirname(fileURLToPath(import.meta.url));
@@ -36,6 +37,8 @@ describe.skipIf(dbUrl === undefined)('M0-33: the central board', () => {
   let context: BrowserContext;
   let page: Page;
   let actor: TestActor;
+  /** District tier, so it can actually route. The signed-in station officer cannot. */
+  let controlRoom: TestActor;
 
   beforeAll(async () => {
     const webRoot = await buildWeb();
@@ -47,6 +50,7 @@ describe.skipIf(dbUrl === undefined)('M0-33: the central board', () => {
     origin = `http://127.0.0.1:${(api.address() as AddressInfo).port}`;
 
     actor = await seedActor(pool, { title: 'Board Test Duty Officer' });
+    controlRoom = await seedActor(pool, { title: 'Board Test Control Room', tier: 'district' });
 
     browser = await chromium.launch();
     context = await browser.newContext();
@@ -66,7 +70,18 @@ describe.skipIf(dbUrl === undefined)('M0-33: the central board', () => {
     await pool?.end();
   });
 
-  /** Create an incident through the API, routed to this officer's department. */
+  /**
+   * An incident, genuinely routed to this officer's department.
+   *
+   * The routing goes through a **district-tier** seat, and the result is asserted. An
+   * earlier version did both from the page — as the signed-in station officer, who has no
+   * authority to route — so every call returned 403 and was thrown away. The board tests
+   * still passed, because an *unrouted* incident is readable by everyone (that is
+   * deliberate: an emergency nobody may see is an emergency nobody picks up). So "lists
+   * live incidents scoped to the seat" was green while proving nothing about scoping.
+   *
+   * A test helper that ignores a status code is a test that grades its own homework.
+   */
   async function seedIncident(severity?: string): Promise<string> {
     const created = await page.evaluate(async (sev: string | undefined) => {
       const res = await fetch('/incidents', {
@@ -77,16 +92,15 @@ describe.skipIf(dbUrl === undefined)('M0-33: the central board', () => {
       return (await res.json()) as { incidentId: string };
     }, severity);
 
-    await page.evaluate(
-      async ([id, dept]: [string, string]) => {
-        await fetch(`/incidents/${id}/route`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ departmentIds: [dept], reason: 'board e2e' }),
-        });
+    const routed = await fetch(`${origin}/incidents/${created.incidentId}/route`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${controlRoom.token}`,
       },
-      [created.incidentId, actor.departmentId] as [string, string],
-    );
+      body: JSON.stringify({ departmentIds: [actor.departmentId], reason: 'board e2e' }),
+    });
+    expect(routed.status).toBe(200);
 
     return created.incidentId;
   }
@@ -170,5 +184,65 @@ describe.skipIf(dbUrl === undefined)('M0-33: the central board', () => {
     // room during an outage. It is the *unlabelled* version that is dangerous, and test 6
     // is what stops that.
     expect(await page.locator('#boardRows .row').count()).toBeGreaterThan(0);
+  });
+
+  describe('the seat inbox — M0-34, and the receiving half of M0-32', () => {
+    /**
+     * Until this existed, nothing in the browser ever called `/notifications`. Attempts were
+     * created, stayed `pending` for ever, and the board carried them as unmet obligations
+     * permanently. The loop was open at its last step — the one with a human in it.
+     */
+    let notified: string;
+
+    it('8. shows what is waiting for this seat, without claiming it was delivered', async () => {
+      notified = await seedIncident('high');
+      await runNotifyPass(pool, { incidentIds: [notified] });
+
+      await page.click('#navInbox');
+      await page.waitForSelector('#inboxView:not([hidden]) .inbox-row', { timeout: 15_000 });
+
+      // Rendering it is not delivering it. "The tab was open" is not "somebody knows".
+      const delivered = await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM incident_event
+          WHERE incident_id = $1 AND type = 'notification_delivered'`,
+        [notified],
+      );
+      expect(Number(delivered.rows[0]!.n)).toBe(0);
+    });
+
+    it('9. records delivery only when a human says they have seen it (INV-03)', async () => {
+      await page.click(`.inbox-row .seen`);
+
+      await page.waitForFunction(
+        () => document.querySelectorAll('#inboxView .inbox-row').length === 0,
+        { timeout: 15_000 },
+      );
+
+      const delivered = await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM incident_event
+          WHERE incident_id = $1 AND type = 'notification_delivered'`,
+        [notified],
+      );
+      expect(Number(delivered.rows[0]!.n)).toBe(1);
+    });
+
+    it('10. names the seat the inbox belongs to, not the person', async () => {
+      // Scoped to the post, so a handover moves the messages with it (ADR-0004).
+      expect(await page.textContent('#inboxWho')).toContain('Board Test Duty Officer');
+    });
+
+    it('11. names the department on the board instead of saying "your department"', async () => {
+      // The registry exists now (M0-51), so the board can say which one. It previously read
+      // `departmentId` off a client type that did not declare it — `undefined === null` is
+      // false — and so labelled every seat "your department", the district control room
+      // included. `web/` was not in the tsconfig, so nothing objected.
+      await page.click('#navBoard');
+      await page.waitForSelector('#boardView:not([hidden])');
+      await page.waitForFunction(
+        () => (document.getElementById('boardScope')?.textContent ?? '').length > 0,
+        { timeout: 15_000 },
+      );
+      expect(await page.textContent('#boardScope')).not.toBe('your department');
+    });
   });
 });

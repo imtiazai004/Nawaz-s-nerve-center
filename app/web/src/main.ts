@@ -24,10 +24,21 @@ import { buildCapture, describeFix, startLocationWatch, type Fix } from './locat
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
+/**
+ * Mirrors `Identity` in `src/auth/sessions.ts`, which is what `/auth/me` returns.
+ *
+ * It used to declare three of these fields, and the board read `departmentId` off it anyway
+ * — `undefined === null` is false, so the district control room was labelled "your
+ * department" and nobody noticed. That compiled because `web/` was not in the tsconfig at
+ * all. It is now; see the note there.
+ */
 interface Identity {
   personId: string;
   fullName: string;
   seatId: string | null;
+  seatTitle: string | null;
+  departmentId: string | null;
+  departmentName: string | null;
 }
 
 function deviceId(): string {
@@ -77,7 +88,6 @@ async function boot(): Promise<void> {
   let fix: Fix | null = null;
   /** The incident just reported, so enrichment can be attached to it. */
   let lastIncidentId: string | null = null;
-  let lastClientSeq = 0;
 
   /**
    * Connectivity is derived from whether we actually reached the server — never from
@@ -120,10 +130,15 @@ async function boot(): Promise<void> {
           ? `${identity.fullName} — no current duty assignment`
           : identity.fullName;
     }
-    // The board needs a seat to scope it, so it is offered only once signed in. Intake is
-    // never behind this — an emergency can be captured signed out (INV-01).
+    // The board and the inbox both need a seat to scope them, so they are offered only once
+    // signed in. Intake never is — an emergency can be captured signed out (INV-01).
     nav.hidden = !signedIn;
-    if (!signedIn && boardView.hidden === false) showBoard(false);
+    if (!signedIn) {
+      if (boardView.hidden === false || inboxView.hidden === false) showView('report');
+      paintInboxCount(0);
+    } else {
+      void refreshInboxCount();
+    }
 
     const unreachable = reachability === 'unreachable' || navigator.onLine === false;
     offlineLoginNote.hidden = signedIn || !unreachable;
@@ -231,9 +246,8 @@ async function boot(): Promise<void> {
     } as unknown as Omit<IncidentEvent, 'clientSeq' | 'recordedAt'>;
 
     // Durable first, always. Nothing here waits on the network.
-    const stored = await outbox.enqueue(draft);
+    await outbox.enqueue(draft);
     lastIncidentId = incidentId;
-    lastClientSeq = stored.clientSeq;
 
     // The operator's job is done at this point. Everything below is optional.
     sent.hidden = false;
@@ -260,7 +274,6 @@ async function boot(): Promise<void> {
     const detail = el<HTMLTextAreaElement>('detail').value;
     if (place.trim().length === 0 && detail.trim().length === 0) return;
 
-    lastClientSeq += 1;
     await outbox.enqueue({
       eventId: crypto.randomUUID(),
       incidentId: lastIncidentId,
@@ -490,8 +503,15 @@ async function boot(): Promise<void> {
       }
       lastBoard = (await res.json()) as BoardData;
       renderBoard(lastBoard);
+      // Say whose view this is, by name (M0-34). The same endpoint and the same projection
+      // serve both — the scoping falls out of the seat, so a department board is not a
+      // second query that could disagree with the district one. What differs is the label.
       boardScope.textContent =
-        identity?.departmentId === null ? 'district-wide' : 'your department';
+        identity === null
+          ? ''
+          : identity.departmentId === null
+            ? 'district-wide'
+            : (identity.departmentName ?? 'your department');
     } catch {
       // Offline. Keep what is on screen — and make sure it is labelled for what it is.
       paintBoardAge(lastBoard);
@@ -502,14 +522,22 @@ async function boot(): Promise<void> {
     showView(show ? 'board' : 'report');
   }
 
-  function showView(view: 'report' | 'board' | 'detail'): void {
+  function showView(view: 'report' | 'board' | 'detail' | 'inbox'): void {
     reportView.hidden = view !== 'report';
     boardView.hidden = view !== 'board';
     detailView.hidden = view !== 'detail';
+    inboxView.hidden = view !== 'inbox';
 
-    // Detail is reached from the board, so the board tab stays current while reading one.
-    navBoard.setAttribute('aria-current', view === 'report' ? 'false' : 'page');
+    // Detail is reached from the board or the inbox, so whichever tab you came from stays
+    // current while reading one.
     navReport.setAttribute('aria-current', view === 'report' ? 'page' : 'false');
+    navInbox.setAttribute('aria-current', view === 'inbox' ? 'page' : 'false');
+    navBoard.setAttribute(
+      'aria-current',
+      view === 'board' || view === 'detail' ? 'page' : 'false',
+    );
+
+    if (view === 'inbox') void refreshInbox();
 
     if (boardTimer !== null) clearInterval(boardTimer);
     boardTimer = null;
@@ -525,8 +553,145 @@ async function boot(): Promise<void> {
     }
   }
 
+  // ------------------------------------------------------------- the inbox (M0-34)
+
+  const navInbox = el<HTMLButtonElement>('navInbox');
+  const inboxView = el('inboxView');
+  const inboxWho = el('inboxWho');
+  const inboxRows = el('inboxRows');
+  const inboxEmpty = el('inboxEmpty');
+  const inboxCount = el('inboxCount');
+
+  interface InboxItem {
+    attemptId: string;
+    incidentId: string;
+    reason: string;
+    attemptedAt: string;
+    severity: string;
+    category: string;
+  }
+
+  /** Why this seat is being told. Plain words — an operator should not decode an enum. */
+  const REASON_TEXT: Readonly<Record<string, string>> = {
+    routed: 'routed to your department',
+    reassigned: 'reassigned to your department',
+    lost_responsibility: 'no longer your department — handed to someone else',
+    escalated: 'escalated to your seat',
+  };
+
+  /**
+   * Record that a human has actually seen this.
+   *
+   * The one action that turns a pending attempt into a delivered one. Deliberately an
+   * explicit tap rather than something the list does on render: "the tab was open" is not
+   * "somebody knows", and the board carries the obligation as unmet until this happens
+   * (INV-03).
+   */
+  async function markSeen(attemptId: string): Promise<void> {
+    try {
+      await fetch(`/notifications/${attemptId}/seen`, { method: 'POST' });
+    } catch {
+      // Offline. It stays pending, which is the truthful state — nothing was confirmed.
+    }
+  }
+
+  function renderInbox(items: InboxItem[]): void {
+    inboxWho.textContent =
+      identity?.seatTitle === null || identity === null
+        ? 'You hold no duty seat, so nothing is addressed to you.'
+        : `Addressed to ${identity.seatTitle}${
+            identity.departmentName === null ? '' : ` · ${identity.departmentName}`
+          }`;
+
+    inboxRows.replaceChildren(
+      ...items.map((item) => {
+        const row = document.createElement('div');
+        row.className = 'inbox-row';
+        row.dataset['attempt'] = item.attemptId;
+
+        const what = document.createElement('span');
+        what.className = 'what';
+        what.textContent = `${item.severity === 'unknown' ? 'unassessed' : item.severity} · ${item.category}`;
+
+        const why = document.createElement('span');
+        why.className = 'why';
+        why.textContent = `${REASON_TEXT[item.reason] ?? item.reason} · ${ago(
+          item.attemptedAt,
+          Date.now(),
+        )}`;
+        what.append(why);
+
+        const acts = document.createElement('div');
+        acts.className = 'acts';
+
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'open';
+        open.textContent = 'Open';
+        open.addEventListener('click', () => {
+          // Opening it is seeing it. No second confirmation for something already read.
+          void markSeen(item.attemptId).then(() => refreshInboxCount());
+          void openDetail(item.incidentId);
+        });
+
+        const seen = document.createElement('button');
+        seen.type = 'button';
+        seen.className = 'seen';
+        seen.textContent = 'Seen';
+        seen.addEventListener('click', () => {
+          void markSeen(item.attemptId).then(() => refreshInbox());
+        });
+
+        acts.append(open, seen);
+        row.append(what, acts);
+        return row;
+      }),
+    );
+
+    inboxEmpty.hidden = items.length > 0;
+  }
+
+  async function fetchInbox(): Promise<InboxItem[] | null> {
+    try {
+      const res = await fetch('/notifications', { headers: { accept: 'application/json' } });
+      if (!res.ok) return null;
+      return ((await res.json()) as { notifications: InboxItem[] }).notifications;
+    } catch {
+      return null;
+    }
+  }
+
+  async function refreshInbox(): Promise<void> {
+    const items = await fetchInbox();
+    if (items === null) {
+      inboxWho.textContent = 'Cannot reach the server, so this may not be everything.';
+      return;
+    }
+    renderInbox(items);
+    paintInboxCount(items.length);
+  }
+
+  /**
+   * The badge on the tab.
+   *
+   * Shown only when there is something, because a permanent "0" is furniture an operator
+   * stops seeing — and the whole point is that a number appearing means something arrived.
+   */
+  function paintInboxCount(n: number): void {
+    inboxCount.hidden = n === 0;
+    inboxCount.textContent = String(n);
+  }
+
+  async function refreshInboxCount(): Promise<void> {
+    const items = await fetchInbox();
+    if (items !== null) paintInboxCount(items.length);
+  }
+
+  // Registered here rather than beside `showView`, because these consts are declared above
+  // and referencing them earlier would be a temporal-dead-zone error at boot.
   navBoard.addEventListener('click', () => showView('board'));
   navReport.addEventListener('click', () => showView('report'));
+  navInbox.addEventListener('click', () => showView('inbox'));
   el('back').addEventListener('click', () => showView('board'));
 
   // ------------------------------------------------------- incident detail (M0-35)

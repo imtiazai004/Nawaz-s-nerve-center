@@ -237,6 +237,29 @@
       .row { cursor: pointer; }
       .row:hover, .row:focus-visible { background: #e9e5dc; }
 
+      /* ------------------------------------------------------------- inbox (M0-34) */
+      #nav .count {
+        display: inline-block; min-width: 1.4rem; padding: 0 0.3rem;
+        background: var(--critical); color: #fff; border-radius: 999px;
+        font-size: 0.72rem; font-weight: 800;
+      }
+      #inboxWho { margin: 0 0 0.8rem; }
+      .inbox-row {
+        display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 0.8rem;
+        align-items: center;
+        padding: 0.7rem 0.2rem; border-bottom: 1px solid var(--line);
+      }
+      .inbox-row .what { font-weight: 700; }
+      .inbox-row .why { display: block; font-size: 0.8rem; color: var(--slate); }
+      .inbox-row .acts { display: flex; gap: 0.4rem; }
+      .inbox-row button {
+        min-height: 44px; padding: 0 0.8rem; font: inherit; font-size: 0.82rem;
+        font-weight: 700; border-radius: 3px; cursor: pointer;
+      }
+      .inbox-row .open { background: var(--ink); color: #fff; border: none; }
+      .inbox-row .seen { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+      #inboxEmpty { padding: 1.2rem 0.2rem; color: var(--slate); font-size: 0.9rem; }
+
       /* ------------------------------------------------- incident detail (M0-35) */
       #back {
         margin: 0 0 0.8rem; padding: 0.4rem 0;
@@ -299,7 +322,10 @@
 
     <nav id="nav" hidden>
       <button type="button" id="navReport" aria-current="page">Report</button>
-      <button type="button" id="navBoard">District board</button>
+      <button type="button" id="navBoard">Board</button>
+      <button type="button" id="navInbox">
+        Waiting for you <span id="inboxCount" class="count" hidden>0</span>
+      </button>
     </nav>
 
     <main>
@@ -398,6 +424,22 @@
         <div id="boardSummary"></div>
         <div id="boardRows"></div>
         <p id="boardEmpty" hidden>No open incidents in the last seven days.</p>
+      </section>
+
+      <!--
+        The seat's inbox (M0-32's receiving half, M0-34).
+
+        Scoped to the seat, never the person: an officer who has handed over stops seeing
+        the post's messages immediately (ADR-0004).
+
+        Delivery is recorded when the operator **says** they have seen it, not when this
+        list renders. "The tab was open" is not "somebody knows", and the central board
+        carries the obligation as unmet until a human acts (INV-03).
+      -->
+      <section id="inboxView" hidden>
+        <p id="inboxWho" class="meta"></p>
+        <div id="inboxRows"></div>
+        <p id="inboxEmpty" hidden>Nothing is waiting for your seat.</p>
       </section>
 
       <!--

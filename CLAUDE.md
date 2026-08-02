@@ -120,11 +120,11 @@ that blocks release on failure.
 
 - **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven, CI
   running**
-- **Phase:** Implementation. 332 tests pass on every push. **M1 is the work now, and there is
-  no unblocked M0 code item left.** Five M0 tasks remain open: the department board (M0-34,
-  a screen over data already served), the restore **drill** (M0-38, needs a second person),
-  backup **scheduling** (M0-37, waits on P-08), and two half-done — M0-05 secrets (waits on
-  deployment) and M0-11 payload versioning (waits on a v2 existing).
+- **Phase:** Implementation. 336 tests pass on every push. **M1 is the work now. Every M0
+  task that is code is done.** Four remain open: the restore **drill** (M0-38, needs a
+  second person), backup **scheduling** (M0-37) and secrets (M0-05), both waiting on P-08,
+  and M0-11 payload versioning, which needs a payload v2 to exist before a v2 reader means
+  anything.
 - **The district's contact list is loaded** — 79 offices, 81 posts, 40 officers, 38 posts
   vacant. **Its structure is not verified**: everything is flat and every seat is `district`
   tier, which the escalation ladder cannot work with. That is **Q-18**, and it is the
@@ -243,7 +243,7 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **332 tests passing** across 21 files, including **17 backup/restore tests that run a real
+- **336 tests passing** across 21 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -379,6 +379,17 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
   - Each scheduler tick gets its own id and `job: 'scheduler'`, so an escalation at 02:14 is
     traceable and distinguishable from one a request caused.
   - Tests run at `error`. `VITEST_LOG_LEVEL=info` turns them up.
+
+- **The department board and the seat inbox (M0-34).** The board is the **same** `buildBoard`
+  and the same projection — scoping falls out of the seat, so there is no second query to
+  disagree with the first. What differs is the label, and it now **names** the department
+  instead of saying "your department".
+  - **The inbox is the receiving half of M0-32.** Until it existed nothing in the browser
+    ever called `/notifications`: attempts were created, stayed `pending` for ever, and the
+    board carried them as unmet obligations permanently. The loop was open at its last step —
+    the one with a human in it.
+  - **Delivery is recorded when the operator says they have seen it**, never on render.
+    "The tab was open" is not "somebody knows" (INV-03).
 
 **What does not exist yet**
 - **A verified department structure.** 79 offices loaded flat, every seat defaulted to

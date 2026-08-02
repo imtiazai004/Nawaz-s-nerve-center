@@ -106,7 +106,7 @@ the spine.
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
 | M0-33 | Central board — all active incidents, unstyled | `DONE` | M0-08 | `GET /incidents` + the screen. Folded on demand; **no board table**. Says how old it is, and says "NOT LIVE" when it cannot reach the server (INV-02). Summary reports worst-assessed and unassessed separately (ADR-0009). 12 + 7 tests |
-| M0-34 | Department board — same log, scoped by authority | `DOING` | M0-08, M0-20 | **Already provably the same source**: `buildBoard` scopes by the caller's seat, and the cross-department tests prove a station seat is never sent its neighbours' rows. What is missing is only a department-framed screen, not a second query |
+| M0-34 | Department board — same log, scoped by authority | `DONE` | M0-08, M0-20 | Same `buildBoard`, same projection — the scoping falls out of the seat, so there is no second query to disagree. The board now **names** the department, and the seat has an inbox: `/notifications` rendered, with delivery recorded only when a human acknowledges. 4 new tests |
 | M0-35 | Incident detail with full event history and provenance | `DONE` | M0-22 | Every value answers "who set this, when, why". An override shows both values with the reason and both seats named; actors are named by seat then person, never by uuid; an event nobody performed reads "the system"; late arrivals show their gap. 10 browser tests |
 | M0-51 | Department registry | `DONE` | — | Migration 0005: `department` table, real FK from `seat`, `person.password_hash` nullable. `ops/directory.ts` loads the district's list idempotently and **reports conflicts rather than resolving them**. Board and detail now show department names. 22 tests. Structure and tiers remain unverified — **Q-18** |
 | M0-36 | **Rapid intake — measured against the 15s budget** | `DONE` | M0-14 | ~800ms at 4× CPU throttle. Two taps, no typing, submit-then-enrich. 10 tests |
@@ -156,8 +156,7 @@ What remains open in M0, eleven of forty-nine:
 milestone report. The lifecycle is complete: capture, route, notify, acknowledge, escalate,
 override, close — every step reachable, authorised and observable.
 
-- **The department board (M0-34).** Already *served* — `buildBoard` scopes by the caller's
-  seat — so what is missing is a department-framed screen, not a second query.
+- ~~The department board (M0-34).~~ **Done.**
 - **Operations.** M0-04 CI, M0-03 correlation ids. Backup and restore are built (M0-37);
   scheduling waits on P-08, and the drill (M0-38) waits on a person.
 - **M0-51**, a department registry. Departments have no table and render as uuids.
@@ -172,10 +171,9 @@ those posts vacant. Every remaining M0 item now waits on a person or a decision 
 on code — see **Q-18** (how Bannu is organised, and what tier each seat is: the escalation
 ladder cannot work until that is answered) and **Q-19** (two officers sharing one number).
 
-**There is no unblocked code item left in M0.** What remains is M0-34 (a department-framed
-screen over data that is already served), and everything else waits on a person or a
-decision: the restore drill (M0-38), backup scheduling (P-08), secrets (M0-05, deployment),
-payload versioning (M0-11, needs a v2 to exist).
+**Every M0 task that is code is now done.** What remains needs a person (M0-38 restore
+drill), a deployment decision (M0-37 scheduling and M0-05 secrets, both on P-08), or a thing
+that does not exist yet (M0-11 needs a payload v2 before a v2 reader means anything).
 
 **M1 is the work now, and it stalls on two answers:** Q-18 (tiers, or escalation cannot walk
 the ladder on real data) and Rescue 1122's contact number.
