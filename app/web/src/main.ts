@@ -120,6 +120,11 @@ async function boot(): Promise<void> {
           ? `${identity.fullName} — no current duty assignment`
           : identity.fullName;
     }
+    // The board needs a seat to scope it, so it is offered only once signed in. Intake is
+    // never behind this — an emergency can be captured signed out (INV-01).
+    nav.hidden = !signedIn;
+    if (!signedIn && boardView.hidden === false) showBoard(false);
+
     const unreachable = reachability === 'unreachable' || navigator.onLine === false;
     offlineLoginNote.hidden = signedIn || !unreachable;
     el<HTMLButtonElement>('loginSubmit').disabled = unreachable;
@@ -288,6 +293,208 @@ async function boot(): Promise<void> {
     where.textContent = describeFix(fix);
   });
 
+  // ---------------------------------------------------------------- board (M0-33)
+
+  const nav = el('nav');
+  const navReport = el<HTMLButtonElement>('navReport');
+  const navBoard = el<HTMLButtonElement>('navBoard');
+  const reportView = el('reportView');
+  const boardView = el('boardView');
+  const boardAsOfText = el('boardAsOfText');
+  const boardScope = el('boardScope');
+  const boardSummary = el('boardSummary');
+  const boardRows = el('boardRows');
+  const boardEmpty = el('boardEmpty');
+  const boardAsOf = el('boardAsOf');
+
+  interface BoardRow {
+    incidentId: string;
+    status: string;
+    severity: string;
+    assessed: boolean;
+    overriddenFrom: string | null;
+    category: string;
+    occurredAt: string | null;
+    lastRecordedAt: string | null;
+    acknowledgedAt: string | null;
+    escalationCount: number;
+    overdue: boolean;
+    overdueByMinutes: number;
+  }
+  interface BoardData {
+    asOf: string;
+    summary: {
+      open: number;
+      unacknowledged: number;
+      overdue: number;
+      worst: string | null;
+      unassessed: number;
+    };
+    incidents: BoardRow[];
+  }
+
+  let boardTimer: ReturnType<typeof setInterval> | null = null;
+  /** When the board last actually reached the server. Not when we last tried. */
+  let boardFetchedAt: number | null = null;
+
+  /** Beyond this the board is openly called stale rather than shown as if it were live. */
+  const BOARD_STALE_MS = 30_000;
+
+  function ago(iso: string | null, from: number): string {
+    if (iso === null) return '—';
+    const mins = Math.floor((from - Date.parse(iso)) / 60_000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    return hours < 24 ? `${hours}h ${mins % 60}m ago` : `${Math.floor(hours / 24)}d ago`;
+  }
+
+  function tally(kind: string, label: string, value: string): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'tally';
+    box.dataset['kind'] = kind;
+    const strong = document.createElement('b');
+    strong.textContent = value;
+    box.append(strong, document.createTextNode(label));
+    return box;
+  }
+
+  function renderBoard(data: BoardData): void {
+    const at = Date.parse(data.asOf);
+
+    boardSummary.replaceChildren(
+      tally('open', 'open', String(data.summary.open)),
+      tally('unack', 'unacknowledged', String(data.summary.unacknowledged)),
+      tally('overdue', 'past deadline', String(data.summary.overdue)),
+      // Two numbers, never one. An unassessed report is not a severity level, and folding
+      // it into one would hide either it or the criticals beside it (ADR-0009, INV-04).
+      tally(
+        data.summary.worst === 'critical' ? 'worst-critical' : 'worst',
+        'worst assessed',
+        data.summary.worst ?? 'none',
+      ),
+      tally('unassessed', 'not yet assessed', String(data.summary.unassessed)),
+    );
+
+    boardRows.replaceChildren(
+      ...data.incidents.map((row) => {
+        const div = document.createElement('div');
+        div.className = 'row';
+        div.dataset['overdue'] = String(row.overdue);
+        div.dataset['incident'] = row.incidentId;
+
+        const sev = document.createElement('span');
+        sev.className = 'sev';
+        sev.dataset['level'] = row.severity;
+        // The word carries the meaning; the colour only repeats it (INV-04). "Unassessed"
+        // is spelled out rather than shown as a level nobody chose.
+        sev.textContent = row.assessed ? row.severity : 'unassessed';
+
+        const cat = document.createElement('span');
+        cat.className = 'cat';
+        cat.textContent = row.category;
+        if (row.overriddenFrom !== null) {
+          const note = document.createElement('span');
+          note.className = 'meta';
+          note.textContent = ` (overridden from ${row.overriddenFrom})`;
+          cat.append(note);
+        }
+
+        const state = document.createElement('span');
+        state.className = 'state';
+        state.textContent =
+          row.acknowledgedAt !== null
+            ? row.status
+            : row.overdue
+              ? `unacknowledged · ${row.overdueByMinutes}m past deadline`
+              : 'unacknowledged';
+        if (row.overdue) state.classList.add('flag');
+
+        const meta = document.createElement('span');
+        meta.className = 'meta';
+        meta.textContent = `${ago(row.occurredAt, at)}${
+          row.escalationCount > 0 ? ` · escalated ${row.escalationCount}×` : ''
+        }`;
+
+        div.append(sev, cat, state, meta);
+        return div;
+      }),
+    );
+
+    boardEmpty.hidden = data.incidents.length > 0;
+    boardFetchedAt = Date.now();
+    paintBoardAge(data);
+  }
+
+  let lastBoard: BoardData | null = null;
+
+  /**
+   * Say how old this is, always, and say it loudly once it is old.
+   *
+   * INV-02 in the one place it is easiest to violate: a board that keeps showing its last
+   * good data during an outage, with no indication, is worse than a blank screen — someone
+   * decides not to send a crew because the screen says a crew is already going.
+   */
+  function paintBoardAge(data: BoardData | null): void {
+    if (data === null || boardFetchedAt === null) {
+      boardAsOfText.textContent = 'Loading…';
+      return;
+    }
+    const age = Date.now() - boardFetchedAt;
+    const stale = age > BOARD_STALE_MS;
+    boardAsOf.dataset['stale'] = String(stale);
+    boardAsOfText.textContent = stale
+      ? `NOT LIVE — last reached the server ${Math.round(age / 1000)}s ago. Do not act on this without checking.`
+      : `Live as of ${new Date(data.asOf).toLocaleTimeString()}`;
+  }
+
+  async function refreshBoard(): Promise<void> {
+    try {
+      const res = await fetch('/incidents', { headers: { accept: 'application/json' } });
+      if (!res.ok) {
+        // Signed out or holding no seat. Say so rather than showing an empty district.
+        boardAsOf.dataset['stale'] = 'true';
+        boardAsOfText.textContent =
+          res.status === 401
+            ? 'Signed out — sign in to see the district board.'
+            : 'You hold no duty seat, so there is no board to show.';
+        boardRows.replaceChildren();
+        boardEmpty.hidden = true;
+        return;
+      }
+      lastBoard = (await res.json()) as BoardData;
+      renderBoard(lastBoard);
+      boardScope.textContent =
+        identity?.departmentId === null ? 'district-wide' : 'your department';
+    } catch {
+      // Offline. Keep what is on screen — and make sure it is labelled for what it is.
+      paintBoardAge(lastBoard);
+    }
+  }
+
+  function showBoard(show: boolean): void {
+    boardView.hidden = !show;
+    reportView.hidden = show;
+    navBoard.setAttribute('aria-current', show ? 'page' : 'false');
+    navReport.setAttribute('aria-current', show ? 'false' : 'page');
+
+    if (boardTimer !== null) clearInterval(boardTimer);
+    boardTimer = null;
+
+    if (show) {
+      void refreshBoard();
+      // Poll rather than push: M0 has no realtime transport, and a board that silently
+      // stops updating is exactly what the staleness clock above is there to expose.
+      boardTimer = setInterval(() => {
+        void refreshBoard();
+        paintBoardAge(lastBoard);
+      }, 10_000);
+    }
+  }
+
+  navBoard.addEventListener('click', () => showBoard(true));
+  navReport.addEventListener('click', () => showBoard(false));
+
   // ---------------------------------------------------------------- auth
 
   loginForm.addEventListener('submit', async (e) => {
@@ -355,6 +562,19 @@ async function boot(): Promise<void> {
     trySync,
     paintQueue,
     identity: () => identity,
+    refreshBoard,
+    showBoard,
+    /**
+     * Move the board's "last reached the server" mark backwards, and repaint.
+     *
+     * A test seam, and a deliberate one. The alternative is a suite that sits for thirty
+     * real seconds to watch a clock tick over, and a staleness warning nobody verifies is
+     * exactly the kind of thing that rots — INV-02 is worth a hook.
+     */
+    backdateBoard: (ms: number) => {
+      if (boardFetchedAt !== null) boardFetchedAt -= ms;
+      paintBoardAge(lastBoard);
+    },
     // So tests can assert against the incident itself rather than against the shape of a
     // payload, which would couple every suite to the intake form's field names.
     lastIncidentId: () => lastIncidentId,

@@ -44,7 +44,7 @@ try {
     # not be caught. A hook that cries wolf gets ignored, which costs more than that miss.
     $baseline = if ($refTime -gt $logTime) { $refTime } else { $logTime }
 
-    $changed = @(
+    $candidates = @(
         Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
             Where-Object {
                 $_.FullName -ne $ref -and
@@ -53,10 +53,61 @@ try {
                 $_.FullName -notlike '*\node_modules\*' -and
                 $_.FullName -notlike '*\.git\*' -and
                 $_.LastWriteTime -gt $baseline
-            } |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 8
+            }
     )
+
+    # Drop anything git ignores — build output above all.
+    #
+    # This fired for real: `npm run check` rebuilds web/dist as its last act, so a session
+    # that ended with the test suite always looked like it had touched five undocumented
+    # files after writing the reference. Rule 0 asks whether the *record* was brought
+    # current, and a regenerated artifact is not a change to the record — the source it was
+    # built from is, and that source trips this check on its own.
+    #
+    # Worth being blunt about why this matters more than the false positive costs: a check
+    # that cries wolf every session teaches everyone to dismiss it, and then it is not
+    # enforcing the rule it exists for. Same reasoning as the baseline fix above.
+    #
+    # Fails open in both directions: no git, no repo, or an unreadable list leaves the
+    # candidates untouched and the check simply behaves as it did before.
+    if ($candidates.Count -gt 0) {
+        try {
+            $ignored = ($candidates.FullName | & git -C $root check-ignore --stdin 2>$null)
+            if ($ignored) {
+                # git C-quotes any path needing it, and every path here does: the project
+                # root contains spaces. So `D:\a b\x.js` comes back as `"D:\\a b\\x.js"`,
+                # quotes and all, and comparing that to a FullName matches nothing — which
+                # is exactly how the first version of this filter silently did nothing.
+                # `-z` would avoid the quoting but expects NUL-separated input too, which
+                # collapses a multi-line stdin into one bogus path. Unquoting is the
+                # predictable option.
+                $clean = @($ignored | ForEach-Object {
+                    $s = $_.Trim()
+                    if ($s.Length -ge 2 -and $s.StartsWith('"') -and $s.EndsWith('"')) {
+                        # Strip the quotes, then undo the doubling of separators.
+                        $s = $s.Substring(1, $s.Length - 2).Replace('\\', '\')
+                    }
+                    # PowerShell terminates each piped line with CRLF; git strips the LF and
+                    # keeps the CR as part of the pathname, then escapes it back out as a
+                    # literal `\r`. Left in place it defeats the comparison entirely — which
+                    # is the second way this filter managed to silently do nothing.
+                    $s = $s -replace '\\r$', ''
+                    $s.TrimEnd([char]13, [char]10).Replace('/', '\')
+                })
+
+                $skip = [System.Collections.Generic.HashSet[string]]::new(
+                    [string[]]$clean,
+                    [StringComparer]::OrdinalIgnoreCase
+                )
+                $candidates = @($candidates | Where-Object { -not $skip.Contains($_.FullName) })
+            }
+        }
+        catch { }
+    }
+
+    # Truncate after filtering, never before: eight ignored artifacts would otherwise crowd
+    # out the one real file the message needed to name.
+    $changed = @($candidates | Sort-Object LastWriteTime -Descending | Select-Object -First 8)
 
     if ($changed.Count -eq 0) { exit 0 }
 

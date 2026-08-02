@@ -98,6 +98,7 @@ onboarded — challenge them now, not later.
 | [0006](docs/adr/ADR-0006-report-vs-incident.md) | One incident, many reports — dedup is a domain concept | Accepted |
 | [0007](docs/adr/ADR-0007-boring-stack.md) | Boring, single-node, operable by one person at 02:00 | Accepted |
 | [0008](docs/adr/ADR-0008-causal-event-ordering.md) | Events carry a causal sequence, not just timestamps | Accepted |
+| [0009](docs/adr/ADR-0009-unassessed-is-not-a-severity.md) | "Unassessed" is a value, never a level; aggregates report two numbers | Accepted |
 
 ## 4. Invariants — what must never happen
 
@@ -117,13 +118,12 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · **architecture gate passed; the lifecycle is now reachable**
-- **Phase:** Implementation. 222 tests pass. **M1 is underway.** Do not read the green gate
-  as "M0 is finished" — eleven of M0's forty-nine tasks are open, and they are now mostly
-  **the screens**: the central board, the department board and incident detail (M0-33…35)
-  plus notifications (M0-32), backup and restore (M0-37, 38) and CI (M0-04). See
-  `backlog/todos.md`.
-- **Last updated:** 2026-08-01
+- **Milestone:** M0 — The Spine · **the district has a board**
+- **Phase:** Implementation. 248 tests pass. **M1 is underway.** Do not read the green gate
+  as "M0 is finished" — ten of M0's forty-nine tasks are open: the department board and
+  incident-detail screens (M0-34, 35), notifications (M0-32), backup and restore (M0-37,
+  38), CI (M0-04), correlation ids (M0-03). See `backlog/todos.md`.
+- **Last updated:** 2026-08-02
 
 **The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
 this project, end to end, with nothing stubbed: a critical emergency reported on a handset
@@ -231,17 +231,35 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **222 tests passing**, including permanent tests for INV-04 to INV-08, 17 database
-  integration tests, 25 auth tests, **40 lifecycle tests**, 18 escalation tests, 6
-  real-browser durability tests, 13 offline-launch tests, 15 login tests, 10 rapid-intake
-  tests, and the 14-step M0 gate.
+- **248 tests passing** across 16 files, including permanent tests for INV-04 to INV-08, 17
+  database integration tests, 25 auth tests, 43 lifecycle tests, **12 board tests and 7
+  board browser tests**, 18 escalation tests, 6 real-browser durability tests, 13
+  offline-launch tests, 15 login tests, 10 rapid-intake tests, and the 14-step M0 gate.
 - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
-**What does not exist yet — and this is the big one**
-- **The dashboard.** None of it. No district overview, no live incident board, no map, no
-  department workspaces, no alerts, no officer directory, no reports. The spine is built and
-  the lifecycle behind those screens is now served over HTTP and tested — but **nothing
-  renders it**. This is the largest remaining gap and it is the next thing to build.
+- **`app/src/api/board.ts` — the central board (M0-33).** `GET /incidents`, folded on demand
+  from the same event log. **There is no board table**, so it cannot fall out of step with
+  the record (root idea #4).
+  - **It always says how old it is.** `asOf` on the response, `lastRecordedAt` on every row,
+    and the screen turns to *"NOT LIVE — do not act on this without checking"* once it has
+    not reached the server in 30s. A board that keeps showing its last good data during an
+    outage, unlabelled, is worse than a blank screen: someone decides not to send a crew
+    because the screen says a crew is already going (INV-02).
+  - **The summary is two numbers, never one** — worst assessed, and how many are unassessed
+    (ADR-0009). The row says the word `unassessed`; colour only repeats what the text
+    already says (INV-04).
+  - Scoped by seat, server-side. Rows a seat may not see are **not sent**, not hidden.
+  - `attentionRank` is the one place ordering and aggregation legitimately differ: an
+    unassessed report sorts just above `critical` in the queue, because it could be
+    anything, while still being counted separately in the summary. Ordered, never relabelled.
+  - **M0-34, the department board, is this same function with the same arguments.** The
+    scoping falls out of the seat. Do not write a second endpoint with a second query.
+
+**What does not exist yet**
+- **The department board (M0-34) and incident detail (M0-35) as screens.** Both are served —
+  `buildBoard` already scopes by seat, and `GET /incidents/:id` already returns state plus
+  full history. Neither is rendered.
+- No map, no officer directory, no reports, no alerts.
 - **Notifications (M0-32).** Reassignment and district acknowledgement both owe the owning
   department a notification, and nothing sends one. INV-03 has no test until a channel
   exists — the gap is real, not bookkeeping.
@@ -327,25 +345,22 @@ M0-19, both found by tests:
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **The central board (M0-33), then incident detail (M0-35).** The lifecycle is served and
-   tested; nothing renders it. This is where the project stops being a spine and starts
-   being usable, and it is what M1's Rescue workspace is built from. One projection, not a
-   copy (INV-05 for reads is already enforced server-side — the board must not re-implement
-   scoping in the client).
+1. **Incident detail (M0-35), then the department board (M0-34) as screens.** Both are
+   already served: `GET /incidents/:id` returns state *and* full history so provenance is
+   renderable without a second request, and `buildBoard` already scopes by seat. Detail
+   first — it is what makes an override's "who set this, when, why" visible, and the board
+   currently shows only that an override happened.
 2. **M0-32, one notification channel.** Not cosmetic: reassignment and district
    acknowledgement both owe the owning department a notification that nothing sends, and
    INV-03 has no test until a channel exists.
 3. M0-37 then M0-38 — an automated backup, then a restore drill performed by someone who is
    not the original developer. **The last open M0 gate item, and it needs code first.**
-4. Q-06 — real SLA targets, agreed with each department. `PLACEHOLDER_SLA` is a guess, and
-   the escalation loop is now running on it.
+4. **Q-06 — real SLA targets, agreed with each department.** More urgent than it was: the
+   board now renders "past deadline" from `PLACEHOLDER_SLA`, so a guess has become something
+   an operator reads as fact.
 5. Q-08 — the Place gazetteer for Bannu. M1 needs it, and it may already exist somewhere
    (revenue records, PDMA mapping) — weeks of work versus a phone call.
-6. Q-16 — whether severity needs an explicit `unknown`. Raised by intake, which cannot
-   refuse a report and so has to assume one. **Decide before severity reaches a board an
-   operator triages from**, because a placeholder that looks like an assessment is a worse
-   failure on a screen than in a database — which makes this a decision due at step 1.
-7. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
+6. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
    build. Nothing before M4 touches real citizen data.
 
 ## 6. Repository map
@@ -394,7 +409,8 @@ Build with Claude/
 │       ├── jobs/              ← escalation scan + scheduler (M0-29)
 │       ├── main.ts            ← process entry: API + client + escalation loop
 │       ├── api/               ← sync protocol and the node:http server
-│       │   └── lifecycle.ts   ← commands: intake, triage, route, ack, close (M0-24…31)
+│       │   ├── lifecycle.ts   ← commands: intake, triage, route, ack, close (M0-24…31)
+│       │   └── board.ts       ← the central board projection (M0-33). No board table
 │       ├── outbox/            ← the offline substrate (ADR-0002)
 │       │   └── adapters/      ← IndexedDB store, HTTP transport, browser harness
 │       ├── __tests__/         ← spine.e2e.test.ts — THE M0 GATE

@@ -23,6 +23,7 @@ import { loadIncident } from '../../db/eventStore.js';
 import { hashPassword } from '../../auth/passwords.js';
 import { login } from '../../auth/sessions.js';
 import { ASSUMED_CATEGORY, ASSUMED_SEVERITY } from '../lifecycle.js';
+import { PLACEHOLDER_SLA } from '../../domain/sla.js';
 
 const dbUrl = process.env['TEST_DATABASE_URL'];
 const here = dirname(fileURLToPath(import.meta.url));
@@ -195,6 +196,32 @@ describe.skipIf(dbUrl === undefined)('incident lifecycle over HTTP (integration)
       });
       expect(res.status).toBe(201);
       expect(res.body['assumed']).toEqual(['severity']);
+    });
+
+    it('records an unstated severity as unknown, never as a guessed level (ADR-0009)', async () => {
+      // The old behaviour guessed `high`. It was defensible and it was wrong: on a screen,
+      // an assumption is indistinguishable from an assessment.
+      const res = await call('POST', '/incidents', rescueToken, { category: 'flood' });
+      const events = await loadIncident(pool, res.body['incidentId'] as string);
+      expect((events[0]!.payload as { severity: string }).severity).toBe('unknown');
+      expect(ASSUMED_SEVERITY).toBe('unknown');
+    });
+
+    it('refuses to let triage set a severity back to unknown', async () => {
+      // Triage is the act of assessing. Revising an assessment to "no assessment" is not a
+      // thing an operator does, and `unknown` is intake's value alone.
+      const id = await routedIncident();
+      const res = await call('POST', `/incidents/${id}/triage`, rescueToken, {
+        severity: 'unknown',
+        category: 'rta',
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('escalates an unassessed report on the high deadline, not the low one', async () => {
+      // The urgency the old guess expressed now lives in the SLA target, where it does not
+      // lie on a screen. Same effect on escalation; no false claim about who judged what.
+      expect(PLACEHOLDER_SLA.unknown).toBe(PLACEHOLDER_SLA.high);
     });
 
     it('refuses to accept an occurredAt in the future', async () => {

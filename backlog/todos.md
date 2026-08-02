@@ -104,8 +104,8 @@ the spine.
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M0-33 | Central board — all active incidents, unstyled | `TODO` | M0-08 | One projection, not a copy |
-| M0-34 | Department board — same log, scoped by authority | `TODO` | M0-08, M0-20 | Provably the same source as M0-33 |
+| M0-33 | Central board — all active incidents, unstyled | `DONE` | M0-08 | `GET /incidents` + the screen. Folded on demand; **no board table**. Says how old it is, and says "NOT LIVE" when it cannot reach the server (INV-02). Summary reports worst-assessed and unassessed separately (ADR-0009). 12 + 7 tests |
+| M0-34 | Department board — same log, scoped by authority | `DOING` | M0-08, M0-20 | **Already provably the same source**: `buildBoard` scopes by the caller's seat, and the cross-department tests prove a station seat is never sent its neighbours' rows. What is missing is only a department-framed screen, not a second query |
 | M0-35 | Incident detail with full event history and provenance | `DOING` | M0-22 | The **data** is there — `GET /incidents/:id` returns state and history together, and 40 tests cover it (M0-49). The **screen** is not |
 | M0-36 | **Rapid intake — measured against the 15s budget** | `DONE` | M0-14 | ~800ms at 4× CPU throttle. Two taps, no typing, submit-then-enrich. 10 tests |
 | M0-48 | Layered location capture that never blocks | `DONE` | M0-36 | New. GPS watched from open; whatever arrived by submit is attached. Captured layers recorded |
@@ -150,15 +150,17 @@ through a browser. That was the largest open block and it is closed.
 
 What remains open in M0, eleven of forty-nine:
 
-- **The screens.** M0-33, M0-34, M0-35 — the central board, the department board, the
-  incident detail. The data behind all three is now served; none of it is rendered.
+- **The remaining screens.** M0-34 and M0-35 — the department board and incident detail.
+  Both are already *served*; neither is rendered. The central board (M0-33) is done.
 - **Notifications.** M0-32, and it is load-bearing rather than cosmetic: reassignment and
   district acknowledgement both owe the owning department a notification that nothing sends
   yet, and INV-03 has no test until a channel exists.
 - **Operations.** M0-37 backup, M0-38 restore drill, M0-04 CI, M0-03 correlation ids.
 - **Half-done:** M0-05 secrets, M0-11 payload versioning, M0-39 invariant coverage.
 
-**M1 — Rescue 1122 in full — continues from here**, and the next thing it needs is a screen.
+**M1 — Rescue 1122 in full — continues from here.** Next is incident detail (M0-35): the
+board can show *that* a value was overridden, but only the detail screen answers "who set
+this, when, why", which is the question the authority model exists to make answerable.
 
 Before M1 gets far it needs two answers: **Q-08** (does a Bannu place gazetteer already
 exist — weeks of work versus a phone call) and **Q-06** (real SLA targets, since the

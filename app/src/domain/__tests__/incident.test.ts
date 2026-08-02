@@ -108,7 +108,7 @@ describe('district aggregation', () => {
       ),
     ]);
 
-    expect(districtSeverity([...routine, critical])).toBe('critical');
+    expect(districtSeverity([...routine, critical])).toEqual({ worst: 'critical', unassessed: 0 });
   });
 
   it('excludes closed incidents from the district picture', () => {
@@ -127,7 +127,56 @@ describe('district aggregation', () => {
       ev('reported', { reportId: 'ro', category: 'x', severity: 'low' }, { incidentId: 'inc-o' }),
     ]);
 
-    expect(districtSeverity([closed, open])).toBe('low');
+    expect(districtSeverity([closed, open])).toEqual({ worst: 'low', unassessed: 0 });
+  });
+
+  describe('unassessed reports (ADR-0009)', () => {
+    const unassessed = (id: string): ReturnType<typeof foldIncident> =>
+      foldIncident(id, [
+        ev(
+          'reported',
+          { reportId: `r-${id}`, category: 'unknown', severity: 'unknown' },
+          { incidentId: id },
+        ),
+      ]);
+
+    it('counts an unassessed incident instead of ranking it', () => {
+      const low = foldIncident('inc-low', [
+        ev(
+          'reported',
+          { reportId: 'rl', category: 'x', severity: 'low' },
+          { incidentId: 'inc-low' },
+        ),
+      ]);
+
+      expect(districtSeverity([low, unassessed('u1'), unassessed('u2')])).toEqual({
+        worst: 'low',
+        unassessed: 2,
+      });
+    });
+
+    it('never lets an unassessed report masquerade as a level', () => {
+      // Both available lies, refused. Counting it as `low` hides an emergency nobody has
+      // looked at; counting it as `critical` drowns the ones somebody has.
+      const summary = districtSeverity([unassessed('u1')]);
+      expect(summary.worst).toBeNull();
+      expect(summary.unassessed).toBe(1);
+    });
+
+    it('reports both numbers when the district has criticals and unassessed at once', () => {
+      const critical = foldIncident('inc-crit', [
+        ev(
+          'reported',
+          { reportId: 'rc', category: 'flood', severity: 'critical' },
+          { incidentId: 'inc-crit' },
+        ),
+      ]);
+
+      expect(districtSeverity([critical, unassessed('u1')])).toEqual({
+        worst: 'critical',
+        unassessed: 1,
+      });
+    });
   });
 });
 

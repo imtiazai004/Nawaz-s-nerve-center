@@ -7,7 +7,7 @@
  * mechanism instead of three.
  */
 
-import type { Instant, IncidentEvent, Severity, Uuid } from './events.js';
+import type { Instant, IncidentEvent, Severity, SeveritySummary, Uuid } from './events.js';
 import { worstSeverity } from './events.js';
 
 export type IncidentStatus =
@@ -338,8 +338,15 @@ export function foldIncident(
   };
 }
 
-/** Unacknowledged criticals are the thing that must never be lost in a summary (INV-04). */
-export function districtSeverity(states: readonly IncidentState[]): Severity | null {
+/**
+ * The district's live picture: the worst thing anyone assessed, and how much nobody has
+ * looked at yet.
+ *
+ * Unacknowledged criticals are the thing that must never be lost in a summary (INV-04), and
+ * an unassessed report is the thing that must never be *made to look* assessed (ADR-0009).
+ * Both are returned; neither is folded into the other.
+ */
+export function districtSeverity(states: readonly IncidentState[]): SeveritySummary {
   return worstSeverity(
     states
       .filter((s) => s.status !== 'closed' && s.status !== 'resolved')

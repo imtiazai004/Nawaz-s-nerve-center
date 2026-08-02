@@ -18,9 +18,11 @@ import {
   intake,
   isSeverity,
   readIncident,
+  seatOf,
   type Command,
   type CommandKind,
 } from './lifecycle.js';
+import { buildBoard } from './board.js';
 
 /**
  * The sync server. Plain `node:http`, no framework — see ADR-0007.
@@ -354,8 +356,20 @@ async function handleIncidents(
     }
   };
 
-  // Intake. The one endpoint here that does not refuse — see `intake`.
   if (route.incidentId === null) {
+    // The central board (M0-33). Scoped by the caller's seat, server-side — rows this seat
+    // may not see are never sent, rather than sent and hidden (INV-05).
+    if (req.method === 'GET') {
+      const seat = seatOf(identity);
+      if (seat === null) {
+        json(res, 403, { error: 'no current duty assignment; you hold no seat' });
+        return;
+      }
+      json(res, 200, await buildBoard(pool, seat));
+      return;
+    }
+
+    // Intake. The one endpoint here that does not refuse — see `intake`.
     if (req.method !== 'POST') {
       json(res, 405, { error: 'method not allowed' });
       return;

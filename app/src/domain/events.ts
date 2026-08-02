@@ -12,10 +12,30 @@ export type Uuid = string;
 /** ISO-8601 instant. */
 export type Instant = string;
 
-export type Severity = 'low' | 'moderate' | 'high' | 'critical';
+/** A severity somebody actually assessed. */
+export type AssessedSeverity = 'low' | 'moderate' | 'high' | 'critical';
 
-/** Ordered worst-last so aggregation can take a max and never hide a critical (INV-04). */
-export const SEVERITY_ORDER: readonly Severity[] = ['low', 'moderate', 'high', 'critical'];
+/**
+ * `unknown` is the absence of an assessment, not a fifth level. See ADR-0009.
+ *
+ * Intake cannot refuse a report (INV-01), so it must store something when nobody stated a
+ * severity. It records `unknown` rather than guessing a level, because on a screen a guess
+ * is indistinguishable from a judgement — and a value the system invented, rendered as a
+ * fact someone established, is the failure this project exists not to build.
+ */
+export type Severity = AssessedSeverity | 'unknown';
+
+/**
+ * Ordered worst-last so aggregation can take a max and never hide a critical (INV-04).
+ *
+ * `unknown` is deliberately absent. It has no rank, because a rank is precisely what it
+ * does not have — see `worstSeverity`, which counts it instead of ranking it.
+ */
+export const SEVERITY_ORDER: readonly AssessedSeverity[] = ['low', 'moderate', 'high', 'critical'];
+
+export function isAssessed(s: Severity): s is AssessedSeverity {
+  return s !== 'unknown';
+}
 
 export type SourceChannel = 'web' | 'mobile' | 'sms' | 'call' | 'radio' | 'walk_in' | 'system';
 
@@ -92,15 +112,39 @@ export const REASON_REQUIRED: ReadonlySet<EventType> = new Set<EventType>([
   'reopened',
 ]);
 
-export function severityRank(s: Severity): number {
+export function severityRank(s: AssessedSeverity): number {
   return SEVERITY_ORDER.indexOf(s);
 }
 
-/** Max-severity semantics. An average could hide a critical; a max cannot (INV-04). */
-export function worstSeverity(severities: readonly Severity[]): Severity | null {
-  let worst: Severity | null = null;
+export interface SeveritySummary {
+  /** The worst severity anyone actually assessed, or null if nobody has. */
+  readonly worst: AssessedSeverity | null;
+  /** How many are waiting on an assessment. Never folded into `worst`. */
+  readonly unassessed: number;
+}
+
+/**
+ * Max-severity semantics, plus a count of what has not been assessed at all.
+ *
+ * Two numbers, never one, and that is the whole design (ADR-0009). An average could hide a
+ * critical; a max cannot (INV-04) — but a max over a set containing unassessed reports has
+ * to do something with them, and both available answers are lies. Counting them as `low`
+ * hides them. Counting them as `critical` drowns the real ones and the aggregate stops
+ * meaning anything within a week.
+ *
+ * So they are counted separately and rendered separately: *3 critical · 2 unassessed*.
+ */
+export function worstSeverity(severities: readonly Severity[]): SeveritySummary {
+  let worst: AssessedSeverity | null = null;
+  let unassessed = 0;
+
   for (const s of severities) {
+    if (!isAssessed(s)) {
+      unassessed += 1;
+      continue;
+    }
     if (worst === null || severityRank(s) > severityRank(worst)) worst = s;
   }
-  return worst;
+
+  return { worst, unassessed };
 }

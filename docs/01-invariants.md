@@ -73,6 +73,10 @@ normal. Criticals escape aggregation by rule, not by luck.
 
 **Implications**
 - Severity aggregation uses max-severity semantics, never mean.
+- **An aggregate reports two numbers: the worst severity anyone assessed, and how many
+  nobody has assessed** (`ADR-0009`). Neither is folded into the other. Counting an
+  unassessed report as `low` hides it exactly as a mean hides a critical; counting it as
+  `critical` hides the real criticals among them.
 - Any surface showing a summary also shows the count of open criticals, and that count is
   never suppressed by a filter default.
 - "District status: normal" is computable only when no critical is open and coverage is

@@ -595,3 +595,67 @@ to have checked their own authority.** These are the endpoints that do not.
   **222/222 tests** across 14 files, including 40 new lifecycle tests made entirely of direct
   HTTP calls. Nothing in this change is exercised through a browser, because an authority
   rule that only holds when you use the app is not a rule (INV-05).
+
+## 2026-08-02 — The district gets a board (M0-33), and severity learns to say "I don't know"
+
+The point at which this stops being a spine and becomes something an operator looks at.
+
+- **Decided: `ADR-0009` — "unassessed" is a value, never a level.** Resolves **Q-16**, and
+  the timing was not incidental: the question was theoretical until something rendered
+  severity, and then it was not. Intake cannot refuse a report (INV-01), so it had been
+  assuming `high` and recording `assumed: ['severity']` in the payload. Defensible in a
+  database and indefensible on a screen — **an assumption and an assessment look identical
+  once they are both just the word HIGH in a list.**
+  - `Severity = AssessedSeverity | 'unknown'`. `SEVERITY_ORDER` still holds only the four
+    real levels, because a rank is precisely what `unknown` does not have.
+  - **Aggregates now return two numbers** — `{ worst, unassessed }` — and fold neither into
+    the other. Counting an unassessed report as `low` hides it exactly as a mean hides a
+    critical; counting it as `critical` hides the real criticals among them. INV-04 gains a
+    second half in `docs/01-invariants.md` and a permanent test.
+  - The urgency the old guess expressed moved to `PLACEHOLDER_SLA.unknown`, which is the
+    `high` deadline. Same escalation behaviour, no false claim about who judged what.
+  - Triage cannot set `unknown`. Triage is the act of assessing; revising an assessment to
+    "no assessment" is not a thing an operator does.
+- **Added: `src/api/board.ts` and `GET /incidents` (M0-33).** Folded on demand from the same
+  event log. **There is no board table**, so there is nothing that can drift from the record
+  (root idea #4, ADR-0001). `loadRecentIncidents` fetches every event for the window in one
+  query rather than one per incident — the district's live view must not get slower exactly
+  as the district gets busier — and the SQL narrows by recency only. **It does not decide
+  what is open**; the fold does. That rule is why the escalation logic did not end up
+  written twice, and it applies here for the same reason.
+- **Added: the board screen**, and the thing it does that matters most is admit ignorance.
+  Every response carries `asOf`, every row carries `lastRecordedAt`, and after 30 seconds
+  without reaching the server the header becomes **"NOT LIVE — do not act on this without
+  checking"**. INV-02 in the one place it is easiest to violate: a board that quietly keeps
+  showing its last good data during an outage is worse than a blank screen, because someone
+  decides *not* to send a crew on the strength of a screen saying a crew is already going.
+  Rows deliberately stay on screen while offline — the last known picture is still useful.
+  It is the *unlabelled* version that is dangerous.
+- **Decided:** ordering for attention is not the same question as ranking for aggregation,
+  and this is the one place they legitimately differ. `attentionRank` sorts an unassessed
+  report just above `critical` — it could be anything, so it does not wait behind assessed
+  work — while the summary still counts it separately. **Ordered, never relabelled.**
+- **Added:** severity is spelled out in words on every row (`unassessed`, not a colour), and
+  a district override shows the department's own value beside it rather than burying it in a
+  detail view (ADR-0003, INV-04).
+- **Changed:** M0-34 moves to `DOING` rather than `TODO`. `buildBoard` already scopes by the
+  caller's seat and the cross-department tests already prove a station seat is never *sent*
+  its neighbours' rows — what is missing is a department-framed screen, not a second query.
+  Writing one would create the second source of truth this whole design exists to avoid.
+- **Fixed:** the Rule 0 stop hook fired on every session that ended by running the tests,
+  because `npm run check` rebuilds `web/dist` as its last act and five regenerated artifacts
+  looked like undocumented changes. It now filters through `git check-ignore`. Two things
+  had to be got right and neither was obvious: git **C-quotes** paths containing spaces, and
+  every path here has them, so the first version compared `"D:\a b\x.js"` against a plain
+  path and silently matched nothing; and PowerShell terminates piped lines with CRLF, which
+  git keeps as part of the pathname and escapes back out as a literal `\r`. A check that
+  cries wolf every session teaches everyone to dismiss it, which costs more than the false
+  positive itself. Verified in both directions: rebuilt output alone does not block, a real
+  source change still does and still names the file.
+- **Observed, not fixed:** one run exited with `Worker exited unexpectedly` and reported
+  246/248. Not reproduced in four subsequent full runs. Worth recording because it is the
+  same shape as the fault that once hid ten results behind a green run — but note the
+  difference: `pool: 'forks'` meant it **failed loudly instead of passing falsely**, which
+  is the property that was bought. If it returns, it is a real bug in a teardown, not noise.
+- **Verified:** `npm run check` green **three consecutive times** — typecheck, lint,
+  formatting, **248/248 tests across 16 files**.

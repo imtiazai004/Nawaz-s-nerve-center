@@ -91,19 +91,14 @@ burden that needs an owner.
 `00-thesis.md` flags the control room as a single point of failure. Where the secondary
 site is, and who has access, needs an answer before go-live.
 
-### Q-16 · Should severity have an explicit `unknown`? `OPEN`
-Raised by building the intake endpoint (M0-24), which cannot refuse a report and therefore
-has to record *something* when nobody stated a severity. It currently assumes `high` and
-records `assumed: ['severity']` in the payload, so a placeholder is distinguishable from a
-reporter's judgement.
+### Q-16 · Should severity have an explicit `unknown`? `RESOLVED 2026-08-02`
+**Answer: yes — as a value, never as a level.** See `ADR-0009`.
 
-That works, but it encodes a judgement in a field meant to carry someone else's. The
-alternative is a fifth value — `unknown` — which is honest but touches `SEVERITY_ORDER`,
-`worstSeverity`, every SLA target, INV-04's "an aggregate never hides a critical", and every
-screen that sorts by severity. It is an ADR, not a patch.
-
-**Decide before:** M1 puts severity on a board that operators triage from. A placeholder
-that looks like an assessment is a worse failure on a screen than in a database.
+Decided when the central board was built, which is exactly when it stopped being
+theoretical: the old behaviour assumed `high`, and a board would have rendered that as
+somebody's assessment. Aggregates now report two numbers — worst assessed, and how many are
+unassessed — and neither is folded into the other. The urgency the old guess expressed moved
+to the SLA target for `unknown`, where it does not lie on a screen.
 
 ### Q-17 · May a department emit `overridden` on its own field? `OPEN`
 The policy table makes the owning department allowed on its own fields, so

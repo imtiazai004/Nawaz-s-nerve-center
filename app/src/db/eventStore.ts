@@ -113,6 +113,47 @@ export async function loadIncident(
   return res.rows.map(toDomain);
 }
 
+/**
+ * Every event, grouped by incident, for incidents seen in the last `days`.
+ *
+ * One query, not one per incident. The board is the first thing that needs many incidents
+ * at once, and folding N incidents with N round trips would make the district's live view
+ * get slower exactly as the district gets busier.
+ *
+ * The SQL narrows candidates by recency and nothing else. **It does not decide what is
+ * open** — that is the fold's answer, and expressing it here in a second language is how
+ * the escalation rule nearly ended up defined twice (see `jobs/escalation.ts`).
+ */
+export async function loadRecentIncidents(
+  pool: Pool,
+  days = 7,
+  limit = 500,
+): Promise<readonly (readonly IncidentEvent[])[]> {
+  const res = await pool.query<Row>(
+    `WITH recent AS (
+       SELECT incident_id, MIN(recorded_at) AS first_seen
+         FROM incident_event
+        WHERE recorded_at > now() - make_interval(days => $1)
+        GROUP BY incident_id
+        ORDER BY first_seen DESC
+        LIMIT $2
+     )
+     SELECT e.*
+       FROM incident_event e
+       JOIN recent r ON r.incident_id = e.incident_id
+      ORDER BY e.incident_id, e.occurred_at, e.client_seq, e.recorded_at, e.event_id`,
+    [days, limit],
+  );
+
+  const byIncident = new Map<string, IncidentEvent[]>();
+  for (const row of res.rows) {
+    const events = byIncident.get(row.incident_id);
+    if (events === undefined) byIncident.set(row.incident_id, [toDomain(row)]);
+    else events.push(toDomain(row));
+  }
+  return [...byIncident.values()];
+}
+
 export interface Page {
   readonly events: readonly IncidentEvent[];
   /** Pass back as `cursor` to continue. */

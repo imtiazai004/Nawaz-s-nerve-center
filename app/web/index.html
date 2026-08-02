@@ -174,6 +174,64 @@
         background: var(--critical); border: none; border-radius: 2px; cursor: pointer;
       }
       button.plain:disabled { opacity: 0.45; cursor: default; }
+      /* ---------------------------------------------------------- central board */
+      #nav { display: flex; gap: 0; border-bottom: 1px solid var(--line); }
+      #nav button {
+        flex: 1; min-height: 48px; margin: 0;
+        font: inherit; font-weight: 700; font-size: 0.85rem;
+        background: none; border: none; border-bottom: 3px solid transparent;
+        color: var(--slate); cursor: pointer;
+      }
+      #nav button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
+
+      /* The board is a table of live work, so it gets the width the phone form does not. */
+      body:has(#boardView:not([hidden])) main { max-width: 60rem; }
+
+      #boardAsOf {
+        font-size: 0.78rem; color: var(--slate);
+        margin: 0 0 0.6rem; display: flex; justify-content: space-between; gap: 1rem;
+      }
+      /* Stale is never rendered as current (INV-02). */
+      #boardAsOf[data-stale="true"] { color: var(--critical); font-weight: 700; }
+
+      #boardSummary { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.9rem; }
+      #boardSummary .tally {
+        padding: 0.4rem 0.7rem; background: var(--card);
+        border: 1px solid var(--line); border-radius: 3px;
+        font-size: 0.8rem; font-weight: 600;
+      }
+      #boardSummary .tally b { font-size: 1.1rem; display: block; }
+      #boardSummary .tally[data-kind="worst-critical"] { border-color: var(--critical); color: var(--critical); }
+      #boardSummary .tally[data-kind="unassessed"] { border-color: var(--pending); color: var(--pending); }
+      #boardSummary .tally[data-kind="overdue"] { border-color: var(--critical); color: var(--critical); }
+
+      #boardRows { border-top: 1px solid var(--line); }
+      .row {
+        display: grid;
+        grid-template-columns: 7.5rem 1fr 7rem 8rem;
+        gap: 0.3rem 0.8rem;
+        align-items: baseline;
+        padding: 0.6rem 0.2rem;
+        border-bottom: 1px solid var(--line);
+        font-size: 0.88rem;
+      }
+      @media (max-width: 40rem) {
+        .row { grid-template-columns: 7.5rem 1fr; }
+      }
+      .row .sev {
+        font-weight: 800; font-size: 0.72rem;
+        text-transform: uppercase; letter-spacing: 0.07em;
+      }
+      /* Meaning is in the text, never in colour alone (INV-04). */
+      .row .sev[data-level="critical"] { color: var(--critical); }
+      .row .sev[data-level="unknown"]  { color: var(--pending); }
+      .row .cat { font-weight: 600; }
+      .row .meta { color: var(--slate); font-size: 0.78rem; }
+      .row .state { font-size: 0.78rem; }
+      .row[data-overdue="true"] { background: #f7e9e6; }
+      .row .flag { color: var(--critical); font-weight: 700; font-size: 0.72rem; }
+      #boardEmpty { padding: 1.2rem 0.2rem; color: var(--slate); font-size: 0.9rem; }
+
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -187,6 +245,11 @@
     </header>
 
     <div id="status" data-state="unknown">Checking connection…</div>
+
+    <nav id="nav" hidden>
+      <button type="button" id="navReport" aria-current="page">Report</button>
+      <button type="button" id="navBoard">District board</button>
+    </nav>
 
     <main>
       <!-- Sign in -->
@@ -271,6 +334,19 @@
           <h2>Not yet delivered <span id="count">(0)</span></h2>
           <div id="entries"></div>
         </section>
+      </section>
+
+      <!--
+        The central board (M0-33).
+
+        One projection of the same event log, not a copy. It always says how old it is:
+        a board with no clock on it is a board that lies during an outage (INV-02).
+      -->
+      <section id="boardView" hidden>
+        <p id="boardAsOf"><span id="boardAsOfText">Loading…</span><span id="boardScope"></span></p>
+        <div id="boardSummary"></div>
+        <div id="boardRows"></div>
+        <p id="boardEmpty" hidden>No open incidents in the last seven days.</p>
       </section>
     </main>
 

@@ -26,6 +26,15 @@ export const PLACEHOLDER_SLA: SlaTargets = {
   high: 15,
   moderate: 60,
   low: 240,
+  /**
+   * `unknown` is not a level (ADR-0009), but it still needs a deadline — and a tight one.
+   *
+   * An unassessed report must reach a human quickly; that is exactly why intake used to
+   * guess `high`. It now expresses that urgency **here**, through the deadline, instead of
+   * through a severity value that would lie on a screen. Same effect on escalation, no
+   * false claim about what anyone assessed.
+   */
+  unknown: 15,
 };
 
 /**

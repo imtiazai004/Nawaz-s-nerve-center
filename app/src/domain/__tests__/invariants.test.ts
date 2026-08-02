@@ -59,7 +59,27 @@ describe('INV-04 — an aggregate never hides a critical', () => {
         },
       ),
     ]);
-    expect(districtSeverity([...many, critical])).toBe('critical');
+    expect(districtSeverity([...many, critical])).toEqual({ worst: 'critical', unassessed: 0 });
+  });
+
+  it('does not hide an unassessed incident behind a level either (ADR-0009)', () => {
+    // The other half of the same invariant. A summary that folded unassessed reports into
+    // `low` would hide them exactly as an average hides a critical — and folding them into
+    // `critical` would hide the real criticals among them.
+    const unassessed = Array.from({ length: 20 }, (_, i) =>
+      foldIncident(`u${i}`, [
+        ev(
+          'reported',
+          { reportId: `r${i}`, category: 'unknown', severity: 'unknown' },
+          { incidentId: `u${i}` },
+        ),
+      ]),
+    );
+    const low = foldIncident('lo', [
+      ev('reported', { reportId: 'rl', category: 'x', severity: 'low' }, { incidentId: 'lo' }),
+    ]);
+
+    expect(districtSeverity([...unassessed, low])).toEqual({ worst: 'low', unassessed: 20 });
   });
 });
 

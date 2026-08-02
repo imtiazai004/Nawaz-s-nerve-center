@@ -30,7 +30,13 @@ import {
   type Decision,
   type Seat,
 } from '../domain/authority.js';
-import { SEVERITY_ORDER, type IncidentEvent, type Severity, type Uuid } from '../domain/events.js';
+import {
+  SEVERITY_ORDER,
+  type AssessedSeverity,
+  type IncidentEvent,
+  type Severity,
+  type Uuid,
+} from '../domain/events.js';
 import { foldIncident, type IncidentState } from '../domain/incident.js';
 import type { Identity } from '../auth/sessions.js';
 
@@ -38,17 +44,16 @@ import type { Identity } from '../auth/sessions.js';
 export const ASSUMED_CATEGORY = 'unknown';
 
 /**
- * The severity an unstated report is given.
+ * The severity an unstated report is given: none. See ADR-0009.
  *
- * Not neutral, and deliberately so. `low` would let an unassessed emergency sink below
- * routine work, which is INV-04 by the back door; `critical` would cry wolf and teach
- * operators to discount the top of the scale. `high` puts it in front of a human quickly
- * without claiming something nobody asserted — and `assumed` records that the server chose
- * it, so triage can see it is a placeholder rather than a reporter's judgement.
- *
- * Whether the domain should instead carry an explicit `unknown` severity is Q-16.
+ * An earlier version guessed `high` and recorded `assumed: ['severity']` alongside it. The
+ * reasoning was sound — `low` lets an unassessed emergency sink below routine work, INV-04
+ * by the back door — but it has one fatal property: **on a screen, an assumption is
+ * indistinguishable from an assessment.** The urgency now lives in the SLA target for
+ * `unknown`, which is the `high` deadline, so an unassessed report still reaches a human
+ * fast without the record claiming anyone judged it.
  */
-export const ASSUMED_SEVERITY: Severity = 'high';
+export const ASSUMED_SEVERITY: Severity = 'unknown';
 
 export type CommandKind =
   'triage' | 'route' | 'acknowledge' | 'log_action' | 'reassign' | 'override' | 'resolve' | 'close';
@@ -56,7 +61,7 @@ export type CommandKind =
 export type Command =
   | {
       readonly kind: 'triage';
-      readonly severity: Severity;
+      readonly severity: AssessedSeverity;
       readonly category: string;
       readonly reason?: string;
     }
@@ -101,7 +106,14 @@ function isNonEmpty(v: unknown): v is string {
   return typeof v === 'string' && v.trim().length > 0;
 }
 
-export function isSeverity(v: unknown): v is Severity {
+/**
+ * An **assessed** severity, which is the only kind a command may set.
+ *
+ * `unknown` is deliberately not accepted here (ADR-0009). Triage is the act of assessing;
+ * revising an assessment to "no assessment" is not a thing an operator does, and letting a
+ * command write it would put the one value only intake may produce back into play.
+ */
+export function isSeverity(v: unknown): v is AssessedSeverity {
   return typeof v === 'string' && (SEVERITY_ORDER as readonly string[]).includes(v);
 }
 
