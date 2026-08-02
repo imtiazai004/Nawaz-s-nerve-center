@@ -30,7 +30,15 @@ import {
 import { districtSeverity, foldIncident, type IncidentState } from '../domain/incident.js';
 import { unmetObligations } from '../domain/notifications.js';
 import { departmentDirectory } from '../ops/directory.js';
-import { checkEscalation, PLACEHOLDER_SLA, type SlaTargets } from '../domain/sla.js';
+import {
+  checkEscalation,
+  PLACEHOLDER_SLA,
+  targetsFor,
+  type SlaConfig,
+  type SlaTargets,
+} from '../domain/sla.js';
+import { loadSlaConfiguration } from '../db/configStore.js';
+import { log } from '../obs/log.js';
 
 export interface BoardRow {
   readonly incidentId: Uuid;
@@ -68,6 +76,16 @@ export interface BoardRow {
    */
   readonly notificationsFailed: number;
   readonly notificationsUndelivered: number;
+  /**
+   * Routing ran and matched no department (ADR-0010).
+   *
+   * Distinct from "not routed yet", which is what an empty `responsibleDepartmentIds` means
+   * on its own. This one is a configuration gap the administration can close, and it is the
+   * row that must never sit quietly at the bottom of a list.
+   */
+  readonly unassigned: boolean;
+  /** The acknowledgement deadline actually applied to this row, in minutes. */
+  readonly targetMinutes: number;
 }
 
 export interface Board {
@@ -88,6 +106,14 @@ export interface Board {
      * obligation, not a log line*.
      */
     readonly notificationsUnmet: number;
+    /**
+     * Emergencies the routing signals could not place. Nobody has them.
+     *
+     * On the summary rather than only in the rows, because this is the number the two
+     * administrative offices are answerable for: every one of them is an emergency waiting
+     * on a human, and every one of them is also a signal somebody forgot to configure.
+     */
+    readonly unassigned: number;
   };
   readonly incidents: readonly BoardRow[];
 }
@@ -138,10 +164,13 @@ export interface BoardOptions {
 function toRow(
   state: IncidentState,
   now: Instant,
-  targets: SlaTargets,
+  config: SlaConfig,
   departments: Readonly<Record<string, { readonly name: string }>>,
 ): BoardRow {
   const severity: Severity = state.severity?.value ?? 'unknown';
+  // Resolved per row, because the deadline belongs to whoever is holding the incident.
+  // Rescue's five minutes are not the Education department's five minutes.
+  const targets = targetsFor(config, state.responsibleDepartmentIds);
   const unmet = unmetObligations(state.notifications, now);
 
   const verdict =
@@ -177,7 +206,33 @@ function toRow(
     overdueByMinutes: Math.round(verdict?.overdueByMinutes ?? 0),
     notificationsFailed: unmet.filter((u) => u.why === 'failed').length,
     notificationsUndelivered: unmet.filter((u) => u.why === 'undelivered').length,
+    unassigned: state.unassigned,
+    targetMinutes: targets[severity],
   };
+}
+
+/**
+ * The district's deadlines, from the table the administration edits (Q-06).
+ *
+ * The failure path is the interesting part. If `sla_target` cannot be read, this falls back
+ * to `PLACEHOLDER_SLA` and **says so at error level** rather than throwing. The reasoning:
+ * a board that will not draw because a settings table is unreachable is a control room with
+ * no screen during the exact incident that broke the database — while a board drawn against
+ * last week's defaults is still every incident, every severity, every overdue flag, off only
+ * in the deadline numbers. The one thing that would make that unacceptable is doing it
+ * quietly, so it does not.
+ */
+async function slaConfig(pool: Pool, override?: SlaTargets): Promise<SlaConfig> {
+  if (override !== undefined) return { district: override, byDepartment: {} };
+
+  try {
+    return await loadSlaConfiguration(pool);
+  } catch (err) {
+    log('error', 'could not read SLA configuration; falling back to install defaults', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { district: PLACEHOLDER_SLA, byDepartment: {} };
+  }
 }
 
 /**
@@ -193,7 +248,7 @@ export async function buildBoard(
   options: BoardOptions = {},
 ): Promise<Board> {
   const now = options.now ?? new Date().toISOString();
-  const targets = options.targets ?? PLACEHOLDER_SLA;
+  const config = await slaConfig(pool, options.targets);
 
   // Fetched once for the whole board, not per row. Same reason the detail endpoint returns
   // an actor directory with the events: a screen should never have to ask twice.
@@ -220,7 +275,7 @@ export async function buildBoard(
   const live = visible.filter((s) => !CLOSED.has(s.status));
   const shown = options.includeClosed === true ? visible : live;
 
-  const rows = shown.map((s) => toRow(s, now, targets, departments)).sort(compareRows);
+  const rows = shown.map((s) => toRow(s, now, config, departments)).sort(compareRows);
   const summary = districtSeverity(live);
 
   return {
@@ -234,6 +289,7 @@ export async function buildBoard(
       notificationsUnmet: rows.filter(
         (r) => r.notificationsFailed > 0 || r.notificationsUndelivered > 0,
       ).length,
+      unassigned: rows.filter((r) => r.unassigned).length,
     },
     incidents: rows,
   };

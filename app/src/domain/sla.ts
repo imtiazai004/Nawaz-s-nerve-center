@@ -18,9 +18,23 @@ import type { Instant, Severity } from './events.js';
 
 export const MINUTE_MS = 60_000;
 
-/** Acknowledgement deadlines per severity, in minutes. Placeholders until Q-06 is answered. */
+/** Acknowledgement deadlines per severity, in minutes. */
 export type SlaTargets = Readonly<Record<Severity, number>>;
 
+/**
+ * The values a fresh install starts from — **not** the district's rule.
+ *
+ * Q-06 asked what Bannu's real acknowledgement targets are; the owner's answer was that the
+ * DC and AC Headquarter offices set them inside the software. Migration 0007 seeds these
+ * five numbers into `sla_target` so nothing changes behaviour on the day it runs, and from
+ * that point the database is the authority. Everything that reads a deadline should be
+ * reading configuration, not this constant.
+ *
+ * It survives for two honest uses: the seed, and the fallback when configuration cannot be
+ * read at all. A board that refuses to draw because it could not load a settings table is
+ * worse than a board drawn against last week's defaults, provided it is drawn once and not
+ * relied on quietly — which is why `loadSlaConfiguration` failing is logged loudly.
+ */
 export const PLACEHOLDER_SLA: SlaTargets = {
   critical: 5,
   high: 15,
@@ -36,6 +50,60 @@ export const PLACEHOLDER_SLA: SlaTargets = {
    */
   unknown: 15,
 };
+
+/**
+ * The whole district's deadlines: a default per severity, plus whatever departments have
+ * overridden. Mirrors the `sla_target` table; see `db/configStore.ts` for the loader.
+ */
+export interface SlaConfig {
+  readonly district: SlaTargets;
+  readonly byDepartment: Readonly<Record<string, Partial<Record<Severity, number>>>>;
+}
+
+/**
+ * The deadlines that apply to an incident, given who is responsible for it.
+ *
+ * Two steps, and they are different operations — conflating them was a real bug caught by
+ * the M1a tests, where a department given a *longer* deadline than the district silently
+ * kept the district's shorter one.
+ *
+ * 1. **Per department, an override replaces the default.** If the district says 240 minutes
+ *    for `low` and a department is set to 999, that department's answer is 999. An override
+ *    that only ever tightens is not an override; it is a floor, and nobody asked for a
+ *    floor. The administration set 999 deliberately and the screen must say 999.
+ *
+ * 2. **Across departments, the tightest wins.** If Rescue must acknowledge a critical in 5
+ *    minutes and Police in 15, the incident is late at 5 — at that moment one of the two
+ *    responsible departments is genuinely late, and showing "on time" would be reporting the
+ *    more comfortable of two true statements. Same principle as the severity aggregate:
+ *    never let one row's good news hide another's bad.
+ *
+ * An unrouted incident falls to the district default, which is correct — nobody has a
+ * department deadline until somebody has the incident.
+ */
+export function targetsFor(config: SlaConfig, departmentIds: readonly string[]): SlaTargets {
+  if (departmentIds.length === 0) return config.district;
+
+  let merged: Record<string, number> | null = null;
+
+  for (const id of departmentIds) {
+    // Step 1: this department's own view of the deadlines.
+    const effective: Record<string, number> = { ...config.district, ...config.byDepartment[id] };
+
+    if (merged === null) {
+      merged = effective;
+      continue;
+    }
+
+    // Step 2: the strictest obligation among the departments that hold it.
+    for (const [severity, minutes] of Object.entries(effective)) {
+      const current = merged[severity];
+      if (current === undefined || minutes < current) merged[severity] = minutes;
+    }
+  }
+
+  return (merged ?? config.district) as unknown as SlaTargets;
+}
 
 /**
  * Grace applied to escalation firing after a late arrival, so a two-hour outage produces

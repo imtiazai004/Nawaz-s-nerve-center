@@ -172,11 +172,18 @@ describe.skipIf(dbUrl === undefined)('incident lifecycle over HTTP (integration)
       expect(res.body['assumed']).toEqual(['category', 'severity']);
 
       const events = await loadIncident(pool, res.body['incidentId'] as string);
-      expect(events).toHaveLength(1);
+      // Two: the report, and the automatic routing pass that follows it (ADR-0010).
+      expect(events.map((e) => e.type)).toEqual(['reported', 'routed']);
       expect(events[0]!.payload).toMatchObject({
         category: ASSUMED_CATEGORY,
         severity: ASSUMED_SEVERITY,
       });
+
+      // A report with no category cannot be routed by category — that would treat a
+      // placeholder as an assessment — and there is no description to search either. So it
+      // is unassigned, and it says so rather than going quiet.
+      expect(res.body['unassigned']).toBe(true);
+      expect(res.body['routedTo']).toEqual([]);
     });
 
     it('accepts a report whose body is not even valid json', async () => {
@@ -602,7 +609,10 @@ describe.skipIf(dbUrl === undefined)('incident lifecycle over HTTP (integration)
       });
       const res = await call('GET', `/incidents/${id}`, rescueToken, undefined);
       const events = res.body['events'] as { type: string }[];
-      expect(events.map((e) => e.type)).toEqual(['reported', 'routed', 'triaged']);
+      // Two routing entries, and both belong in the history: the automatic pass at intake
+      // (ADR-0010) and then the control room's own decision. Collapsing them would hide
+      // which of the two actually sent help.
+      expect(events.map((e) => e.type)).toEqual(['reported', 'routed', 'routed', 'triaged']);
     });
   });
 

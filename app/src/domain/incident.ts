@@ -70,6 +70,17 @@ export interface IncidentState {
   readonly category: Provenanced<string> | null;
   readonly responsibleDepartmentIds: readonly Uuid[];
   /**
+   * When routing last ran, or null if it never has.
+   *
+   * The distinction this exists for: **nobody has looked yet** and **we looked and found
+   * nobody** are different emergencies. Both leave `responsibleDepartmentIds` empty, and
+   * only the second one is a configuration gap the administration can close. Without this
+   * they are the same row on a screen (ADR-0005).
+   */
+  readonly routingAttemptedAt: Instant | null;
+  /** Routing ran and matched no department. Needs a human to assign it (ADR-0010). */
+  readonly unassigned: boolean;
+  /**
    * Departments that held this and no longer do.
    *
    * Kept because a handover has two sides. The department losing an incident has to be told
@@ -197,6 +208,7 @@ export function foldIncident(
   let severity: Provenanced<Severity> | null = null;
   let category: Provenanced<string> | null = null;
   let responsibleDepartmentIds: readonly Uuid[] = [];
+  let routingAttemptedAt: Instant | null = null;
   const reassignedFrom: Uuid[] = [];
   const reportIds: Uuid[] = [];
   let acknowledgedAt: Instant | null = null;
@@ -243,7 +255,14 @@ export function foldIncident(
 
       case 'routed': {
         responsibleDepartmentIds = [...e.payload.departmentIds];
-        if (status === 'reported' || status === 'triaged') status = 'routed';
+        routingAttemptedAt = e.occurredAt;
+        // Only advance the status if it actually reached somebody. A `routed` event with an
+        // empty department list records that routing ran and matched nothing; calling that
+        // "routed" on a board would tell an operator help is on its way to a department
+        // that does not exist.
+        if (e.payload.departmentIds.length > 0 && (status === 'reported' || status === 'triaged')) {
+          status = 'routed';
+        }
         break;
       }
 
@@ -403,6 +422,8 @@ export function foldIncident(
     severity,
     category,
     responsibleDepartmentIds,
+    routingAttemptedAt,
+    unassigned: routingAttemptedAt !== null && responsibleDepartmentIds.length === 0,
     reassignedFrom,
     reportIds,
     acknowledgedAt,

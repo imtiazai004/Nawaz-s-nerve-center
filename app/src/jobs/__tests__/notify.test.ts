@@ -232,6 +232,7 @@ describe.skipIf(dbUrl === undefined)('notifications (INV-03)', () => {
         departmentName: null,
         tier: 'district',
         canBreakGlass: false,
+        isAdministration: false,
       })!;
 
       const board = await buildBoard(pool, control);

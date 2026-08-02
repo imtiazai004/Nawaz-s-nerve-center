@@ -35,6 +35,15 @@ export interface Identity {
   readonly seatTitle: string | null;
   readonly tier: Tier | null;
   readonly canBreakGlass: boolean;
+  /**
+   * True for the DC Office and the AC Headquarter Bannu Office — the two offices that are
+   * the authority for the whole district (ADR-0010).
+   *
+   * Resolved from the department on every request rather than stored on the session, for
+   * the same reason the seat is: an officer transferred out of the DC Office ten seconds
+   * ago must not still hold the district's administration on their next request.
+   */
+  readonly isAdministration: boolean;
 }
 
 export interface LoginResult {
@@ -55,6 +64,7 @@ interface IdentityRow {
   department_name: string | null;
   tier: Tier | null;
   can_break_glass: boolean | null;
+  is_administration: boolean | null;
 }
 
 function toIdentity(r: IdentityRow): Identity {
@@ -67,6 +77,7 @@ function toIdentity(r: IdentityRow): Identity {
     departmentName: r.department_name,
     tier: r.tier,
     canBreakGlass: r.can_break_glass === true,
+    isAdministration: r.is_administration === true,
   };
 }
 
@@ -134,7 +145,8 @@ export async function resolveIdentity(pool: Pool, personId: string): Promise<Ide
             s.department_id,
             dep.name       AS department_name,
             s.tier,
-            s.can_break_glass
+            s.can_break_glass,
+            dep.is_administration
        FROM person p
        LEFT JOIN duty_assignment d
               ON d.person_id = p.person_id AND d.to_at IS NULL

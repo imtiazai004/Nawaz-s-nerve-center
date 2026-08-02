@@ -24,6 +24,19 @@ import {
 } from './lifecycle.js';
 import { buildBoard } from './board.js';
 import { inbox, markSeen } from './notifications.js';
+import {
+  addDepartment,
+  addSignal,
+  configHistory,
+  departmentsForConsole,
+  editDepartment,
+  removeSignal,
+  setRetired,
+  setTarget,
+  slaForConsole,
+  type AdminResult,
+} from './admin.js';
+import { districtPerformance } from './performance.js';
 import { backupHealth } from '../ops/backup.js';
 import { correlationIdFrom, log, withContext } from '../obs/log.js';
 
@@ -335,6 +348,144 @@ function matchIncidentRoute(
   return null;
 }
 
+async function bodyOf(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+  const raw = await readBody(req);
+  if (raw.trim().length === 0) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The administration console — M1a. Everything under `/admin`.
+ *
+ * The authority check is **not** here. Every function in `api/admin.ts` asks
+ * `requireAdministration` itself, so an endpoint added to this switch without a check is
+ * still refused rather than silently open. A gate that lives in the router is a gate that
+ * gets bypassed by the next route somebody adds in a hurry (INV-05).
+ *
+ * Malformed JSON is a 400 here, unlike intake, which cannot refuse anything (INV-01). The
+ * asymmetry is the point: nobody's emergency is lost because a configuration form was
+ * mis-submitted, and silently accepting a broken routing rule would be far worse than
+ * rejecting it.
+ */
+async function handleAdmin(
+  pool: Pool,
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  identity: Identity,
+): Promise<void> {
+  const send = <T>(result: AdminResult<T>): void => {
+    if (!result.ok) json(res, result.status, { error: result.error });
+    else json(res, 200, result.value);
+  };
+
+  const body = async (): Promise<Record<string, unknown> | null> => bodyOf(req);
+
+  if (req.method === 'GET' && pathname === '/admin/departments') {
+    send(await departmentsForConsole(pool, identity));
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/departments') {
+    const input = await body();
+    if (input === null) {
+      json(res, 400, { error: 'that was not valid json' });
+      return;
+    }
+    const result = await addDepartment(pool, identity, input);
+    if (!result.ok) json(res, result.status, { error: result.error });
+    else json(res, 201, result.value);
+    return;
+  }
+
+  const department = /^\/admin\/departments\/([^/]+)(\/[a-z]+)?$/.exec(pathname);
+  if (department !== null) {
+    const departmentId = department[1]!;
+    const action = department[2] ?? null;
+
+    if (!UUID_RE.test(departmentId)) {
+      json(res, 404, { error: 'no such department' });
+      return;
+    }
+
+    const input = await body();
+    if (input === null) {
+      json(res, 400, { error: 'that was not valid json' });
+      return;
+    }
+
+    if (req.method === 'PATCH' && action === null) {
+      send(await editDepartment(pool, identity, departmentId, input));
+      return;
+    }
+    if (req.method === 'POST' && action === '/retire') {
+      send(await setRetired(pool, identity, departmentId, true, input['reason']));
+      return;
+    }
+    if (req.method === 'POST' && action === '/restore') {
+      send(await setRetired(pool, identity, departmentId, false, input['reason']));
+      return;
+    }
+    if (req.method === 'POST' && action === '/signals') {
+      const result = await addSignal(pool, identity, departmentId, input);
+      if (!result.ok) json(res, result.status, { error: result.error });
+      else json(res, 201, result.value);
+      return;
+    }
+
+    json(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  const signal = /^\/admin\/signals\/([^/]+)\/retire$/.exec(pathname);
+  if (req.method === 'POST' && signal !== null) {
+    const input = await body();
+    if (input === null) {
+      json(res, 400, { error: 'that was not valid json' });
+      return;
+    }
+    send(await removeSignal(pool, identity, signal[1]!, input['reason']));
+    return;
+  }
+
+  if (pathname === '/admin/sla') {
+    if (req.method === 'GET') {
+      send(await slaForConsole(pool, identity));
+      return;
+    }
+    if (req.method === 'PUT') {
+      const input = await body();
+      if (input === null) {
+        json(res, 400, { error: 'that was not valid json' });
+        return;
+      }
+      send(await setTarget(pool, identity, input));
+      return;
+    }
+    json(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/performance') {
+    send(await districtPerformance(pool, identity));
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/history') {
+    send(await configHistory(pool, identity));
+    return;
+  }
+
+  json(res, 404, { error: 'not found' });
+}
+
 async function handleIncidents(
   pool: Pool,
   req: IncomingMessage,
@@ -342,18 +493,7 @@ async function handleIncidents(
   route: { readonly incidentId: string | null; readonly action: string | null },
   identity: Identity,
 ): Promise<void> {
-  const readJson = async (): Promise<Record<string, unknown> | null> => {
-    const raw = await readBody(req);
-    if (raw.trim().length === 0) return {};
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      return typeof parsed === 'object' && parsed !== null
-        ? (parsed as Record<string, unknown>)
-        : null;
-    } catch {
-      return null;
-    }
-  };
+  const readJson = async (): Promise<Record<string, unknown> | null> => bodyOf(req);
 
   if (route.incidentId === null) {
     // The central board (M0-33). Scoped by the caller's seat, server-side — rows this seat
@@ -381,6 +521,12 @@ async function handleIncidents(
       incidentId: result.incidentId,
       reportId: result.reportId,
       assumed: result.assumed,
+      // Where it went, told to the person who just reported it. Someone standing at the
+      // scene needs to know whether help has actually been summoned — "received" and
+      // "received, and nobody has it" are different answers (ADR-0005).
+      routedTo: result.routedTo,
+      unassigned: result.unassigned,
+      routingReason: result.routingReason,
     });
     return;
   }
@@ -576,6 +722,21 @@ export function createSyncServer(options: ServerOptions): Server {
           }
 
           json(res, 404, { error: 'not found' });
+          return;
+        }
+
+        // The administration console (M1a). Behind a session; the authority check itself
+        // lives inside each handler in `api/admin.ts`.
+        if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+
+          await handleAdmin(pool, req, res, url.pathname, identity);
           return;
         }
 

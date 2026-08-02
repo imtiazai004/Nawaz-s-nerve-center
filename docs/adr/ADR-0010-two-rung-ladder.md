@@ -57,8 +57,14 @@ decide code rather than wording.
 Miryan, AAC Bakakhel and the TMOs are field offices of the administration in the civil-service
 sense, so it was not obvious which rung they sit on. The owner: *"they have to report the
 issue or act on the issue."* Reporting up and acting on assigned work is the definition of the
-lower rung. They are departments. **Only two seats in the district hold administrative
-authority**, and the district office count does not dilute that.
+lower rung. They are departments. **Only two offices in the district hold administrative
+authority**, and the number of district offices does not dilute that.
+
+Implemented as `department.is_administration` — on the office, not on a seat, because an
+office survives a transfer (ADR-0004) and the DC Office holds several posts that are all part
+of the administration. The flag is **not settable through the admin API**: these two offices
+can create and retire departments, so a flag they could grant would let them mint a third
+administration, which is the thing this ADR forbids.
 
 **The DC and AC Headquarter dashboards are identical.** The owner: *"yes exactly, they should
 hold the same dashboards."* Neither office outranks the other in this system. There is one

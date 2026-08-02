@@ -14,7 +14,14 @@
 import { append, loadIncident } from '../db/eventStore.js';
 import type { Pool } from '../db/pool.js';
 import { foldIncident } from '../domain/incident.js';
-import { checkEscalation, type SlaTargets, PLACEHOLDER_SLA } from '../domain/sla.js';
+import {
+  checkEscalation,
+  targetsFor,
+  type SlaConfig,
+  type SlaTargets,
+  PLACEHOLDER_SLA,
+} from '../domain/sla.js';
+import { loadSlaConfiguration } from '../db/configStore.js';
 import { TIER_ORDER, tierRank, type Tier } from '../domain/authority.js';
 import type { IncidentEvent } from '../domain/events.js';
 import { randomUUID } from 'node:crypto';
@@ -152,7 +159,21 @@ export async function runEscalationPass(
   pool: Pool,
   options: EscalationOptions = {},
 ): Promise<EscalationOutcome> {
-  const targets = options.targets ?? PLACEHOLDER_SLA;
+  // The district's own deadlines, not the ones compiled into this file (Q-06). Loaded once
+  // per pass rather than once per incident: a scan of 500 incidents must not become 500
+  // settings queries, and a deadline that changed mid-pass would make one scan apply two
+  // different rules — which is exactly the kind of thing nobody can explain afterwards.
+  //
+  // A pass that cannot read the configuration falls back rather than escalating nothing.
+  // Skipping the pass would mean **no escalations at all** while the table is unreachable,
+  // and an escalation that does not fire is the failure INV-07 exists to prevent.
+  const config: SlaConfig =
+    options.targets !== undefined
+      ? { district: options.targets, byDepartment: {} }
+      : await loadSlaConfiguration(pool).catch(() => ({
+          district: PLACEHOLDER_SLA,
+          byDepartment: {},
+        }));
   const now = options.now ?? new Date().toISOString();
   const limit = options.limit ?? 500;
   const ids = await candidates(pool, limit, options.incidentIds);
@@ -178,7 +199,9 @@ export async function runEscalationPass(
         acknowledgedAt: state.acknowledgedAt,
         now,
       },
-      targets,
+      // Per incident, because the deadline belongs to whoever holds it. Where two
+      // departments hold one incident the tightest deadline governs — see `targetsFor`.
+      targetsFor(config, state.responsibleDepartmentIds),
     );
 
     if (!verdict.shouldEscalate) continue;

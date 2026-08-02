@@ -84,9 +84,39 @@ export interface EventEnvelope {
 }
 
 interface Payloads {
-  reported: { reportId: Uuid; category: string; severity: Severity; placeId?: Uuid };
+  reported: {
+    reportId: Uuid;
+    category: string;
+    severity: Severity;
+    placeId?: Uuid;
+    /** The reporter's own words. Routing keyword signals search this (ADR-0010). */
+    description?: string;
+    /**
+     * Fields intake supplied because the caller did not (INV-01).
+     *
+     * Recorded so a downstream consumer can tell an assessment from a placeholder — which
+     * `domain/routing.ts` depends on, and ADR-0009 depends on for severity.
+     */
+    assumed?: readonly string[];
+  };
   triaged: { severity: Severity; category: string; reason?: string };
-  routed: { departmentIds: readonly Uuid[]; ruleId: Uuid | 'manual'; reason?: string };
+  /**
+   * Where this incident went — **including nowhere**.
+   *
+   * `departmentIds` may be empty, and that is a fact worth recording rather than an absence
+   * to be inferred. It says routing ran at this time, against these signals, and matched
+   * nothing. The alternative — no event at all — is indistinguishable from "the routing pass
+   * has not happened yet", and ADR-0005 does not allow a system to be quiet about that.
+   *
+   * `ruleId` is `'manual'` when a human chose, `'auto'` when the signals did. `signalIds`
+   * names the signals that matched, so a wrong route leads back to the rule that caused it.
+   */
+  routed: {
+    departmentIds: readonly Uuid[];
+    ruleId: Uuid | 'manual' | 'auto';
+    signalIds?: readonly Uuid[];
+    reason?: string;
+  };
   /**
    * A notification was **attempted**. Not "sent", and certainly not "received".
    *

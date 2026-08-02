@@ -34,27 +34,25 @@ import {
   SEVERITY_ORDER,
   type AssessedSeverity,
   type IncidentEvent,
-  type Severity,
   type Uuid,
 } from '../domain/events.js';
 import { foldIncident, type IncidentState } from '../domain/incident.js';
+import { route, type RoutingDecision } from '../domain/routing.js';
+import { loadRoutingSignals } from '../db/configStore.js';
 import { departmentDirectory } from '../ops/directory.js';
+import { log } from '../obs/log.js';
 import type { Identity } from '../auth/sessions.js';
 
-/** What the intake endpoint fills in when a caller did not say. See `intake`. */
-export const ASSUMED_CATEGORY = 'unknown';
-
 /**
- * The severity an unstated report is given: none. See ADR-0009.
+ * What intake fills in when a caller did not say.
  *
- * An earlier version guessed `high` and recorded `assumed: ['severity']` alongside it. The
- * reasoning was sound — `low` lets an unassessed emergency sink below routine work, INV-04
- * by the back door — but it has one fatal property: **on a screen, an assumption is
- * indistinguishable from an assessment.** The urgency now lives in the SLA target for
- * `unknown`, which is the `high` deadline, so an unassessed report still reaches a human
- * fast without the record claiming anyone judged it.
+ * Defined in `domain/assumptions.ts` and re-exported here, because routing must also know
+ * what a placeholder looks like in order to refuse to route on one, and a domain module
+ * importing from the API layer would be the wrong way round.
  */
-export const ASSUMED_SEVERITY: Severity = 'unknown';
+import { ASSUMED_CATEGORY, ASSUMED_SEVERITY } from '../domain/assumptions.js';
+
+export { ASSUMED_CATEGORY, ASSUMED_SEVERITY };
 
 export type CommandKind =
   'triage' | 'route' | 'acknowledge' | 'log_action' | 'reassign' | 'override' | 'resolve' | 'close';
@@ -390,6 +388,12 @@ export interface IntakeResult {
   readonly event: IncidentEvent;
   /** Fields the server supplied because the caller did not. Never silently filled. */
   readonly assumed: readonly string[];
+  /** Departments the routing signals matched. Empty means it needs a human (ADR-0010). */
+  readonly routedTo: readonly Uuid[];
+  /** True when routing ran and matched nothing. Surfaced, never swallowed. */
+  readonly unassigned: boolean;
+  /** Plain language, for the reporter's confirmation screen and for the audit trail. */
+  readonly routingReason: string;
 }
 
 /**
@@ -465,7 +469,107 @@ export async function intake(
 
   await append(pool, [event]);
 
-  return { incidentId, reportId, event, assumed };
+  const routing = await autoRoute(
+    pool,
+    incidentId,
+    { category, description: input.description },
+    now,
+  );
+
+  return {
+    incidentId,
+    reportId,
+    event,
+    assumed,
+    routedTo: routing.departmentIds,
+    unassigned: routing.unassigned,
+    routingReason: routing.reason,
+  };
+}
+
+/**
+ * Send the incident to whichever departments the district's signals name (ADR-0010).
+ *
+ * Runs immediately after the report lands, as the system rather than as the reporter —
+ * `actorSeatId: null` and `sourceChannel: 'system'`, because nobody made this decision
+ * tonight. The administration made it when they wrote the signal.
+ *
+ * **Three things this deliberately does not do.**
+ *
+ * It does not refuse. Intake cannot fail (INV-01), and a routing pass that threw would take
+ * the report down with it. Anything unexpected is caught, logged, and left as unrouted —
+ * which surfaces on the administrative dashboards, where a human can finish the job. A
+ * failure that reaches a person beats a report that reached nobody.
+ *
+ * It does not guess. No match produces an empty `routed` event, not a best-effort
+ * department. See the `routed` payload in `domain/events.ts` for why the empty event is
+ * recorded at all rather than simply omitted.
+ *
+ * It does not overrule anyone. This only ever runs at intake, before any human has touched
+ * the incident, so it cannot undo a reassignment somebody made deliberately.
+ */
+async function autoRoute(
+  pool: Pool,
+  incidentId: Uuid,
+  incident: { readonly category: string; readonly description?: unknown },
+  now: string,
+): Promise<{ departmentIds: readonly Uuid[]; unassigned: boolean; reason: string }> {
+  let decision: RoutingDecision;
+  try {
+    const signals = await loadRoutingSignals(pool);
+    decision = route(
+      {
+        category: incident.category,
+        ...(isNonEmpty(incident.description) ? { description: incident.description } : {}),
+      },
+      signals,
+    );
+  } catch (err) {
+    log('error', 'auto-routing failed; incident left for manual assignment', {
+      incidentId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      departmentIds: [],
+      unassigned: false,
+      reason: 'routing could not run; assign this manually',
+    };
+  }
+
+  const event = {
+    eventId: randomUUID(),
+    incidentId,
+    type: 'routed',
+    occurredAt: now,
+    recordedAt: now,
+    // Second event on this incident, always. The `reported` event is first (ADR-0008).
+    clientSeq: 2,
+    actorPersonId: null,
+    actorSeatId: null,
+    sourceChannel: 'system',
+    payload: {
+      departmentIds: decision.departmentIds,
+      ruleId: 'auto',
+      signalIds: decision.matches.map((m) => m.signalId),
+      reason: decision.reason,
+    },
+  } as unknown as IncidentEvent;
+
+  try {
+    await append(pool, [event]);
+  } catch (err) {
+    log('error', 'could not record the routing decision', {
+      incidentId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { departmentIds: [], unassigned: false, reason: 'routing could not be recorded' };
+  }
+
+  return {
+    departmentIds: decision.departmentIds,
+    unassigned: decision.unassigned,
+    reason: decision.reason,
+  };
 }
 
 export interface ActorDirectory {

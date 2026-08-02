@@ -243,8 +243,24 @@ describe.skipIf(dbUrl === undefined)('M0-35: incident detail', () => {
     const overridden = (await page.textContent('.tl[data-type="overridden"] .why')) ?? '';
     expect(overridden).toContain('second reporter confirms multiple casualties');
 
-    const routed = (await page.textContent('.tl[data-type="routed"] .why')) ?? '';
+    // `.last()` rather than the first match. Every incident now carries **two** routing
+    // entries: the automatic pass at intake (ADR-0010) and then the human decision. That is
+    // the timeline telling the truth — the first says the signals matched nothing, the
+    // second says who fixed it — so the assertion moves to the manual one rather than the
+    // system's.
+    const routed = (await page.locator('.tl[data-type="routed"] .why').last().textContent()) ?? '';
     expect(routed).toContain('Kohat road');
+  });
+
+  it('7b. shows the automatic routing pass as its own entry, with its own reason', async () => {
+    // The pass runs as the system at intake and records what it decided even when it
+    // decided nothing. An operator asking "why did nobody get this?" gets an answer on the
+    // incident rather than in a server log they cannot read (ADR-0005).
+    const first = (await page.locator('.tl[data-type="routed"] .why').first().textContent()) ?? '';
+    expect(first).toContain('no routing signal matches');
+
+    const who = (await page.locator('.tl[data-type="routed"] .who').first().textContent()) ?? '';
+    expect(who).toBe('the system');
   });
 
   it('8. surfaces the gap between happening and arriving (ADR-0002)', async () => {
