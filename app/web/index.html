@@ -231,6 +231,54 @@
       .row[data-overdue="true"] { background: #f7e9e6; }
       .row .flag { color: var(--critical); font-weight: 700; font-size: 0.72rem; }
       #boardEmpty { padding: 1.2rem 0.2rem; color: var(--slate); font-size: 0.9rem; }
+      .row { cursor: pointer; }
+      .row:hover, .row:focus-visible { background: #e9e5dc; }
+
+      /* ------------------------------------------------- incident detail (M0-35) */
+      #back {
+        margin: 0 0 0.8rem; padding: 0.4rem 0;
+        font: inherit; font-weight: 700; font-size: 0.82rem;
+        background: none; border: none; color: var(--slate);
+        text-decoration: underline; cursor: pointer;
+      }
+      #detailHead h2 { margin: 0 0 0.15rem; font-size: 1.05rem; }
+      #detailHead .meta { color: var(--slate); font-size: 0.8rem; }
+
+      .values { margin: 1rem 0 0; border-top: 1px solid var(--line); }
+      .value {
+        padding: 0.7rem 0.2rem;
+        border-bottom: 1px solid var(--line);
+      }
+      .value .k {
+        display: block; font-size: 0.7rem; font-weight: 700;
+        letter-spacing: 0.11em; text-transform: uppercase; color: var(--slate);
+      }
+      .value .v { font-size: 1rem; font-weight: 700; }
+      /* The whole point of this screen: every value carries who, when and why. */
+      .value .prov { display: block; font-size: 0.79rem; color: var(--slate); margin-top: 0.15rem; }
+      .value .was {
+        display: block; margin-top: 0.35rem; padding-left: 0.6rem;
+        border-left: 3px solid var(--pending);
+        font-size: 0.79rem; color: var(--slate);
+      }
+      .value .was b { color: var(--ink); }
+
+      #timeline { margin-top: 1.4rem; }
+      #timeline h3 {
+        font-size: 0.7rem; letter-spacing: 0.11em; text-transform: uppercase;
+        color: var(--slate); margin: 0 0 0.5rem;
+      }
+      .tl {
+        display: grid; grid-template-columns: 9.5rem 1fr; gap: 0.2rem 0.9rem;
+        padding: 0.55rem 0.2rem; border-bottom: 1px solid var(--line); font-size: 0.85rem;
+      }
+      @media (max-width: 34rem) { .tl { grid-template-columns: 1fr; } }
+      .tl .when { color: var(--slate); font-size: 0.78rem; }
+      .tl .what b { text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.06em; }
+      .tl .who { display: block; color: var(--slate); font-size: 0.78rem; }
+      .tl .why { display: block; font-size: 0.82rem; margin-top: 0.15rem; }
+      /* An event we learned about long after it happened is a connectivity fact, not noise. */
+      .tl .late { display: block; color: var(--pending); font-weight: 700; font-size: 0.75rem; }
 
       [hidden] { display: none !important; }
     </style>
@@ -347,6 +395,23 @@
         <div id="boardSummary"></div>
         <div id="boardRows"></div>
         <p id="boardEmpty" hidden>No open incidents in the last seven days.</p>
+      </section>
+
+      <!--
+        Incident detail (M0-35).
+
+        Every value on this screen answers "who set this, when, and why" — because that
+        information IS the record, not a report generated from it. An override never erases
+        what the department entered; both are shown.
+      -->
+      <section id="detailView" hidden>
+        <button type="button" id="back">← Back to the board</button>
+        <div id="detailHead"></div>
+        <div id="detailValues" class="values"></div>
+        <section id="timeline">
+          <h3>Everything that happened</h3>
+          <div id="timelineRows"></div>
+        </section>
       </section>
     </main>
 

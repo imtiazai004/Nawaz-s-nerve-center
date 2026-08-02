@@ -106,7 +106,8 @@ the spine.
 |---|---|---|---|---|
 | M0-33 | Central board — all active incidents, unstyled | `DONE` | M0-08 | `GET /incidents` + the screen. Folded on demand; **no board table**. Says how old it is, and says "NOT LIVE" when it cannot reach the server (INV-02). Summary reports worst-assessed and unassessed separately (ADR-0009). 12 + 7 tests |
 | M0-34 | Department board — same log, scoped by authority | `DOING` | M0-08, M0-20 | **Already provably the same source**: `buildBoard` scopes by the caller's seat, and the cross-department tests prove a station seat is never sent its neighbours' rows. What is missing is only a department-framed screen, not a second query |
-| M0-35 | Incident detail with full event history and provenance | `DOING` | M0-22 | The **data** is there — `GET /incidents/:id` returns state and history together, and 40 tests cover it (M0-49). The **screen** is not |
+| M0-35 | Incident detail with full event history and provenance | `DONE` | M0-22 | Every value answers "who set this, when, why". An override shows both values with the reason and both seats named; actors are named by seat then person, never by uuid; an event nobody performed reads "the system"; late arrivals show their gap. 10 browser tests |
+| M0-51 | Department registry | `TODO` | — | New, surfaced by M0-35. There is **no `department` table** — `seat.department_id` is a bare uuid, so departments render as raw ids. Fine with one department; it is the first thing M2's gate needs |
 | M0-36 | **Rapid intake — measured against the 15s budget** | `DONE` | M0-14 | ~800ms at 4× CPU throttle. Two taps, no typing, submit-then-enrich. 10 tests |
 | M0-48 | Layered location capture that never blocks | `DONE` | M0-36 | New. GPS watched from open; whatever arrived by submit is attached. Captured layers recorded |
 
@@ -150,17 +151,19 @@ through a browser. That was the largest open block and it is closed.
 
 What remains open in M0, eleven of forty-nine:
 
-- **The remaining screens.** M0-34 and M0-35 — the department board and incident detail.
-  Both are already *served*; neither is rendered. The central board (M0-33) is done.
+- **The department board (M0-34).** Already *served* — `buildBoard` scopes by the caller's
+  seat — so what is missing is a department-framed screen, not a second query.
 - **Notifications.** M0-32, and it is load-bearing rather than cosmetic: reassignment and
   district acknowledgement both owe the owning department a notification that nothing sends
   yet, and INV-03 has no test until a channel exists.
 - **Operations.** M0-37 backup, M0-38 restore drill, M0-04 CI, M0-03 correlation ids.
+- **New:** M0-51, a department registry. Departments have no table and render as uuids.
 - **Half-done:** M0-05 secrets, M0-11 payload versioning, M0-39 invariant coverage.
 
-**M1 — Rescue 1122 in full — continues from here.** Next is incident detail (M0-35): the
-board can show *that* a value was overridden, but only the detail screen answers "who set
-this, when, why", which is the question the authority model exists to make answerable.
+**M1 — Rescue 1122 in full — continues from here.** Next is **M0-32**, one notification
+channel. It is the last piece of the lifecycle that is genuinely absent rather than merely
+unrendered: two commands already owe a department a notification that nothing sends, and
+INV-03 is the only invariant with no test at all.
 
 Before M1 gets far it needs two answers: **Q-08** (does a Bannu place gazetteer already
 exist — weeks of work versus a phone call) and **Q-06** (real SLA targets, since the

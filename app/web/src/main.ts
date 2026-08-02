@@ -473,15 +473,22 @@ async function boot(): Promise<void> {
   }
 
   function showBoard(show: boolean): void {
-    boardView.hidden = !show;
-    reportView.hidden = show;
-    navBoard.setAttribute('aria-current', show ? 'page' : 'false');
-    navReport.setAttribute('aria-current', show ? 'false' : 'page');
+    showView(show ? 'board' : 'report');
+  }
+
+  function showView(view: 'report' | 'board' | 'detail'): void {
+    reportView.hidden = view !== 'report';
+    boardView.hidden = view !== 'board';
+    detailView.hidden = view !== 'detail';
+
+    // Detail is reached from the board, so the board tab stays current while reading one.
+    navBoard.setAttribute('aria-current', view === 'report' ? 'false' : 'page');
+    navReport.setAttribute('aria-current', view === 'report' ? 'page' : 'false');
 
     if (boardTimer !== null) clearInterval(boardTimer);
     boardTimer = null;
 
-    if (show) {
+    if (view === 'board') {
       void refreshBoard();
       // Poll rather than push: M0 has no realtime transport, and a board that silently
       // stops updating is exactly what the staleness clock above is there to expose.
@@ -492,8 +499,291 @@ async function boot(): Promise<void> {
     }
   }
 
-  navBoard.addEventListener('click', () => showBoard(true));
-  navReport.addEventListener('click', () => showBoard(false));
+  navBoard.addEventListener('click', () => showView('board'));
+  navReport.addEventListener('click', () => showView('report'));
+  el('back').addEventListener('click', () => showView('board'));
+
+  // ------------------------------------------------------- incident detail (M0-35)
+
+  const detailView = el('detailView');
+  const detailHead = el('detailHead');
+  const detailValues = el('detailValues');
+  const timelineRows = el('timelineRows');
+
+  interface Actor {
+    personId: string | null;
+    seatId: string | null;
+  }
+  interface Provenanced<T> {
+    value: T;
+    setBy: Actor;
+    setAt: string;
+    overriddenFrom?: {
+      value: T;
+      setBy: Actor;
+      setAt: string;
+      reason: string;
+      overriddenBy: Actor;
+      overriddenAt: string;
+    };
+  }
+  interface DetailEvent {
+    eventId: string;
+    type: string;
+    occurredAt: string;
+    recordedAt: string;
+    actorPersonId: string | null;
+    actorSeatId: string | null;
+    sourceChannel: string;
+    payload: Record<string, unknown>;
+  }
+  interface Detail {
+    state: {
+      incidentId: string;
+      status: string;
+      severity: Provenanced<string> | null;
+      category: Provenanced<string> | null;
+      responsibleDepartmentIds: string[];
+      acknowledgedAt: string | null;
+      acknowledgedBySeatId: string | null;
+      escalationCount: number;
+      resolution: string | null;
+      closureNotes: string | null;
+      occurredAt: string | null;
+      lastRecordedAt: string | null;
+    };
+    events: DetailEvent[];
+    actors: {
+      people: Record<string, string>;
+      seats: Record<string, { title: string; tier: string }>;
+    };
+  }
+
+  /**
+   * Name an actor, leading with the seat.
+   *
+   * Authority attaches to the post, not the person (ADR-0004) — "the District Control Room
+   * overrode this" is the operationally meaningful sentence, and the individual is the
+   * supporting detail rather than the headline.
+   */
+  function nameOf(actor: Actor, actors: Detail['actors']): string {
+    const seat = actor.seatId === null ? null : (actors.seats[actor.seatId] ?? null);
+    const person = actor.personId === null ? null : (actors.people[actor.personId] ?? null);
+
+    if (seat === null && person === null) {
+      // Server-issued events (escalation) carry no actor. Saying so is better than a blank:
+      // "nobody did this, the deadline did" is a real and important distinction.
+      return 'the system';
+    }
+    if (seat === null) return person ?? 'unknown';
+    return person === null ? seat.title : `${seat.title} — ${person}`;
+  }
+
+  function when(iso: string): string {
+    return new Date(iso).toLocaleString();
+  }
+
+  /** A value with the answer to "who set this, when, and what did it replace". */
+  function valueBlock(
+    label: string,
+    prov: Provenanced<string> | null,
+    actors: Detail['actors'],
+    fallback: string,
+  ): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'value';
+    box.dataset['field'] = label.toLowerCase();
+
+    const k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = label;
+
+    const v = document.createElement('span');
+    v.className = 'v';
+    v.textContent = prov === null ? fallback : prov.value;
+
+    box.append(k, v);
+
+    if (prov !== null) {
+      const by = document.createElement('span');
+      by.className = 'prov';
+      by.textContent = `set by ${nameOf(prov.setBy, actors)} · ${when(prov.setAt)}`;
+      box.append(by);
+
+      // ADR-0003, the heart of it: an override never erases what the department entered.
+      // Nobody can be blamed for a figure they did not enter, and nobody can quietly
+      // rewrite a department's assessment.
+      const from = prov.overriddenFrom;
+      if (from !== undefined) {
+        const was = document.createElement('span');
+        was.className = 'was';
+        const strong = document.createElement('b');
+        strong.textContent = from.value;
+        was.append(
+          document.createTextNode('was '),
+          strong,
+          document.createTextNode(
+            `, set by ${nameOf(from.setBy, actors)} · overridden by ${nameOf(
+              from.overriddenBy,
+              actors,
+            )} on ${when(from.overriddenAt)} — "${from.reason}"`,
+          ),
+        );
+        box.append(was);
+      }
+    }
+
+    return box;
+  }
+
+  /** The human-readable heart of an event, when it has one. */
+  function detailOf(event: DetailEvent): string | null {
+    const p = event.payload;
+    const str = (k: string): string | null => (typeof p[k] === 'string' ? (p[k] as string) : null);
+
+    switch (event.type) {
+      case 'reported':
+        return `${str('category') ?? 'unknown'} · ${str('severity') ?? 'unknown'}`;
+      case 'triaged':
+        return `${str('category') ?? ''} · ${str('severity') ?? ''}${
+          str('reason') === null ? '' : ` — "${str('reason')!}"`
+        }`;
+      case 'overridden':
+        return `${str('field') ?? ''} → ${str('value') ?? ''} — "${str('reason') ?? ''}"`;
+      case 'reassigned':
+      case 'reopened':
+        return str('reason') === null ? null : `"${str('reason')!}"`;
+      case 'routed':
+        return str('reason') === null ? null : `"${str('reason')!}"`;
+      case 'action_logged':
+        return str('note');
+      case 'resolved':
+        return str('outcome');
+      case 'closed':
+        return str('notes');
+      case 'escalated':
+        return `trigger: ${str('trigger') ?? 'unknown'}`;
+      default:
+        return null;
+    }
+  }
+
+  function renderDetail(data: Detail): void {
+    const s = data.state;
+
+    const h2 = document.createElement('h2');
+    h2.textContent = `${s.category?.value ?? 'unknown'} — ${s.status}`;
+    const meta = document.createElement('p');
+    meta.className = 'meta';
+    meta.textContent = `Incident ${s.incidentId} · ${
+      s.occurredAt === null ? 'time unknown' : `happened ${when(s.occurredAt)}`
+    }${s.escalationCount > 0 ? ` · escalated ${s.escalationCount}×` : ''}`;
+    detailHead.replaceChildren(h2, meta);
+
+    const ack = document.createElement('div');
+    ack.className = 'value';
+    ack.dataset['field'] = 'acknowledged';
+    const ackK = document.createElement('span');
+    ackK.className = 'k';
+    ackK.textContent = 'Acknowledged';
+    const ackV = document.createElement('span');
+    ackV.className = 'v';
+    ackV.textContent = s.acknowledgedAt === null ? 'not yet' : when(s.acknowledgedAt);
+    ack.append(ackK, ackV);
+    if (s.acknowledgedBySeatId !== null) {
+      const by = document.createElement('span');
+      by.className = 'prov';
+      by.textContent = `by ${nameOf({ personId: null, seatId: s.acknowledgedBySeatId }, data.actors)}`;
+      ack.append(by);
+    }
+
+    detailValues.replaceChildren(
+      valueBlock('Severity', s.severity, data.actors, 'not yet assessed'),
+      valueBlock('Category', s.category, data.actors, 'unknown'),
+      ack,
+    );
+
+    timelineRows.replaceChildren(
+      ...data.events.map((event) => {
+        const row = document.createElement('div');
+        row.className = 'tl';
+        row.dataset['type'] = event.type;
+
+        const whenEl = document.createElement('span');
+        whenEl.className = 'when';
+        whenEl.textContent = when(event.occurredAt);
+
+        const what = document.createElement('span');
+        what.className = 'what';
+        const type = document.createElement('b');
+        type.textContent = event.type.replace(/_/g, ' ');
+        what.append(type);
+
+        const who = document.createElement('span');
+        who.className = 'who';
+        who.textContent = nameOf(
+          { personId: event.actorPersonId, seatId: event.actorSeatId },
+          data.actors,
+        );
+        what.append(who);
+
+        const why = detailOf(event);
+        if (why !== null && why.trim().length > 0) {
+          const whyEl = document.createElement('span');
+          whyEl.className = 'why';
+          whyEl.textContent = why;
+          what.append(whyEl);
+        }
+
+        // The occurred/recorded gap is the district's connectivity picture, not noise
+        // (ADR-0002). A report that took two hours to surface is an operational fact.
+        const gapMinutes = Math.round(
+          (Date.parse(event.recordedAt) - Date.parse(event.occurredAt)) / 60_000,
+        );
+        if (gapMinutes >= 15) {
+          const late = document.createElement('span');
+          late.className = 'late';
+          late.textContent = `reached the server ${gapMinutes}m later — ${when(event.recordedAt)}`;
+          what.append(late);
+        }
+
+        row.append(whenEl, what);
+        return row;
+      }),
+    );
+  }
+
+  async function openDetail(incidentId: string): Promise<void> {
+    showView('detail');
+    detailHead.textContent = 'Loading…';
+    try {
+      const res = await fetch(`/incidents/${incidentId}`, {
+        headers: { accept: 'application/json' },
+      });
+      if (!res.ok) {
+        detailHead.textContent =
+          res.status === 404
+            ? 'That incident is not available to your seat.'
+            : 'Could not load this incident.';
+        detailValues.replaceChildren();
+        timelineRows.replaceChildren();
+        return;
+      }
+      renderDetail((await res.json()) as Detail);
+    } catch {
+      // Offline. Say so rather than showing an empty incident, which reads as "nothing
+      // happened" when the truth is "we cannot see" (INV-02).
+      detailHead.textContent = 'No connection — cannot load this incident right now.';
+      detailValues.replaceChildren();
+      timelineRows.replaceChildren();
+    }
+  }
+
+  boardRows.addEventListener('click', (e) => {
+    const row = (e.target as HTMLElement | null)?.closest<HTMLElement>('.row');
+    const id = row?.dataset['incident'];
+    if (id !== undefined) void openDetail(id);
+  });
 
   // ---------------------------------------------------------------- auth
 
@@ -564,6 +854,7 @@ async function boot(): Promise<void> {
     identity: () => identity,
     refreshBoard,
     showBoard,
+    openDetail,
     /**
      * Move the board's "last reached the server" mark backwards, and repaint.
      *

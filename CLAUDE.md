@@ -118,11 +118,11 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · **the district has a board**
-- **Phase:** Implementation. 248 tests pass. **M1 is underway.** Do not read the green gate
-  as "M0 is finished" — ten of M0's forty-nine tasks are open: the department board and
-  incident-detail screens (M0-34, 35), notifications (M0-32), backup and restore (M0-37,
-  38), CI (M0-04), correlation ids (M0-03). See `backlog/todos.md`.
+- **Milestone:** M0 — The Spine · **a board, and an incident you can interrogate**
+- **Phase:** Implementation. 258 tests pass. **M1 is underway.** Do not read the green gate
+  as "M0 is finished" — nine of M0's forty-nine tasks are open: the department board
+  (M0-34), notifications (M0-32), backup and restore (M0-37, 38), CI (M0-04), correlation
+  ids (M0-03). See `backlog/todos.md`.
 - **Last updated:** 2026-08-02
 
 **The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
@@ -231,10 +231,11 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **248 tests passing** across 16 files, including permanent tests for INV-04 to INV-08, 17
-  database integration tests, 25 auth tests, 43 lifecycle tests, **12 board tests and 7
-  board browser tests**, 18 escalation tests, 6 real-browser durability tests, 13
-  offline-launch tests, 15 login tests, 10 rapid-intake tests, and the 14-step M0 gate.
+- **258 tests passing** across 17 files, including permanent tests for INV-04 to INV-08, 17
+  database integration tests, 25 auth tests, 43 lifecycle tests, 12 board tests, 7 board
+  browser tests, **10 incident-detail browser tests**, 18 escalation tests, 6 real-browser
+  durability tests, 13 offline-launch tests, 15 login tests, 10 rapid-intake tests, and the
+  14-step M0 gate.
 - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
 
 - **`app/src/api/board.ts` — the central board (M0-33).** `GET /incidents`, folded on demand
@@ -255,10 +256,30 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
   - **M0-34, the department board, is this same function with the same arguments.** The
     scoping falls out of the seat. Do not write a second endpoint with a second query.
 
+- **Incident detail (M0-35).** The screen the authority model exists for: **every value
+  answers "who set this, when, why"** without a second request.
+  - An override shows the district's value *and* the department's underneath it, with the
+    reason and both seats named. ADR-0003 is invisible until something renders it this way.
+  - **Actors are named by seat, then person** (ADR-0004) — a uuid does not answer "who", and
+    the post is the operationally meaningful half. `readIncident` returns an actor directory
+    with the events so the screen never has to ask twice.
+  - An event nobody performed reads **"the system"**. *Nobody did this, the deadline did* is
+    a real distinction; a blank would read as missing data.
+  - The occurred/recorded gap is shown on any event that arrived 15m+ late — the district's
+    connectivity picture, not noise (ADR-0002).
+  - **Known limitation:** actor names are resolved from *today's* roster. The event still
+    records the person and seat held at the time and that cannot change, but renaming a seat
+    retitles it throughout history. The alternative is denormalising names into every event.
+    Right trade for M0; a real limitation, not an oversight.
+
 **What does not exist yet**
-- **The department board (M0-34) and incident detail (M0-35) as screens.** Both are served —
-  `buildBoard` already scopes by seat, and `GET /incidents/:id` already returns state plus
-  full history. Neither is rendered.
+- **The department board (M0-34) as a screen.** Already served — `buildBoard` scopes by the
+  caller's seat and the tests prove a station seat is never *sent* its neighbours' rows.
+  What is missing is a department-framed screen, not a second query. Do not write one.
+- **A department registry.** There is no `department` table — `seat.department_id` is a bare
+  uuid, so departments render as raw ids on every screen. Fine while one department exists;
+  it is the first thing M2's gate ("adding a fifth department is a configuration exercise")
+  will need.
 - No map, no officer directory, no reports, no alerts.
 - **Notifications (M0-32).** Reassignment and district acknowledgement both owe the owning
   department a notification, and nothing sends one. INV-03 has no test until a channel
@@ -345,12 +366,7 @@ M0-19, both found by tests:
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **Incident detail (M0-35), then the department board (M0-34) as screens.** Both are
-   already served: `GET /incidents/:id` returns state *and* full history so provenance is
-   renderable without a second request, and `buildBoard` already scopes by seat. Detail
-   first — it is what makes an override's "who set this, when, why" visible, and the board
-   currently shows only that an override happened.
-2. **M0-32, one notification channel.** Not cosmetic: reassignment and district
+1. **M0-32, one notification channel.** Not cosmetic: reassignment and district
    acknowledgement both owe the owning department a notification that nothing sends, and
    INV-03 has no test until a channel exists.
 3. M0-37 then M0-38 — an automated backup, then a restore drill performed by someone who is

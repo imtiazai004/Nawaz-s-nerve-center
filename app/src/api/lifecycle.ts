@@ -462,10 +462,57 @@ export async function intake(
   return { incidentId, reportId, event, assumed };
 }
 
+export interface ActorDirectory {
+  /** personId → full name. */
+  readonly people: Readonly<Record<string, string>>;
+  /** seatId → the post held, which is what authority actually attaches to (ADR-0004). */
+  readonly seats: Readonly<Record<string, { readonly title: string; readonly tier: string }>>;
+}
+
 /**
- * One incident: its folded state and its full history.
+ * Names for the ids an event carries.
  *
- * Both, in one response, on purpose. Provenance has to be renderable without a second
+ * Without this, "who set this" is answered with a uuid, which is not an answer. The seat
+ * matters more than the person — authority attaches to the post (ADR-0004) — so both are
+ * returned and the screen leads with the seat.
+ *
+ * Resolved **as they are now**, which is a deliberate limitation worth stating: if an
+ * officer has since been transferred, the event still names the person and seat recorded at
+ * the time (that is in the log and cannot change), but the display name comes from today's
+ * roster. Renaming a seat therefore retitles it throughout history. That is the right
+ * trade for M0 — the alternative is denormalising names into every event — but it is a real
+ * limitation, not an oversight.
+ */
+async function actorsFor(pool: Pool, events: readonly IncidentEvent[]): Promise<ActorDirectory> {
+  const personIds = [...new Set(events.map((e) => e.actorPersonId).filter((id) => id !== null))];
+  const seatIds = [...new Set(events.map((e) => e.actorSeatId).filter((id) => id !== null))];
+
+  const people: Record<string, string> = {};
+  const seats: Record<string, { title: string; tier: string }> = {};
+
+  if (personIds.length > 0) {
+    const res = await pool.query<{ person_id: string; full_name: string }>(
+      'SELECT person_id, full_name FROM person WHERE person_id = ANY($1::uuid[])',
+      [personIds],
+    );
+    for (const row of res.rows) people[row.person_id] = row.full_name;
+  }
+
+  if (seatIds.length > 0) {
+    const res = await pool.query<{ seat_id: string; title: string; tier: string }>(
+      'SELECT seat_id, title, tier FROM seat WHERE seat_id = ANY($1::uuid[])',
+      [seatIds],
+    );
+    for (const row of res.rows) seats[row.seat_id] = { title: row.title, tier: row.tier };
+  }
+
+  return { people, seats };
+}
+
+/**
+ * One incident: its folded state, its full history, and names for everyone in it.
+ *
+ * All three in one response, on purpose. Provenance has to be renderable without a second
  * request (docs/04-authority-model.md), and a detail screen that shows a value without
  * being able to answer "who set this, when, why" is the thing this project exists not to
  * build.
@@ -475,7 +522,12 @@ export async function readIncident(
   incidentId: Uuid,
   identity: Identity,
 ): Promise<
-  | { readonly ok: true; readonly state: IncidentState; readonly events: readonly IncidentEvent[] }
+  | {
+      readonly ok: true;
+      readonly state: IncidentState;
+      readonly events: readonly IncidentEvent[];
+      readonly actors: ActorDirectory;
+    }
   | { readonly ok: false; readonly status: number; readonly error: string }
 > {
   const seat = seatOf(identity);
@@ -493,5 +545,5 @@ export async function readIncident(
   // authority over it is itself a disclosure about another department's operations.
   if (!readable.allowed) return { ok: false, status: 404, error: 'no such incident' };
 
-  return { ok: true, state, events };
+  return { ok: true, state, events, actors: await actorsFor(pool, events) };
 }

@@ -659,3 +659,47 @@ The point at which this stops being a spine and becomes something an operator lo
   is the property that was bought. If it returns, it is a real bug in a teardown, not noise.
 - **Verified:** `npm run check` green **three consecutive times** — typecheck, lint,
   formatting, **248/248 tests across 16 files**.
+
+## 2026-08-02 — Incident detail (M0-35): the authority model, finally visible
+
+The acceptance criterion for this screen was always a sentence rather than a feature list —
+**every value answers "who set this, when, why"** — and until now nothing had ever rendered
+it. `ADR-0003` has been true in the data since week one and invisible to every human being.
+
+- **Added:** the incident detail screen. An override shows the district's value **and the
+  department's underneath it**, with the reason and both seats named. That is the whole of
+  ADR-0003 in one paragraph of markup: nobody can be blamed for a figure they did not enter,
+  and nobody can quietly rewrite a department's assessment.
+- **Added:** an actor directory on `GET /incidents/:id`. Events carry person and seat **ids**
+  and a uuid does not answer "who" — so names are resolved server-side and returned with the
+  history rather than fetched per row. Display leads with the **seat**, then the person:
+  authority attaches to the post (ADR-0004), so "the District Control Room overrode this" is
+  the operationally meaningful sentence and the individual is the supporting detail.
+- **Decided:** an event with no actor reads **"the system"**, not a blank. *Nobody did this,
+  the deadline did* is a real and important distinction — escalation is the system keeping a
+  promise, and a blank would read as missing data.
+- **Added:** any event that reached the server 15m or more after it happened shows that gap
+  on the timeline. Not a diagnostic curiosity (ADR-0002): an emergency that took two hours to
+  surface is an operational risk regardless of how fast the response was afterwards, and this
+  is the only screen where anyone will see it.
+- **Known limitation, stated rather than discovered later:** actor names resolve from
+  **today's** roster. The event still records the person and the seat held at the time — that
+  is in the log and cannot change — but renaming a seat retitles it throughout history. The
+  alternative is denormalising names into every event, which trades a display quirk for
+  permanent duplication. Right trade for M0; recorded so the next person does not find it by
+  surprise.
+- **Added:** M0-51 — a **department registry**. Surfaced by building this screen: there is no
+  `department` table at all, `seat.department_id` is a bare uuid, and so departments render
+  as raw ids everywhere. Invisible while one department exists, and the first thing M2's gate
+  ("adding a fifth department is a configuration exercise measured in hours") will need.
+- **Changed:** M0-35 `DOING` → `DONE`. M0-34 remains `DOING` and deliberately so — the
+  department board is already *served* by `buildBoard`, scoped by the caller's seat, and the
+  cross-department tests prove a station seat is never sent its neighbours' rows. What is
+  missing is a department-framed screen. **Writing a second endpoint for it would create the
+  second source of truth this design exists to avoid.**
+- **Open:** M0-32 is now the next thing, and the argument for it is no longer "it is on the
+  list". It is the last piece of the lifecycle genuinely *absent* rather than merely
+  unrendered — reassignment and district acknowledgement each owe a department a notification
+  that nothing sends — and INV-03 is the only invariant with no test at all.
+- **Verified:** `npm run check` green three consecutive times — typecheck, lint, formatting,
+  **258/258 tests across 17 files**.
