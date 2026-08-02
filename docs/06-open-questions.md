@@ -13,44 +13,56 @@ needs it · `OPEN` — track, resolve when convenient · `RESOLVED` — with evi
 
 ## Blocking
 
-### Q-04 · What is the legal basis for holding citizen emergency data? `BLOCKING`
+### Q-04 · What is the legal basis for holding citizen emergency data? `RESOLVED 2026-08-02`
+**Answer: the district administration is legally empowered to record, hold, act on and
+respond to any emergency in the district — for the public and from the public.** Source:
+project owner, 2026-08-02. **The pilot is no longer blocked on this.**
 
-The system stores reporter identity, contact details, location, and health-adjacent
-information. Pakistan's data protection framework, plus any KP government or district
-policy, governs retention, access, export, and cross-border hosting.
-
-**Needed:** applicable law, district policy, retention limits, who may lawfully access
-reporter PII.
-**Blocks:** anything touching citizen PII at scale — so, the pilot.
+Two things the answer does not cover, and they are engineering obligations rather than legal
+ones, so they stay ours: **retention** (how long reporter details are kept — see Q-11 for
+media) and **access** (who may read reporter contact details, which the authority model
+governs). Being permitted to hold data is not the same as having decided how long, or who
+may look.
 
 ---
 
 ## High
 
-### Q-06 · What are the real acknowledgement SLA targets? `HIGH`
+### Q-06 · What are the real acknowledgement SLA targets? `RESOLVED AS A BUILD TASK 2026-08-02`
+**Answer: the DC and AC Headquarter offices set them inside the software.** They are an
+internal rule the administration owns, not a number to be gathered and hard-coded. Source:
+project owner, 2026-08-02.
 
-Currently unspecified. These are operational commitments, not engineering choices — they
-must come from the departments and the DC office, and they will differ by severity and by
-department. Guessing produces either constant false escalation or SLAs so loose they mean
-nothing.
+**This converts a question into work.** SLA targets must become **editable configuration** on
+the administrative dashboards, per department and per severity, with `PLACEHOLDER_SLA` as
+nothing more than the initial value a fresh install starts from.
 
-**Needed for:** M0 (a placeholder is acceptable), M4 (real values required).
+Until that screen exists the board still renders "past deadline" from a guess, so this is
+not closed in effect — it is closed as a *question* and opened as a *task*.
 
-### Q-07 · Which notification channels are actually reliable in Bannu? `HIGH`
+### Q-07 · Which notification channels are actually reliable in Bannu? `ANSWERED IN INTENT 2026-08-02`
+**Answer: wire up all of them — WhatsApp message, SMS, and voice call — and let the user
+choose per notification.** Source: project owner, 2026-08-02.
 
-WhatsApp Business API availability, template approval, and consent requirements. SMS
-gateway options and their delivery rates. Whether automated voice calls are viable.
-Assumptions here directly affect whether escalation works.
+The delivery ledger built in M0-32 already treats the channel as pluggable, so the shape is
+right. What the answer does **not** supply, and what genuinely gates the work:
 
-**Needed for:** M3.
+- **Accounts and money.** WhatsApp Business API needs a Meta business account, a verified
+  number and **pre-approved message templates**; SMS needs a gateway account with a Pakistani
+  provider; voice needs a telephony provider. Each has lead time and a cost.
+- **A hard interaction with P-08.** A server with no internet **cannot** send WhatsApp at
+  all, and can only send SMS or place calls through a **GSM modem or SIM gateway** attached
+  to the machine. "Offline and on-premise" and "WhatsApp notifications" cannot both be true.
+  See P-08 — this is the single most consequential coupling in the project right now.
 
-### Q-08 · Does the Place gazetteer exist anywhere already? `HIGH`
+### Q-08 · Does the Place gazetteer exist anywhere already? `DROPPED 2026-08-02`
+**Answer: do not go into that depth.** Source: project owner, 2026-08-02.
 
-Revenue department records, election commission data, PDMA mapping, or survey data may
-already contain Bannu's union councils and villages with coordinates. Building this from
-scratch is weeks of work; obtaining it is a phone call.
+Location capture already works without it — GPS when available, free text otherwise, with a
+record of which layers actually produced something (M0-48). A gazetteer would add structured
+places on top of that; the district does not want the effort spent there now.
 
-**Needed for:** M1.
+Revisit only if operators find free-text place names unusable in practice.
 
 ### Q-09 · Urdu, Pashto, or both? `HIGH`
 
@@ -59,12 +71,12 @@ Should be answered by asking actual operators, not assumed.
 
 **Needed for:** M1 UI work.
 
-### Q-10 · What is the escalation path above the district? `HIGH`
+### Q-10 · What is the escalation path above the district? `CLOSED — OUT OF SCOPE 2026-08-02`
+**There is nothing above the district administration in this system.** ADR-0010 makes the
+ladder two rungs: department → DC Office / AC Headquarter. An emergency that reaches the top
+and is still unacknowledged is surfaced as *needs a human, urgently*, which is already built.
 
-Which provincial seats, under what conditions, through what channel. Even a v1 that only
-notifies and flags needs to know who it is notifying.
-
-**Needed for:** M3.
+Reopen only if the district asks for provincial notification.
 
 ---
 
@@ -91,27 +103,22 @@ The remaining half of the question is unanswered and is the expensive half: **wh
 current?** A directory is wrong within months of nobody owning it, and this system routes
 emergencies by it. Still needs an owner before the pilot.
 
-### Q-18 · How is Bannu actually organised? `HIGH`
-Raised by loading the contact list (M0-51), which the loader deliberately refused to guess
-at. Three distinct gaps:
+### Q-18 · How is Bannu actually organised? `RESOLVED 2026-08-02`
+**Answer: two administrative offices, and everything else reports to them.** The DC Office
+and the AC Headquarter Bannu Office are responsible for the whole district. See **ADR-0010**.
 
-**1. Which offices are posts within a larger department?** The source has one column,
-"Department/Office", and it mixes both. `ADC (General)` is plainly a post in the DC Office;
-`DSP City` sits under the DPO; the four `AAC` entries are tehsil posts under the district
-administration. The registry currently holds each row as its own department, verbatim,
-because inventing the hierarchy would put a structure in the system that nobody in Bannu
-agreed to. **Needed before M2**, whose gate is "adding a fifth department is a configuration
-exercise" — that is meaningless if the first eighty are misfiled.
+This also answers the two sub-questions:
+- **Grouping** — irrelevant in the way it was asked. There are not layers of departments;
+  there are two administrative offices and a flat set of departments beneath them, which the
+  two offices create and edit themselves.
+- **Which are emergency responders** — decided by **routing signals** the administration sets
+  per department, not by anything the system infers. Anything unmatched goes to both
+  administrative dashboards marked **unassigned**, for a human to assign.
 
-**2. What tier is each seat?** Not in the source, so every loaded seat defaults to
-`district`. **This matters more than it sounds:** the escalation ladder walks tiers
-(`nextSeatUp`), so a roster where everything is one tier cannot escalate. AACs are tehsil;
-station-level posts exist under Police and Rescue. **Needed before escalation is trusted in
-the pilot.**
-
-**3. Which departments respond to emergencies?** ~79 offices are loaded, and most —
-Fisheries, Auqaf, Sports, Press Club — are not emergency responders. Routing should not
-offer them. Needs a marked subset.
+**What it replaced.** The question asked which offices are posts inside larger
+departments, what tier each seat is, and which of the ~79 respond to emergencies. The first
+two dissolve under ADR-0010 — there is no deep hierarchy to discover — and the third is
+answered by configuration rather than by a list.
 
 ### Q-19 · Two officers, one mobile number `RESOLVED 2026-08-02`
 **Answer: keep both.** `03338887171` genuinely covers `ADC (Finance & Planning) — Yousaf

@@ -33,6 +33,39 @@ Tasks: [`todos.md`](todos.md)
 
 ---
 
+## M1a — The administration console · **new, and now the critical path**
+
+Added 2026-08-02 after the owner settled how the district is organised (**ADR-0010**). This
+was not in the original plan because the original plan assumed a four-tier hierarchy that
+does not exist here.
+
+Two offices — **DC** and **AC Headquarter Bannu** — are the authority for the whole district.
+Everything else is a department reporting to them. That makes their console the product, not
+a supporting screen, and it makes almost every remaining "waiting on the district" question
+into build work instead:
+
+- **Departments as editable data** — create, rename, retire; set contact numbers and people.
+  Seeded from the district's list, editable from day one. (Was M2's gate; arrives here.)
+- **Routing signals per department** — the categories each department answers for, so a
+  bazaar fire reaches Rescue without anyone typing a department name.
+- **Unassigned emergencies, loudly** — anything the signals do not match appears on both
+  administrative dashboards marked unassigned, for a human to assign. Never guessed, never
+  quiet (ADR-0005).
+- **SLA targets as configuration** — per department and severity, set by the administration.
+  Replaces `PLACEHOLDER_SLA`, which the board currently renders to operators as though it
+  were a fact (Q-06).
+- **District-wide performance view** — every department's data and responsiveness, which is
+  the thing the two offices exist to see.
+- **Backup visibility** — see backup health and history, take one on demand, download it.
+  **Restoring over the live database is deliberately not a dashboard button** — see the note
+  in `docs/08-runbook.md` and the open question with the owner.
+
+> **Gate** — a DC or AC Headquarter operator adds a department, gives it a contact and a
+> routing signal, and an emergency in that category reaches it **without a developer
+> touching anything**.
+
+---
+
 ## M1 — Rescue 1122, in full · weeks 4–7
 
 One department taken all the way down: intake, triage, duty roster, dispatch, resource and

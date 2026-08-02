@@ -1156,3 +1156,54 @@ and the first is the most uncomfortable finding in this project so far.
 - **Verified:** 340/340 tests across 22 files, and the server observed serving the real PWA
   on `localhost:3000` against the dev database — sign-in, rapid intake, the district board
   showing named departments from the district's own contact list, and incident detail.
+
+## 2026-08-02 — The district answers: two offices, and almost every open question becomes build work
+
+The owner settled how Bannu is organised, and the answer is simpler than the architecture
+assumed. Most of what was "waiting on the district" turns out to be screens we have not
+built rather than facts we were missing.
+
+- **Decided: `ADR-0010` — the ladder has two rungs.** The **DC Office** and the **AC
+  Headquarter Bannu Office** are the authority for the whole district; every other department
+  reports to them. There is no third rung. This **supersedes the four-tier hierarchy** in
+  `ADR-0004`, which was a generic guess made before anyone had said how the district works.
+  Resolves **Q-18**, which was the highest-value open question in the project.
+- **Decided: routing is configuration, not inference.** Each department carries **routing
+  signals** — the categories it answers for — set by the administration. A bazaar fire
+  reaches Rescue; heatstroke reaches Health. Anything unmatched is **not guessed at**: it
+  appears on both administrative dashboards marked *unassigned*, for a human to assign
+  (ADR-0005). Deterministic rules as data, consistent with ADR-0003 and with the standing ban
+  on anything inferring its way into the critical path.
+- **Added: M1a, the administration console**, in `backlog/milestones.md`, and it is now the
+  critical path. Departments as editable data, routing signals, SLA targets as configuration,
+  unassigned alerts, district-wide performance, backup visibility. **M2's gate — "adding a
+  department is a configuration exercise" — arrives a milestone early**, as a consequence of
+  this model rather than as work.
+- **The correction worth naming:** several items were being reported to the owner as *waiting
+  on you* when they were in fact *waiting on us to build the screen where you would enter it*.
+  SLA targets, Rescue 1122's missing number, which departments respond to what — none of
+  those needed to be gathered first. **Do not wait for data. Build the place it goes.**
+- **Resolved: Q-06** — the DC and AC offices set SLA targets inside the software. Reclassified
+  from a question to a build task. Until that screen exists the board still renders
+  `PLACEHOLDER_SLA` to operators as fact, so it is closed as a question and open as work.
+- **Resolved: Q-04** — the district administration is legally empowered to record, hold, act
+  on and respond to any emergency in the district. **The pilot is unblocked.** Retention
+  limits and read-access rules remain ours to design: permission to hold data is not a
+  decision about how long, or who may look.
+- **Answered in intent: Q-07** — wire up WhatsApp, SMS and voice, with the user choosing per
+  notification. The ledger from M0-32 already treats channels as pluggable. What the answer
+  does not supply is accounts, templates and money — and it **collides with P-08**: a server
+  with no internet cannot send WhatsApp at all, and can only send SMS or place calls through
+  a GSM modem attached to the machine. That coupling is now the most consequential open item.
+- **Closed: Q-10** — nothing escalates above the district administration. Out of scope.
+- **Dropped: Q-08 / P-06** — no gazetteer work. Location capture already functions without
+  one (M0-48).
+- **Resolved: P-07** — **Allah Nawaz Khan, AC Headquarter Bannu** is the named technical
+  person, and the natural candidate for the M0-38 restore drill.
+- **Decided: P-10 — the contact list stays in git history.** The owner is content; the
+  repository is private. Recorded so nobody reopens it later as an oversight.
+- **Open, and raised rather than assumed:** the owner asked for **restore from the
+  administrative dashboard**. Backup visibility, taking one on demand and downloading it are
+  straightforward. **Restoring over the live database from a web button is not**, and
+  `ops/restore.ts` refuses in-place restores by design — a mis-click or a stolen session
+  would replace the district's record. A safer split is proposed in the summary to the owner.

@@ -99,6 +99,7 @@ onboarded — challenge them now, not later.
 | [0007](docs/adr/ADR-0007-boring-stack.md) | Boring, single-node, operable by one person at 02:00 | Accepted |
 | [0008](docs/adr/ADR-0008-causal-event-ordering.md) | Events carry a causal sequence, not just timestamps | Accepted |
 | [0009](docs/adr/ADR-0009-unassessed-is-not-a-severity.md) | "Unassessed" is a value, never a level; aggregates report two numbers | Accepted |
+| [0010](docs/adr/ADR-0010-two-rung-ladder.md) | Two rungs: departments report to the DC and AC HQ offices. No third tier | Accepted |
 
 ## 4. Invariants — what must never happen
 
@@ -125,13 +126,22 @@ that blocks release on failure.
   second person), backup **scheduling** (M0-37) and secrets (M0-05), both waiting on P-08,
   and M0-11 payload versioning, which needs a payload v2 to exist before a v2 reader means
   anything.
+- **The district's structure is now settled (ADR-0010, 2026-08-02), and it is simpler than
+  the model assumed.** Two offices — **DC** and **AC Headquarter Bannu** — are the authority
+  for the whole district. Every other department reports to them. **The ladder has two rungs
+  and there is no third.** The four-tier hierarchy in ADR-0004 was a generic guess; it is
+  superseded.
+- **This makes the administration console the critical path, not a supporting screen.** The
+  two offices create and edit departments, set contact numbers, set SLA targets, and
+  configure the routing signals that send an emergency to the right department. See the new
+  **M1a** in `backlog/milestones.md`.
+- **Almost every question that was "waiting on the district" is now build work.** SLA targets
+  (Q-06), department structure (Q-18), Rescue's missing number, which departments respond —
+  all of them are things the administration sets in the software rather than facts to be
+  gathered first. **Do not wait for data. Build the screens that let them enter it.**
 - **The district's contact list is loaded** — 79 offices, 81 posts, 40 officers, 38 posts
-  vacant. **Its structure is not verified**: everything is flat and every seat is `district`
-  tier, which the escalation ladder cannot work with. That is **Q-18**, and it is the
-  highest-value unanswered question in the project right now.
-- **Rescue 1122's post is vacant** — no contact number was supplied. M1 is entirely about
-  Rescue 1122, and notifications reach a seat through its holder, so **M1 cannot demonstrate
-  a full lifecycle until that number exists** (Q-19).
+  vacant. It is the **starting content** for the registry, not the final word: every row is
+  editable by the two offices.
 - **Repository:** `github.com/imtiazai004/Nawaz-s-nerve-center`, private, branch `main`.
   **This says nothing about where the application runs** — P-08 is still open, and
   on-premise remains a live option for a district whose internet is the unreliable part.

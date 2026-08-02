@@ -17,11 +17,12 @@ work. See `docs/06-open-questions.md`.
 | P-01 | Confirm who formally owns this system (Q-05) | `DONE` | District administration — DC office and/or AC HQ office. An office, not a person, so it survives transfers |
 | P-02 | Establish who maintains it after handover (Q-03) | `DONE` | Same answer. Confirms `05-stack.md` rather than changing it |
 | P-03 | Find out whether Rescue 1122 already runs a dispatch system (Q-01) | `DONE` | Yes, and it does not matter — the district runs independently |
-| P-04 | Establish legal basis for holding citizen emergency data (Q-04) | `TODO` | Blocks the **pilot**, not the build. Nothing before M4 touches real citizen data |
+| P-04 | Establish legal basis for holding citizen emergency data (Q-04) | `DONE` | The district administration is legally empowered to record, hold, act on and respond to any emergency in the district. Owner, 2026-08-02. **Retention limits and read-access rules remain ours to design** — being allowed to hold data is not a decision about how long, or who may look |
 | P-05 | Map what each department already reports upward (Q-02) | `DONE` | Reframed as an export target, collected during M1/M2 onboarding |
-| P-06 | Ask whether a Bannu place gazetteer already exists (Q-08) | `TODO` | Weeks of work vs a phone call |
-| P-07 | Identify a **named technical person** in the DC/AC office, or designate one | `TODO` | M5 handover. The office owning it and someone able to restore a backup at 02:00 are different facts |
+| P-06 | Ask whether a Bannu place gazetteer already exists (Q-08) | `DROPPED` | Owner: do not go to that depth. Location capture already works without it (M0-48) |
+| P-07 | Identify a **named technical person** in the DC/AC office, or designate one | `DONE` | **Allah Nawaz Khan, AC Headquarter Bannu.** Owner, 2026-08-02. He is also the M0-38 restore-drill candidate — M5 asks that he has fixed something himself under supervision, which is a training obligation, not a naming one |
 | P-08 | Hosting budget and its source | `TODO` | Decides cloud VM vs on-premise. Built so either works, so it is a deployment-time fork. **Now blocking something concrete:** the backup exists and nothing schedules it, because where it runs decides how |
+| P-10 | Purge the contact list from git history? | `DONE` | **No — owner decided it is fine; the repo is private.** 2026-08-02. Recorded so nobody reopens it as an oversight. `1d15b77` still contains the document |
 | P-09 | Where does the repository live? | `DONE` | GitHub, private: `imtiazai004/Nawaz-s-nerve-center`. Resolved 2026-08-02. **Separate from P-08** — the code being on GitHub says nothing about where the application runs, and on-premise remains a live and arguably better option |
 
 ---
