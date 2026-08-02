@@ -279,13 +279,16 @@ describe.skipIf(dbUrl === undefined)('M0-36: rapid intake', () => {
 
       const deadline = Date.now() + 20_000;
       let types: string[] = [];
-      while (Date.now() < deadline && types.length < 2) {
+      while (Date.now() < deadline && !types.includes('action_logged')) {
         types = (await loadIncident(pool, incidentId)).map((e) => e.type);
-        if (types.length < 2) await new Promise((r) => setTimeout(r, 150));
+        if (!types.includes('action_logged')) await new Promise((r) => setTimeout(r, 150));
       }
 
       // Appended, never edited — what was first said and what was added are both history.
-      expect(types).toEqual(['reported', 'action_logged']);
+      // The `routed` between them is the automatic pass that runs when a synced report
+      // arrives; before the M1 gate forced that fix, an emergency captured on a handset was
+      // never routed at all.
+      expect(types).toEqual(['reported', 'routed', 'action_logged']);
 
       const state = foldIncident(incidentId, await loadIncident(pool, incidentId));
       expect(state.severity?.value).toBe('critical');

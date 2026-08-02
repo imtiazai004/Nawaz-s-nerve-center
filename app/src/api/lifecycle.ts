@@ -529,6 +529,41 @@ export async function intake(
  * It does not overrule anyone. This only ever runs at intake, before any human has touched
  * the incident, so it cannot undo a reassignment somebody made deliberately.
  */
+/**
+ * Route an incident that arrived through **sync**, if nothing has routed it yet.
+ *
+ * The M1 gate found this hole, and it was the biggest one in the system: auto-routing lived
+ * only in `intake()`, which is the `POST /incidents` path. **The field path does not go
+ * through it.** A handset writes the report to its outbox and pushes it to `/sync`, which
+ * appends raw events — so every emergency captured the way the product is actually meant to
+ * be used arrived unrouted, nobody was notified, and it sat on the board as *not yet routed*
+ * until a human happened to look.
+ *
+ * Worth naming precisely: the routing tests passed, the intake tests passed, and the one
+ * journey nobody had walked end to end was the only journey that matters.
+ *
+ * Idempotent by inspection rather than by a marker. Sync replays events — that is what makes
+ * offline safe (INV-08) — so this asks whether a `routed` event already exists and does
+ * nothing if it does. A second routing pass would produce a second `routed` event and could
+ * silently undo a reassignment a human made in between.
+ */
+export async function autoRouteIfNeeded(pool: Pool, incidentId: Uuid): Promise<void> {
+  const events = await loadIncident(pool, incidentId);
+  if (events.length === 0) return;
+  if (events.some((e) => e.type === 'routed')) return;
+
+  const reported = events.find((e) => e.type === 'reported');
+  if (reported === undefined) return;
+
+  const payload = reported.payload as { category?: string; description?: string };
+  await autoRoute(
+    pool,
+    incidentId,
+    { category: payload.category ?? ASSUMED_CATEGORY, description: payload.description },
+    new Date().toISOString(),
+  );
+}
+
 async function autoRoute(
   pool: Pool,
   incidentId: Uuid,

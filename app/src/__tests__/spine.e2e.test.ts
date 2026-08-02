@@ -210,8 +210,11 @@ describe.skipIf(dbUrl === undefined)('M0 gate: the offline emergency spine', () 
     expect(result.pushed).toBe(1);
     expect(result.pending).toBe(0);
 
+    // Two: the report the handset was holding, and the routing pass that runs the moment
+    // it arrives. Before the M1 gate forced that fix there was only one, and an emergency
+    // captured on a handset reached nobody.
     const stored = await loadIncident(pool, incidentId);
-    expect(stored).toHaveLength(1);
+    expect(stored.map((e) => e.type)).toEqual(['reported', 'routed']);
     expect(stored[0]!.eventId).toBe(reportEventId);
   });
 
@@ -318,8 +321,13 @@ describe.skipIf(dbUrl === undefined)('M0 gate: the offline emergency spine', () 
   it('12. the whole chain is reconstructable, in order, with every actor named', async () => {
     const events = await loadIncident(pool, incidentId);
 
+    // Two `routed` events, and both belong here. The first is the automatic pass that runs
+    // when the report arrives through `/sync` — the fix the M1 gate forced, without which a
+    // handset's emergency reached nobody. The second is the control room's own decision.
+    // Collapsing them would hide which of the two actually sent help.
     expect(events.map((e) => e.type)).toEqual([
       'reported',
+      'routed',
       'triaged',
       'routed',
       'escalated',
@@ -345,7 +353,7 @@ describe.skipIf(dbUrl === undefined)('M0 gate: the offline emergency spine', () 
       ]),
     ).rejects.toThrow(/append-only/i);
 
-    expect(await loadIncident(pool, incidentId)).toHaveLength(9);
+    expect(await loadIncident(pool, incidentId)).toHaveLength(10);
   });
 
   it('14. any past moment can be reconstructed as it was seen then', async () => {

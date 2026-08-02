@@ -15,6 +15,7 @@ import {
 import { validateBatch, type PullResponse, type PushResponse } from './protocol.js';
 import {
   applyCommand,
+  autoRouteIfNeeded,
   intake,
   isSeverity,
   readIncident,
@@ -272,6 +273,31 @@ async function handlePush(
   // learned of it, because escalation timing depends on that.
   const toStore = attributed as unknown as readonly IncidentEvent[];
   const result = await append(pool, toStore);
+
+  // Route anything that arrived as a new report.
+  //
+  // Without this, an emergency captured on a handset — the way the product is actually used
+  // — reaches nobody: `/sync` appends raw events, and auto-routing used to live only in the
+  // `POST /incidents` path. Found by the M1 gate, which was the first test to walk that
+  // journey end to end.
+  //
+  // After the append, never before: an incident that failed to store must not produce a
+  // routing decision about itself. Failures are logged and swallowed, because a push that
+  // succeeded must not be reported as failed — the handset would hold the report and try
+  // again, and the report is already safely stored (INV-01).
+  const reportedIncidents = new Set(
+    toStore.filter((e) => e.type === 'reported').map((e) => e.incidentId),
+  );
+  for (const incidentId of reportedIncidents) {
+    try {
+      await autoRouteIfNeeded(pool, incidentId);
+    } catch (err) {
+      log('error', 'could not route a synced report; it will show as not yet routed', {
+        incidentId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   const response: PushResponse = {
     accepted: valid.map((e) => e.eventId),

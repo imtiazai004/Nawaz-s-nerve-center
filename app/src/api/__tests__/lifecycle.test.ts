@@ -291,8 +291,11 @@ describe.skipIf(dbUrl === undefined)('incident lifecycle over HTTP (integration)
 
   describe('routing (M0-27) and reassignment (M0-30)', () => {
     it('lets the control room route an unrouted incident', async () => {
+      // A category nothing can match, on purpose. `fire` would be auto-routed by whatever
+      // signals the district has configured — which is the correct behaviour and the wrong
+      // fixture for a test about routing something by hand.
       const created = await call('POST', '/incidents', controlRoomToken, {
-        category: 'fire',
+        category: `nothing-routes-this-${randomUUID().slice(0, 8)}`,
         severity: 'high',
       });
       const id = created.body['incidentId'] as string;
@@ -311,7 +314,7 @@ describe.skipIf(dbUrl === undefined)('incident lifecycle over HTTP (integration)
       // Routing authority is tehsil and above. A station in-charge cannot hand work to
       // another department by themselves.
       const created = await call('POST', '/incidents', rescueToken, {
-        category: 'fire',
+        category: `nothing-routes-this-${randomUUID().slice(0, 8)}`,
         severity: 'high',
       });
       const res = await call(

@@ -1476,3 +1476,39 @@ built rather than facts we were missing.
   correctly, because it makes a radio call ambiguous — and the dispatch that followed then
   had nothing to send.
 - **Tests:** 533 → 552.
+
+## 2026-08-03 — The M1 gate, and the two bugs it found (M1-07)
+
+- **Added:** `src/__tests__/m1gate.e2e.test.ts`. One emergency walked from a field officer's
+  handset to a post-incident report — DC configures Rescue from the console, a throttled
+  handset reports it, the system routes it, Rescue is notified, the duty officer
+  acknowledges and dispatches from the shift screen, logs backdated actions, attaches a
+  photograph, stands the ambulance down, resolves, closes, and the account writes itself.
+  Nothing stubbed.
+- **Rapid intake re-measured: 1.8s against a 15s budget**, at 4× CPU throttle, clock started
+  before the page load. A shell budget is asserted too (123 KB of 160 KB) because the app a
+  field officer downloads now carries the administration console and the roster editor.
+
+### Two real bugs, and this is what the gate was for
+
+- **An emergency reported from a handset was never routed.** Auto-routing lived only in
+  `intake()` — the `POST /incidents` path. The field path writes to the outbox and pushes to
+  `/sync`, which appended raw events and routed nothing. So every emergency captured *the way
+  the product is meant to be used* arrived unrouted, nobody was notified, and it sat on the
+  board as "not yet routed" until a human happened to look. The routing tests passed, the
+  intake tests passed, and the one journey nobody had walked end to end was the only journey
+  that matters. Fixed in `handlePush`, idempotent by inspection so a replayed batch cannot
+  route twice — pinned by a test.
+- **A backdated action moved the incident's start time.** M1-04 let an action say when it
+  actually happened; the fold took `occurredAt` from the earliest event of *any* kind, so a
+  crew logging "on scene" before the report shifted the emergency's start — and every SLA
+  deadline measured from it. An incident could become overdue, or stop being overdue, because
+  somebody wrote their notes up honestly. `occurredAt` now comes from the `reported` event
+  alone. Found in the report's own timings, where "Happened" and "Reported" were twelve
+  minutes apart on an incident reported the moment it happened.
+- **Also corrected:** a `waitForFunction` with an async callback in `login.e2e` — it resolves
+  on the Promise object rather than its value, so it succeeded instantly and proved nothing.
+  The same trap I had already documented in `admin.e2e`, walked into again.
+- **Open:** `R-13` (Rescue's own list of response actions) and `R-14` (the six intake
+  categories are **my guess**, and they are the vocabulary every routing signal must match).
+- **Tests:** 552 → 570.

@@ -184,7 +184,20 @@ describe.skipIf(url === undefined)('sync endpoints (integration)', () => {
     expect(second.duplicates).toBe(2);
     // Still accepted — the server holds them, which is what the client needs to know.
     expect(second.accepted).toEqual(first.accepted);
-    expect(await loadIncident(pool, incidentId)).toHaveLength(2);
+
+    // Three events, not four, and this is the stronger claim: the automatic routing pass
+    // that runs when a report arrives through `/sync` runs **once**, however many times the
+    // batch is replayed. Replay is what makes offline safe (INV-08), and a routing pass that
+    // fired on every retry would append a second `routed` event — silently undoing a
+    // reassignment a human had made in between.
+    const types = (await loadIncident(pool, incidentId)).map((e) => e.type);
+    expect(types).toEqual(['reported', 'acknowledged', 'routed']);
+
+    // Routing sorts **last**, and that is honest rather than odd: this batch was captured
+    // offline, so the acknowledgement happened at the scene, while routing happened at the
+    // moment the report finally reached the server. Ordering by `occurredAt` says exactly
+    // that (ADR-0008).
+    expect(types.filter((t) => t === 'routed')).toHaveLength(1);
   });
 
   it('pulls only what the client is missing, and advances the cursor', async () => {

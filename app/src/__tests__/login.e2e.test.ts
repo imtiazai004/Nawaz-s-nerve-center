@@ -176,8 +176,12 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
   }
 
   it('5. a report delivers immediately while signed in', async () => {
+    // Delivered means the report is on the server. The routing pass that follows it adds a
+    // second event a moment later (the M1 gate's fix), so this asserts *at least* the
+    // report — the claim here is about delivery, not about how many events an arrival
+    // produces.
     const incidentId = await reportEmergency();
-    expect(await waitForStored(incidentId)).toBe(1);
+    expect(await waitForStored(incidentId)).toBeGreaterThanOrEqual(1);
   });
 
   describe('a session that goes away underneath the operator', () => {
@@ -187,15 +191,31 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
       // Revoked by an administrator, exactly as a compromised account would be.
       await revokeAllForPerson(pool, actor.personId);
 
-      await page.evaluate(async () => {
-        await (globalThis as unknown as { __dnc: { trySync(): Promise<void> } }).__dnc.trySync();
-      });
-
-      await page.waitForFunction(
-        () => document.getElementById('status')?.dataset['state'] === 'signedout',
-        undefined,
-        { timeout: 10_000 },
-      );
+      /**
+       * Synced until it reports the refusal, not once.
+       *
+       * A single call can catch the **tail of a sync that is already running**: the outbox
+       * hands a concurrent caller the in-flight run's result rather than inventing a second
+       * connectivity answer, and that run started before the session was revoked. So it
+       * correctly reports "reachable", and the screen is correct too — for another second.
+       *
+       * That behaviour is right (see `Outbox.sync`), and this test was always racing it. The
+       * race started losing when routing on the sync path made the push a little slower.
+       * Polling is what the running app does anyway, on its own interval.
+       *
+       * Polled from Node rather than with `page.waitForFunction`, which resolves on the
+       * Promise an async callback returns rather than on its value — so it succeeds
+       * instantly and proves nothing. Same trap as in `admin.e2e.test.ts`.
+       */
+      const deadline = Date.now() + 15_000;
+      let state = await statusState();
+      while (state !== 'signedout' && Date.now() < deadline) {
+        await page.evaluate(async () => {
+          await (globalThis as unknown as { __dnc: { trySync(): Promise<void> } }).__dnc.trySync();
+        });
+        state = await statusState();
+        if (state !== 'signedout') await new Promise((r) => setTimeout(r, 250));
+      }
 
       expect(await statusState()).toBe('signedout');
       const text = await page.textContent('#status');
@@ -229,7 +249,7 @@ describe.skipIf(dbUrl === undefined)('signing in', () => {
       await page.waitForSelector('#who', { state: 'visible', timeout: 10_000 });
 
       // Nobody pressed anything to send it. Signing in was enough.
-      expect(await waitForStored(revokedIncidentId)).toBe(1);
+      expect(await waitForStored(revokedIncidentId)).toBeGreaterThanOrEqual(1);
     });
 
     it('10. attributes it to whoever delivered it', async () => {

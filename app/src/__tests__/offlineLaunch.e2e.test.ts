@@ -189,11 +189,15 @@ describe.skipIf(dbUrl === undefined)('M0-12: the app opens with no network', () 
       { timeout: 15_000 },
     );
 
-    const stored = await pool.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM incident_event WHERE incident_id = $1`,
+    // The report, and the routing pass that runs the moment it arrives. The second one is
+    // the fix the M1 gate forced: until then `/sync` appended raw events and never routed,
+    // so an emergency captured offline — the whole point of this file — reached nobody once
+    // it got through.
+    const stored = await pool.query<{ type: string }>(
+      `SELECT type FROM incident_event WHERE incident_id = $1 ORDER BY seq`,
       [reportedIncidentId],
     );
-    expect(Number(stored.rows[0]!.n)).toBe(1);
+    expect(stored.rows.map((r) => r.type)).toEqual(['reported', 'routed']);
   });
 
   describe('the cache must never serve /sync', () => {

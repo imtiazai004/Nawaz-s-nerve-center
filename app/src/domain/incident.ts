@@ -103,7 +103,19 @@ export interface IncidentState {
   readonly resolution: string | null;
   readonly closureNotes: string | null;
   readonly reopenCount: number;
-  /** First `occurredAt` seen — when the emergency actually happened, per the reporter. */
+  /**
+   * When the **emergency** happened, per the reporter.
+   *
+   * Taken from the earliest `reported` event, and from nothing else. It used to be the
+   * earliest `occurredAt` of any event, which was the same thing right up until M1-04 let an
+   * action state when it actually happened — after which a crew logging "on scene" with a
+   * time earlier than the report **moved the incident's start**, and every SLA deadline with
+   * it. An incident could become overdue, or stop being overdue, because somebody wrote up
+   * their notes honestly.
+   *
+   * Found by the M1 gate, in the post-incident report's own timings, where "Happened" and
+   * "Reported" were twelve minutes apart on an incident reported the moment it happened.
+   */
   readonly occurredAt: Instant | null;
   /** Latest `recordedAt` seen — how current this projection is. */
   readonly lastRecordedAt: Instant | null;
@@ -230,7 +242,10 @@ export function foldIncident(
   let lastRecordedAt: Instant | null = null;
 
   for (const e of ordered) {
-    if (occurredAt === null) occurredAt = e.occurredAt;
+    // From the report, not from whatever sorted first. See `occurredAt` above.
+    if (e.type === 'reported' && (occurredAt === null || e.occurredAt < occurredAt)) {
+      occurredAt = e.occurredAt;
+    }
     if (lastRecordedAt === null || e.recordedAt > lastRecordedAt) lastRecordedAt = e.recordedAt;
 
     switch (e.type) {

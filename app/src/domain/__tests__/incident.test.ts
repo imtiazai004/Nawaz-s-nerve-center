@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
+
+import type { IncidentEvent } from '../events.js';
 
 import { foldIncident, districtSeverity } from '../incident.js';
 import { INCIDENT, RESCUE, POLICE, controlRoom, ev, shuffle } from './fixtures.js';
@@ -198,5 +201,86 @@ describe('reassignment', () => {
 
     expect(state.responsibleDepartmentIds).toEqual([POLICE]);
     expect(state.incidentId).toBe(INCIDENT);
+  });
+
+  /**
+   * The incident's start comes from the report, and from nothing else.
+   *
+   * M1-04 let an action state when it actually happened — a crew writes up an hour of work at
+   * once, and "on scene" belongs at the time they arrived. The fold used to take the earliest
+   * `occurredAt` of **any** event, so a backdated action moved the incident's start and every
+   * SLA deadline measured from it: an incident could become overdue, or stop being overdue,
+   * because somebody wrote their notes up honestly.
+   *
+   * Found by the M1 gate, in the post-incident report's own timings.
+   */
+  describe('when the emergency happened', () => {
+    const incidentId = 'inc-backdated';
+    const reportedAt = '2026-08-03T10:00:00.000Z';
+
+    function event(over: Record<string, unknown>): IncidentEvent {
+      return {
+        eventId: randomUUID(),
+        incidentId,
+        recordedAt: '2026-08-03T10:30:00.000Z',
+        clientSeq: 1,
+        actorPersonId: null,
+        actorSeatId: null,
+        sourceChannel: 'web',
+        ...over,
+      } as unknown as IncidentEvent;
+    }
+
+    it('is the report time, not the earliest event', () => {
+      const state = foldIncident(incidentId, [
+        event({
+          type: 'reported',
+          occurredAt: reportedAt,
+          clientSeq: 1,
+          payload: { reportId: randomUUID(), category: 'fire', severity: 'critical' },
+        }),
+        event({
+          // Backdated an hour before the report, which is unusual and legitimate: a crew can
+          // be on scene before anybody thinks to report it.
+          type: 'action_logged',
+          occurredAt: '2026-08-03T09:00:00.000Z',
+          clientSeq: 2,
+          payload: { note: 'on scene' },
+        }),
+      ]);
+
+      expect(state.occurredAt).toBe(reportedAt);
+    });
+
+    it('is the earliest report when an incident has more than one', () => {
+      // One incident, many reports (ADR-0006). The emergency started when the first person
+      // said so, not when the second confirmed it.
+      const state = foldIncident(incidentId, [
+        event({
+          type: 'reported',
+          occurredAt: '2026-08-03T10:05:00.000Z',
+          clientSeq: 2,
+          payload: { reportId: randomUUID(), category: 'fire', severity: 'high' },
+        }),
+        event({
+          type: 'reported',
+          occurredAt: reportedAt,
+          clientSeq: 1,
+          payload: { reportId: randomUUID(), category: 'fire', severity: 'critical' },
+        }),
+      ]);
+
+      expect(state.occurredAt).toBe(reportedAt);
+    });
+
+    it('is null when nothing has been reported yet', () => {
+      // Rather than borrowing a time from some other event and presenting it as the moment
+      // an emergency began.
+      const state = foldIncident(incidentId, [
+        event({ type: 'action_logged', occurredAt: reportedAt, payload: { note: 'orphan' } }),
+      ]);
+
+      expect(state.occurredAt).toBeNull();
+    });
   });
 });
