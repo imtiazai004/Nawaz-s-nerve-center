@@ -424,6 +424,21 @@ learned from tests rather than reasoning:
   to navigate to `/incidents/<uuid>` as its "unknown path" case. Tests 11 and 12 there now
   pin both halves deliberately, because a fix for either one alone reintroduces the other.
 
+**Real contact data never enters the repository, and verify the rule rather than trusting
+it.** Both halves were learned the hard way on 2026-08-02:
+
+- The district's contact document was placed in the repository folder and an over-broad
+  `git add -A` committed and pushed it. ~40 officials' personal mobile numbers are in
+  history at `1d15b77`. Untracking does not remove them; that needs a rewrite and a
+  force-push. **When a human collaborator shares files, the ignore rules have to lead rather
+  than follow** — the tooling will not be told a new file is sensitive.
+- The first fix silently did nothing. **A gitignore pattern containing a slash is anchored to
+  the directory holding the `.gitignore`**, so `db/seed/*.json` matched only
+  `<root>/db/seed/` while the real file was at `app/db/seed/`. It needs `**/`. One more
+  minute and the numbers would have been committed a second time by the rule written to
+  prevent exactly that. **Always confirm with `git check-ignore -v <path>`**; an ignore rule
+  that matches nothing looks identical to one that works.
+
 **Never invent a connectivity answer, and never trust a claimed identity.** Two more from
 M0-19, both found by tests:
 

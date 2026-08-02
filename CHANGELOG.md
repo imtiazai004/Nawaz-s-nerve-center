@@ -936,3 +936,26 @@ explicitly marked assumption.
   emergencies by it.
 - **Verified:** 310/310 tests across 20 files, on the working database **and** on a freshly
   created one with `CI=true` — the migration's backfill path only runs on the former.
+
+## 2026-08-02 — The ignore rule that ignored nothing
+
+Small change, recorded because it is a near-miss on a privacy control rather than a tidy-up,
+and because it was found after the M0-51 entry above was already written.
+
+- **Fixed:** the `.gitignore` rule added minutes earlier to keep the district's contact list
+  out of the repository **matched nothing**. A gitignore pattern containing a slash is
+  anchored to the directory holding the `.gitignore`, so `db/seed/*.json` covered only
+  `<root>/db/seed/` — and the real file is at `app/db/seed/`. Now `**/db/seed/*.json`, with
+  `!**/db/seed/*.example.json` for the committed placeholder.
+- **Why it matters more than its size:** the numbers had already reached the repository once
+  through an over-broad `git add -A`. The rule written to stop it happening again would have
+  let it happen again, and nothing would have complained — **an ignore rule that matches
+  nothing is indistinguishable from one that works** until you look. Caught by running
+  `git check-ignore -v` before committing rather than by reading the pattern and believing it.
+- **Changed:** `CLAUDE.md` gains both halves as a standing lesson — keep real contact data out
+  of the repository, and verify ignore rules with `git check-ignore -v` instead of trusting
+  them. It sits beside the other "verify, do not assume" entries (`navigator.onLine`, cached
+  `/sync`, the `WHERE false` integrity probe), because it is the same mistake wearing
+  different clothes.
+- **Open:** unchanged and still the owner's decision — commit `1d15b77` continues to hold the
+  contact list in history. Removing it needs a rewrite and a force-push.
