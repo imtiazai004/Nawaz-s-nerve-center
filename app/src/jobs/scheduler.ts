@@ -11,7 +11,10 @@
  * nothing new for anyone to debug at 02:00.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import type { Pool } from '../db/pool.js';
+import { withContext } from '../obs/log.js';
 import type { SlaTargets } from '../domain/sla.js';
 import { runEscalationPass, type EscalationOutcome } from './escalation.js';
 import { runNotifyPass, type NotificationChannel, type NotifyOutcome } from './notify.js';
@@ -96,7 +99,13 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
 
   async function tick(): Promise<PassOutcome | null> {
     try {
-      const outcome = await runLockedPass(pool, options.targets, options.channel);
+      // Each pass gets its own correlation id, so the escalations and notifications one
+      // tick produced are a single story in the log rather than scattered lines nobody can
+      // group (M0-03). A request-triggered action and a scheduled one are also then
+      // distinguishable, which matters when working out why a seat was notified at 02:14.
+      const outcome = await withContext({ correlationId: randomUUID(), job: 'scheduler' }, () =>
+        runLockedPass(pool, options.targets, options.channel),
+      );
       if (outcome !== null) {
         options.onOutcome?.(outcome.escalation);
         options.onNotify?.(outcome.notification);

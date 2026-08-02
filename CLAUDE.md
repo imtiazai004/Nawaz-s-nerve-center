@@ -120,11 +120,11 @@ that blocks release on failure.
 
 - **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven, CI
   running**
-- **Phase:** Implementation. 313 tests pass on every push. **M1 is underway.** Five of M0's
-  fifty tasks are open and most wait on a person or a decision rather than on code: the
-  department board (M0-34), the restore **drill** (M0-38, needs a second person),
-  correlation ids (M0-03), backup **scheduling** (M0-37, waits on P-08), and two half-done
-  (M0-05 secrets, M0-11 payload versioning).
+- **Phase:** Implementation. 332 tests pass on every push. **M1 is the work now, and there is
+  no unblocked M0 code item left.** Five M0 tasks remain open: the department board (M0-34,
+  a screen over data already served), the restore **drill** (M0-38, needs a second person),
+  backup **scheduling** (M0-37, waits on P-08), and two half-done — M0-05 secrets (waits on
+  deployment) and M0-11 payload versioning (waits on a v2 existing).
 - **The district's contact list is loaded** — 79 offices, 81 posts, 40 officers, 38 posts
   vacant. **Its structure is not verified**: everything is flat and every seat is `district`
   tier, which the escalation ladder cannot work with. That is **Q-18**, and it is the
@@ -243,7 +243,7 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **313 tests passing** across 20 files, including **17 backup/restore tests that run a real
+- **332 tests passing** across 21 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -360,6 +360,26 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
     something this code may decide — see **Q-18**, which also covers the tier gap that
     currently stops the escalation ladder working on real data.
 
+- **`app/src/obs/log.ts` — structured logs with a correlation id (M0-03).**
+  - One JSON line per request: method, path, status, duration, correlation id. Returned in
+    `x-correlation-id` so an operator can quote it, and **accepted** from the caller so a
+    retried batch is one story in the log rather than four unrelated ones.
+  - **The id lives in `AsyncLocalStorage`, not in a parameter.** A deliberate exception to
+    this project's preference for the explicit option: threading a context argument through
+    the event store, the fold, the authority check and the notifier is dozens of signatures
+    and dozens of chances to forget. This makes "every line carries the id" true by
+    construction, for one stdlib import.
+  - **Nothing sensitive is logged.** Bodies never; `password`/`phone`/`token`/`authorization`
+    and friends redacted by substring at any depth. Actor and seat **ids** are logged, because
+    "who did this" is what a log is for and those ids are already in the audit trail.
+  - An inbound id is **sanitised, not trusted** — it is echoed into a header and into every
+    line, so an unchecked value is a header-splitting primitive.
+  - **Routine successes are filtered.** Monitoring polls `/health` and the PWA refetches its
+    own assets; logging those at `info` would bury the requests anyone cares about.
+  - Each scheduler tick gets its own id and `job: 'scheduler'`, so an escalation at 02:14 is
+    traceable and distinguishable from one a request caused.
+  - Tests run at `error`. `VITEST_LOG_LEVEL=info` turns them up.
+
 **What does not exist yet**
 - **A verified department structure.** 79 offices loaded flat, every seat defaulted to
   `district` tier. **The escalation ladder walks tiers, so it cannot work correctly on this
@@ -474,25 +494,27 @@ M0-19, both found by tests:
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
 
 **Immediate next actions**
-1. **M0-51 — the department registry.** There is no `department` table, so both the board and
-   the detail screen render departments as raw uuids to operators. The last code item not
-   waiting on somebody else, and what M2's gate needs first. Build the table and the
-   resolution; **do not invent the rows** — department names and structures for Bannu are
-   domain facts and stay unknown until verified.
-2. **M0-38 — the restore drill, by a second person.** No longer blocked on code: the runbook
+1. **Q-18 — tiers, before anything else is built on this roster.** Every seat loaded from the
+   district's list is `district` tier because the source has no tier column, and the
+   escalation ladder walks tiers. **Escalation cannot work correctly on real data until this
+   is answered**, and the same gap makes `dutySeatFor` pick a department's duty seat
+   arbitrarily when it holds several posts. Needs the district, not code.
+2. **Rescue 1122's contact number.** The post is loaded vacant. M1 is entirely about Rescue
+   1122 and notifications reach a seat through its holder (Q-19).
+3. **M0-38 — the restore drill, by a second person.** No longer blocked on code: the runbook
    is written for someone who did not build this, and every step in it has been executed by
    the test suite against a real cluster. It needs an hour and a stopwatch.
-3. **Q-06 — real SLA targets, agreed with each department.** More urgent than it was: the
+4. **Q-06 — real SLA targets, agreed with each department.** More urgent than it was: the
    board renders "past deadline" from `PLACEHOLDER_SLA`, and the notification deadline now
    sits under it too, so a guess has become something an operator reads as fact.
-4. **Q-07 — which notification channels actually work in Bannu.** Was an M3 question; it has
+5. **Q-07 — which notification channels actually work in Bannu.** Was an M3 question; it has
    moved up, because in-app delivery does not reach an officer who is not looking at the app
    and the ledger that would make SMS trustworthy is now built and waiting.
-5. **P-08 — hosting.** Now blocking something concrete rather than theoretical: the backup
+6. **P-08 — hosting.** Now blocking something concrete rather than theoretical: the backup
    exists and nothing schedules it, because where it runs decides how it is scheduled.
-6. Q-08 — the Place gazetteer for Bannu. M1 needs it, and it may already exist somewhere
+7. Q-08 — the Place gazetteer for Bannu. M1 needs it, and it may already exist somewhere
    (revenue records, PDMA mapping) — weeks of work versus a phone call.
-7. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
+8. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
    build. Nothing before M4 touches real citizen data.
 
 ## 6. Repository map
@@ -541,6 +563,7 @@ Build with Claude/
 │       ├── db/                ← pool, migration runner, event store
 │       ├── auth/              ← scrypt passwords, seat-scoped sessions (M0-19)
 │       ├── jobs/              ← escalation scan, notification pass, scheduler (M0-29, 32)
+│       ├── obs/               ← structured logs + correlation ids (M0-03)
 │       ├── ops/               ← backup, restore (M0-37), department directory (M0-51)
 │       ├── main.ts            ← process entry: API + client + escalation loop
 │       ├── api/               ← sync protocol and the node:http server

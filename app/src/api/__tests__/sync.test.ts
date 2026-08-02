@@ -229,4 +229,36 @@ describe.skipIf(url === undefined)('sync endpoints (integration)', () => {
     const [stored] = await loadIncident(pool, incidentId);
     expect(stored!.recordedAt.startsWith('1999')).toBe(false);
   });
+
+  describe('correlation ids (M0-03)', () => {
+    it('returns one on every response, so an operator can quote it', async () => {
+      // The whole point: "I filed a report at 14:20 and it vanished" becomes answerable.
+      const res = await fetch(`${base}/health`);
+      expect(res.headers.get('x-correlation-id')).toMatch(/^[0-9a-f-]{36}$/);
+    });
+
+    it('echoes a caller-supplied id, so a retried batch stays one story', async () => {
+      const res = await fetch(`${base}/health`, {
+        headers: { 'x-correlation-id': 'outbox-retry-7' },
+      });
+      expect(res.headers.get('x-correlation-id')).toBe('outbox-retry-7');
+    });
+
+    it('refuses an id that could split a header', async () => {
+      // Sanitised rather than trusted: the value is echoed into a response header and into
+      // every log line it causes.
+      const res = await fetch(`${base}/health`, {
+        headers: { 'x-correlation-id': 'a'.repeat(200) },
+      });
+      const returned = res.headers.get('x-correlation-id');
+      expect(returned).not.toBe('a'.repeat(200));
+      expect(returned).toMatch(/^[0-9a-f-]{36}$/);
+    });
+
+    it('is present on a failure too, which is when anyone needs it', async () => {
+      const res = await fetch(`${base}/sync`, { headers: { 'x-correlation-id': 'trace-401' } });
+      expect(res.status).toBe(401);
+      expect(res.headers.get('x-correlation-id')).toBe('trace-401');
+    });
+  });
 });

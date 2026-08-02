@@ -1014,3 +1014,51 @@ and because it was found after the M0-51 entry above was already written.
   The lesson is the one this project keeps relearning: a green number is not evidence until
   you know what it measured. A fix that improves a metric by narrowing it is not a fix.
 - **Verified:** 313/313 tests across 20 files.
+
+## 2026-08-02 — M0-03: correlation ids, and a log that can be followed
+
+The last unblocked code item in M0. The server logged nothing per request, so "I filed a
+report at 14:20 and it vanished" had no answer — and ADR-0007's whole premise is a system
+one person can operate at 02:00.
+
+- **Added:** `src/obs/log.ts`. One JSON object per line on stdout: `journalctl`, `grep` and
+  `jq` all work on it, and there is no logging framework for anyone to configure, break, or
+  have to understand at 02:00.
+- **Added:** a correlation id on every request, returned in `x-correlation-id` so an operator
+  can quote it, and **accepted** from the caller so a client retrying a held batch produces
+  one story in the log rather than four unrelated ones.
+- **Decided: the id lives in `AsyncLocalStorage`, not in a parameter.** A deliberate
+  exception to this project's usual preference for the explicit option, and worth stating
+  why: threading a context argument through the event store, the fold, the authority check
+  and the notifier is dozens of signatures, and every one is a place for a future change to
+  forget it. This makes *every line carries the id* true **by construction** rather than by
+  discipline, for one stdlib import and no dependency.
+- **Decided: nothing sensitive is logged, ever.** Bodies are never logged at all —
+  `/auth/login` carries a phone number and a password, and the way to guarantee those never
+  surface is to have no code path that could write them. Field names matching
+  `password`/`phone`/`token`/`authorization`/`secret`/`credential`/`apikey` are redacted by
+  substring, case-insensitively, at any depth, so `reporterPhone` and `PASSWORD_HASH` are
+  both caught. Actor and seat **ids** are logged: "who did this" is the question a log exists
+  to answer, and those ids are already in the audit trail.
+- **Decided: an inbound correlation id is sanitised, not trusted.** It is echoed into a
+  response header and into every log line, so an unchecked value is a header-splitting and
+  log-forging primitive. Anything outside `[A-Za-z0-9._-]{1,64}` is replaced with a fresh
+  id — quietly, because a malformed header is not worth failing an emergency report over.
+- **Decided: routine successes are filtered.** Monitoring polls `/health` continuously and
+  the PWA refetches its own assets on every launch. Logging those at `info` would bury the
+  requests anyone ever looks for, and a log nobody can read is a log nobody reads. They are
+  logged when they fail, which is the case that matters.
+- **Added:** each scheduler tick runs under its own correlation id and `job: 'scheduler'`, so
+  the escalations and notifications one pass produced are one traceable story — and an
+  escalation at 02:14 is distinguishable from one a request caused.
+- **Changed:** `main.ts` dropped its own private `log()` in favour of the shared one, so
+  there is one logger rather than two that will drift.
+- **Changed:** tests run at `LOG_LEVEL=error` (`testing/loadEnv.ts`), because request logging
+  in twenty-one suites buried the output someone is actually reading. `VITEST_LOG_LEVEL=info`
+  turns it back up.
+- **Verified:** 332/332 tests across 21 files, including real request lines observed from the
+  live server — caller's id echoed, no body, and the routine `/health` 200 correctly absent.
+- **Open:** with this done there is **no unblocked M0 code item left**. What remains needs a
+  person (M0-38), a deployment decision (M0-37 scheduling, M0-05), or a thing that does not
+  exist yet (M0-11 needs a payload v2). M1 is the work now, and it stalls on **Q-18** (tiers)
+  and Rescue 1122's number.

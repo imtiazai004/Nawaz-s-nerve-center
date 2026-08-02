@@ -25,6 +25,7 @@ import {
 import { buildBoard } from './board.js';
 import { inbox, markSeen } from './notifications.js';
 import { backupHealth } from '../ops/backup.js';
+import { correlationIdFrom, log, withContext } from '../obs/log.js';
 
 /**
  * The sync server. Plain `node:http`, no framework — see ADR-0007.
@@ -467,7 +468,15 @@ export function createSyncServer(options: ServerOptions): Server {
   assertAuthUsable(authMode, nodeEnv);
 
   return createServer((req, res) => {
-    void (async () => {
+    // Every request gets a correlation id, in the response header and on every log line it
+    // causes — including the escalation and notification work it triggers downstream
+    // (M0-03). Without it, "I filed a report at 14:20 and it vanished" has no answer.
+    const correlationId = correlationIdFrom(req.headers['x-correlation-id']);
+    res.setHeader('x-correlation-id', correlationId);
+
+    const startedAt = Date.now();
+
+    void withContext({ correlationId }, async () => {
       try {
         const url = new URL(req.url ?? '/', 'http://localhost');
 
@@ -642,11 +651,58 @@ export function createSyncServer(options: ServerOptions): Server {
 
         json(res, 404, { error: 'not found' });
       } catch (err) {
-        // Never leak internals to a caller, but never swallow the cause either.
-        // eslint-disable-next-line no-console
-        console.error('[sync] unhandled', err);
+        // Never leak internals to a caller, but never swallow the cause either. The
+        // correlation id is already on this line, so the 500 an operator saw can be found.
+        log('error', 'unhandled request error', {
+          method: req.method,
+          path: safePath(req.url),
+          error: String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        });
         json(res, 500, { error: 'internal error' });
+      } finally {
+        logRequest(req, res, startedAt);
       }
-    })();
+    });
+  });
+}
+
+/**
+ * The path, without the query string.
+ *
+ * `GET /sync?cursor=` is harmless, but a query string is the easiest place for something
+ * that should not be in a log to end up later. Dropping it costs one diagnostic detail and
+ * removes a whole category of accident.
+ */
+function safePath(url: string | undefined): string {
+  const raw = url ?? '/';
+  const q = raw.indexOf('?');
+  return q === -1 ? raw : raw.slice(0, q);
+}
+
+/**
+ * One line per request, at the end, with the outcome.
+ *
+ * Deliberately not one line at the start as well: doubling the volume to record that a
+ * request was received buys nothing that the completion line does not already say, and a
+ * log nobody can read is a log nobody reads.
+ *
+ * **Successful noise is filtered.** Monitoring polls `/health` continuously and the PWA
+ * fetches its own assets on every launch; logging those at `info` would bury the requests
+ * that matter. They are logged when they fail, which is the case anyone ever looks for.
+ */
+function logRequest(req: IncomingMessage, res: ServerResponse, startedAt: number): void {
+  const path = safePath(req.url);
+  const status = res.statusCode;
+
+  const routine =
+    status < 400 && (path === '/health' || path === '/' || /\.[a-z0-9]+$/i.test(path));
+  if (routine) return;
+
+  log(status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info', 'request', {
+    method: req.method,
+    path,
+    status,
+    ms: Date.now() - startedAt,
   });
 }

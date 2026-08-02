@@ -12,17 +12,9 @@ import { fileURLToPath } from 'node:url';
 import { createSyncServer } from './api/server.js';
 import { createPool, migrate } from './db/pool.js';
 import { createScheduler } from './jobs/scheduler.js';
+import { log } from './obs/log.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-
-function log(level: 'info' | 'warn' | 'error', message: string, fields: object = {}): void {
-  // Structured from the start. Whoever is debugging this at 02:00 will be reading a log
-  // file, not attaching a debugger.
-  // eslint-disable-next-line no-console
-  console[level === 'error' ? 'error' : 'log'](
-    JSON.stringify({ ts: new Date().toISOString(), level, message, ...fields }),
-  );
-}
 
 async function start(): Promise<void> {
   const nodeEnv = process.env['NODE_ENV'] ?? 'development';
@@ -59,7 +51,19 @@ async function start(): Promise<void> {
         });
       }
     },
-    onError: (err) => log('error', 'escalation pass failed', { error: String(err) }),
+    onNotify: (o) => {
+      if (o.attempted > 0 || o.failed > 0 || o.truncated) {
+        log(o.failed > 0 ? 'warn' : 'info', 'notification pass', {
+          scanned: o.scanned,
+          attempted: o.attempted,
+          // A vacant post or a dead channel. Somebody has to be told that nobody was told
+          // (INV-03) — this is the log half of that; the board is the half operators see.
+          failed: o.failed,
+          truncated: o.truncated,
+        });
+      }
+    },
+    onError: (err) => log('error', 'background pass failed', { error: String(err) }),
   });
 
   await new Promise<void>((resolve) => server.listen(port, resolve));

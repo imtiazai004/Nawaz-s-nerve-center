@@ -41,7 +41,7 @@ the spine.
 |---|---|---|---|---|
 | M0-01 | Repository scaffold, TypeScript, lint, format, test tooling | `DONE` | — | `npm run check` green: typecheck, lint, format, 32 tests |
 | M0-02 | Postgres + migration framework + local dev setup | `DONE` | — | Portable PG 17.10 on :5433, `scripts/dev-db.ps1`, forward-only migration runner |
-| M0-03 | Structured logging with correlation ids; health endpoint | `TODO` | M0-02 | **Half done.** `/health` reports dependency status (queries the DB, 503 when it is down) and `src/main.ts` logs structured lines. Missing: **correlation ids**, and the API server logs no requests at all |
+| M0-03 | Structured logging with correlation ids; health endpoint | `DONE` | M0-02 | `src/obs/log.ts`. One JSON line per request with a correlation id, echoed in `x-correlation-id` and carried through background passes via `AsyncLocalStorage`. Sensitive fields never reach a log; bodies are never logged at all. Routine 200s (`/health`, static assets) are filtered so the signal survives. 15 tests |
 | M0-04 | CI: lint, typecheck, test on every commit | `DONE` | M0-01 | `.github/workflows/ci.yml`. Real PostgreSQL 17 and real Chromium — the suite is not worth running against a fake. **A missing `TEST_DATABASE_URL` under CI is a hard failure, not a skip**, so a broken secret cannot produce a green build that ran fifty tests instead of 297 |
 | M0-05 | Secret handling: env template, secret store, nothing in repo | `DOING` | M0-01 | `.env.example`, `.env` gitignored and verified unstaged. Real secret store pending deployment |
 
@@ -172,8 +172,13 @@ those posts vacant. Every remaining M0 item now waits on a person or a decision 
 on code — see **Q-18** (how Bannu is organised, and what tier each seat is: the escalation
 ladder cannot work until that is answered) and **Q-19** (two officers sharing one number).
 
-**Next code item is M0-03, correlation ids** — the API still logs no requests at all, which
-is the difference between diagnosing an incident at 02:00 and guessing.
+**There is no unblocked code item left in M0.** What remains is M0-34 (a department-framed
+screen over data that is already served), and everything else waits on a person or a
+decision: the restore drill (M0-38), backup scheduling (P-08), secrets (M0-05, deployment),
+payload versioning (M0-11, needs a v2 to exist).
+
+**M1 is the work now, and it stalls on two answers:** Q-18 (tiers, or escalation cannot walk
+the ladder on real data) and Rescue 1122's contact number.
 
 **M0-38 is now a scheduling problem, not an engineering one.** The runbook is written for
 someone who did not build this, and every step in it has been executed by the test suite

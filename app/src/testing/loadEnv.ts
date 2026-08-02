@@ -17,6 +17,15 @@ if (existsSync(envPath)) {
 }
 
 /**
+ * Tests are quiet by default (M0-03).
+ *
+ * Request logging is on in every suite that starts a server, and at `info` it buries the
+ * test output that someone is actually reading. Errors still come through. Set
+ * `VITEST_LOG_LEVEL=info` — or `debug` — when the logs are the thing you are debugging.
+ */
+process.env['LOG_LEVEL'] = process.env['VITEST_LOG_LEVEL'] ?? 'error';
+
+/**
  * On a build server, a missing database is a failure — never a quiet skip.
  *
  * Locally, `describe.skipIf(dbUrl === undefined)` is a kindness: you can run the domain
