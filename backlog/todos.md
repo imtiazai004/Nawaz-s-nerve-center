@@ -132,7 +132,8 @@ question that was "waiting on the district" turned into a screen where they ente
 | M1a-07 | District performance — every department side by side | `DONE` | — | Median before mean, measured from `occurredAt` so an outage shows as an outage, ranked by what needs attention. **A department with no data shows a dash, never a zero** |
 | M1a-08 | The console itself | `DONE` | M1a-03…07 | Four tabs. Offered only to the two offices, and refused server-side when the tab is bypassed (INV-05). 25 API tests + 10 browser tests |
 | M1a-09 | Collapse `Tier` to two rungs | `TODO` | ADR-0010 | Four values remain in the type and two are used. A follow-up, not a prerequisite |
-| M1a-10 | Departments the district can reach: people and numbers per department | `TODO` | M1a-03 | The console edits the department; it does not yet edit its **roster**. Rescue 1122 having no contact number is still a gap only the directory loader can fill |
+| M1a-10 | The roster: people and numbers per department, **editable by the department itself** | `TODO` | M1a-03 | Who holds which post, right now. Notifications land on a post (ADR-0004) and the roster is what turns that into a person to reach. Scoped two ways from one screen: the two offices see all 79, a department sees itself. **Routing signals and SLA deadlines stay with the administration** — a department able to edit its own routing could quietly stop receiving night calls |
+| M1a-11 | Placeholder contacts | `DONE` | — | Migration 0008. A stand-in number fills a post so the roster is complete and editable, and is **never dialled and never counted as reached**. Rescue 1122 unblocked (R-01) |
 
 ### Operations
 

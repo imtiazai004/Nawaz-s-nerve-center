@@ -216,6 +216,45 @@ describe.skipIf(dbUrl === undefined)('notifications (INV-03)', () => {
       expect(list[0]!.failure).toContain('DNS lookup failed');
     });
 
+    /**
+     * A stand-in number is not a contact.
+     *
+     * Migration 0008 fills Rescue 1122's post with a placeholder so the roster is complete
+     * and editable before the real number arrives — the owner's instruction was to stop
+     * waiting on it. The hazard that comes with it is precise: a fake number silences the
+     * vacant-post warning while changing nothing about whether a human is actually told.
+     * That is strictly worse than the empty post, because the screen stops asking.
+     */
+    it('treats a placeholder contact as unreachable, not as a holder', async () => {
+      const dept = await seedDepartment(pool, `Placeholder Dept ${randomUUID().slice(0, 8)}`);
+      const seat = await pool.query<{ seat_id: string }>(
+        `INSERT INTO seat (title, department_id, tier, can_break_glass)
+         VALUES ('Post With A Stand-In', $1, 'station', false) RETURNING seat_id`,
+        [dept],
+      );
+      const person = await pool.query<{ person_id: string }>(
+        `INSERT INTO person (full_name, phone, placeholder)
+         VALUES ('Awaiting A Real Number', $1, true) RETURNING person_id`,
+        [`1111111-${randomUUID().slice(0, 8)}`],
+      );
+      await pool.query('INSERT INTO duty_assignment (seat_id, person_id) VALUES ($1, $2)', [
+        seat.rows[0]!.seat_id,
+        person.rows[0]!.person_id,
+      ]);
+
+      const id = await routedTo(dept);
+      const outcome = await runNotifyPass(pool, { incidentIds: [id] });
+
+      expect(outcome.failed).toBe(1);
+
+      const state = foldIncident(id, await loadIncident(pool, id));
+      const attempt = state.notifications[0];
+      expect(attempt?.state).toBe('failed');
+      // Named for what it is. "Nobody holds this seat" would send an administrator looking
+      // for a roster gap that does not exist; the post is filled, the number is not real.
+      expect(attempt?.failure).toContain('placeholder_contact');
+    });
+
     it('surfaces a failed attempt on the central board, not in a log line', async () => {
       // The literal words of INV-03. If this test is deleted the invariant is gone, whatever
       // the notification code still does.

@@ -1259,3 +1259,24 @@ built rather than facts we were missing.
   3. The console painted whichever request returned last, so a slow response from a tab the
      operator had left landed on top of the tab they were now on.
 - **Tests:** 340 → 410, across 26 files.
+
+## 2026-08-02 — Placeholders that admit what they are; the district's own list of gaps
+
+- **Decided (owner, 2026-08-02):** stop waiting on missing district data. Build the screen,
+  put a placeholder in, record the gap, keep moving. Added to `CLAUDE.md` §7 as a standing
+  engineering rule, with its necessary other half: **a placeholder must be visibly a
+  placeholder.** A stand-in that renders like a real value is worse than the gap it filled,
+  because the gap was at least still asking.
+- **Added:** `CLAUDE.md` §5b — one table of everything genuinely waiting on the district
+  (R-01…R-09), what was put in meanwhile, and what the consequence is until it arrives.
+  Explicitly not a list of blockers.
+- **Added:** migration `0008_placeholder_contacts.sql`. `person.placeholder` marks a contact
+  number as a stand-in. Rescue 1122's District Emergency Officer is filled with `1111111`
+  so the roster is complete and editable — and the notifier **never dials it, never counts
+  it as reached**, and reports `placeholder_contact` rather than the misleading
+  `no_duty_holder`. The post is filled; the number is not real; both facts are visible.
+- **Open:** `R-01` recorded. The Rescue 1122 gap no longer blocks M1.
+- **Requirement raised:** departments must be able to edit **their own** contacts and people,
+  not only the two administrative offices. Routing signals and SLA deadlines stay with the
+  administration — a department that can edit its own routing could quietly stop receiving
+  night-time calls, and nobody would see it happen.

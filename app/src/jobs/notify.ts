@@ -68,19 +68,31 @@ export function inAppChannel(pool: Pool): NotificationChannel {
   return {
     name: 'web',
     async deliver(target) {
-      const res = await pool.query<{ n: string }>(
-        `SELECT count(*)::text AS n
-           FROM duty_assignment
-          WHERE seat_id = $1 AND to_at IS NULL`,
+      // A placeholder holder is not a holder.
+      //
+      // Migration 0008 lets a post be filled with a stand-in contact so the roster is
+      // complete and editable before the real number arrives. Counting one as reachable
+      // would silence the vacant-post warning while changing nothing about whether anybody
+      // is actually told — which is worse than the empty post it replaced, because the
+      // screen would stop asking for the number.
+      const res = await pool.query<{ real: string; placeholder: string }>(
+        `SELECT count(*) FILTER (WHERE NOT p.placeholder)::text AS real,
+                count(*) FILTER (WHERE p.placeholder)::text     AS placeholder
+           FROM duty_assignment d
+           JOIN person p ON p.person_id = d.person_id
+          WHERE d.seat_id = $1 AND d.to_at IS NULL`,
         [target.seatId],
       );
 
-      return Number(res.rows[0]?.n ?? 0) > 0
-        ? { ok: true }
-        : {
-            ok: false,
-            failure: 'no_duty_holder: nobody currently holds this seat, so nothing was sent',
-          };
+      if (Number(res.rows[0]?.real ?? 0) > 0) return { ok: true };
+
+      return {
+        ok: false,
+        failure:
+          Number(res.rows[0]?.placeholder ?? 0) > 0
+            ? 'placeholder_contact: this post holds a stand-in number, not a real one — nothing was sent'
+            : 'no_duty_holder: nobody currently holds this seat, so nothing was sent',
+      };
     },
   };
 }
