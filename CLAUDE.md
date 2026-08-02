@@ -100,6 +100,8 @@ onboarded — challenge them now, not later.
 | [0008](docs/adr/ADR-0008-causal-event-ordering.md) | Events carry a causal sequence, not just timestamps | Accepted |
 | [0009](docs/adr/ADR-0009-unassessed-is-not-a-severity.md) | "Unassessed" is a value, never a level; aggregates report two numbers | Accepted |
 | [0010](docs/adr/ADR-0010-two-rung-ladder.md) | Two rungs: departments report to the DC and AC HQ offices. No third tier | Accepted |
+| [0011](docs/adr/ADR-0011-deployment-topology.md) | One record on district hardware: DC primary, AC HQ standby, nightly encrypted copy to Google Cloud | Accepted |
+| [0012](docs/adr/ADR-0012-notification-channel-ladder.md) | Notifications walk a ladder — WhatsApp, then a call, then SMS; in-app always | Accepted |
 
 ## 4. Invariants — what must never happen
 
@@ -122,10 +124,21 @@ that blocks release on failure.
 - **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven, CI
   running**
 - **Phase:** Implementation. 340 tests pass on every push. **M1 is the work now. Every M0
-  task that is code is done.** Four remain open: the restore **drill** (M0-38, needs a
-  second person), backup **scheduling** (M0-37) and secrets (M0-05), both waiting on P-08,
-  and M0-11 payload versioning, which needs a payload v2 to exist before a v2 reader means
-  anything.
+  task that is code is done.** What remains open: the restore **drill** (M0-38, needs a
+  second person), backup **scheduling** (M0-53, unblocked now that P-08 is answered),
+  replication to the standby (M0-54), secrets (M0-05), and M0-11 payload versioning, which
+  needs a payload v2 to exist before a v2 reader means anything.
+- **Deployment is settled (ADR-0011, 2026-08-02).** PostgreSQL runs on a machine in the **DC
+  office** — the district's record lives on district hardware. The **AC Headquarter office
+  runs a warm standby** of the same database: two machines, **one record**. Two independent
+  primaries would give Bannu two divergent histories and no way to merge them. The server is
+  reachable from outside so field handsets sync from anywhere, and **nightly** encrypted
+  dumps go to Google Cloud. A rented database was rejected: it would take the control room
+  down with the district's internet line.
+- **Notification policy is settled (ADR-0012).** WhatsApp first, then a voice call, then SMS,
+  with the in-app inbox always in parallel — held as configuration, not code. Note the rung
+  the owner's answer did not cover: the **server** also needs internet to send WhatsApp at
+  all, so a **GSM modem** is the only channel that survives a district outage.
 - **The district's structure is now settled (ADR-0010, 2026-08-02), and it is simpler than
   the model assumed.** Two offices — **DC** and **AC Headquarter Bannu** — are the authority
   for the whole district. Every other department reports to them. **The ladder has two rungs

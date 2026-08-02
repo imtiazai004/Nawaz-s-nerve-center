@@ -48,6 +48,27 @@ emergency with no matching signal is not guessed at and not held quietly: it app
 administrative dashboards marked **unassigned**, with a note saying so, and the DC or AC
 office assigns it. Silence is not an option here (ADR-0005).
 
+## Clarifications, 2026-08-02
+
+Two follow-up questions were put to the owner once the two rungs were agreed, because both
+decide code rather than wording.
+
+**The AACs and the TMOs are departments, not administration.** AAC Domel, AAC Kakki, AAC
+Miryan, AAC Bakakhel and the TMOs are field offices of the administration in the civil-service
+sense, so it was not obvious which rung they sit on. The owner: *"they have to report the
+issue or act on the issue."* Reporting up and acting on assigned work is the definition of the
+lower rung. They are departments. **Only two seats in the district hold administrative
+authority**, and the district office count does not dilute that.
+
+**The DC and AC Headquarter dashboards are identical.** The owner: *"yes exactly, they should
+hold the same dashboards."* Neither office outranks the other in this system. There is one
+administrative role, held by two seats, with the same powers and the same view.
+
+This is worth stating in an ADR rather than leaving as a build detail, because it forbids a
+tempting refactor: **do not introduce a "super-admin" or a DC-only capability later** without
+revisiting this. If the two offices ever need different powers, that is a change to the
+authority model, not a convenience flag.
+
 ## Consequences
 
 **Good**

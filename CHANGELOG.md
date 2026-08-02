@@ -1207,3 +1207,27 @@ built rather than facts we were missing.
   straightforward. **Restoring over the live database from a web button is not**, and
   `ops/restore.ts` refuses in-place restores by design — a mis-click or a stolen session
   would replace the district's record. A safer split is proposed in the summary to the owner.
+
+## 2026-08-02 — Deployment and notification policy settled
+
+- **Decided:** `ADR-0011` — one record on district hardware. PostgreSQL primary in the **DC
+  office**, warm standby in the **AC Headquarter office**, server reachable from outside so
+  field handsets sync from anywhere, **nightly** encrypted dumps to Google Cloud Storage.
+- **Decided:** `ADR-0012` — notifications walk a ladder: WhatsApp, then a voice call, then
+  SMS, with the in-app inbox always in parallel. The ladder is configuration edited by the
+  administration, not code.
+- **Changed:** `ADR-0010` gains two clarifications from the owner — the **AACs and TMOs are
+  departments**, not administration, and the **DC and AC Headquarter dashboards are
+  identical**. Neither office outranks the other; a later "super-admin" would contradict this.
+- **Open:** `Q-07` resolved. `P-08` resolved and closed — it had been carried since the start
+  as a deployment-time fork and was blocking backup scheduling.
+- **Added:** `P-11` (procure WhatsApp/SMS/voice/GSM — the longest lead time in the project,
+  because Meta must pre-approve alert templates), `P-12` (GCS bucket), `M0-53` (schedule and
+  upload the nightly backup), `M0-54` (streaming replication with lag on `/health`).
+- **Three points where the owner's answer was taken and then extended**, each recorded with
+  its reasoning rather than applied silently: *weekly* cloud upload became **nightly**
+  (weekly risks losing seven days of emergency record); *systems in both offices* became
+  **one primary and one standby** (two primaries produce two irreconcilable histories of the
+  same district); and the notification ladder gained a **GSM modem** rung (the server's own
+  internet is a dependency the answer did not account for, and ADR-0011 exists precisely so
+  a district outage does not stop work).

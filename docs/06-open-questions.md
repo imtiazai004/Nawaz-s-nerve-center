@@ -40,20 +40,28 @@ nothing more than the initial value a fresh install starts from.
 Until that screen exists the board still renders "past deadline" from a guess, so this is
 not closed in effect — it is closed as a *question* and opened as a *task*.
 
-### Q-07 · Which notification channels are actually reliable in Bannu? `ANSWERED IN INTENT 2026-08-02`
-**Answer: wire up all of them — WhatsApp message, SMS, and voice call — and let the user
-choose per notification.** Source: project owner, 2026-08-02.
+### Q-07 · Which notification channels are actually reliable in Bannu? `RESOLVED 2026-08-02`
+**Answer: WhatsApp first; if WhatsApp does not reach them, redirect to a direct phone call;
+and let the user route a given notification to another channel when they need to.** Source:
+project owner, 2026-08-02. See **ADR-0012**.
 
-The delivery ledger built in M0-32 already treats the channel as pluggable, so the shape is
-right. What the answer does **not** supply, and what genuinely gates the work:
+The policy is a **ladder**, held as configuration on the administrative dashboards: WhatsApp →
+voice call → SMS, with the in-app inbox always in parallel. An exhausted ladder is surfaced as
+undelivered, never as delivered (ADR-0005).
 
-- **Accounts and money.** WhatsApp Business API needs a Meta business account, a verified
-  number and **pre-approved message templates**; SMS needs a gateway account with a Pakistani
-  provider; voice needs a telephony provider. Each has lead time and a cost.
-- **A hard interaction with P-08.** A server with no internet **cannot** send WhatsApp at
-  all, and can only send SMS or place calls through a **GSM modem or SIM gateway** attached
-  to the machine. "Offline and on-premise" and "WhatsApp notifications" cannot both be true.
-  See P-08 — this is the single most consequential coupling in the project right now.
+The one thing added on top of the owner's answer is a rung below it. There are **two different
+internets** in play: the recipient's — WhatsApp needs their handset to have data, and falling
+back to a call handles that exactly as described — and the **server's**, which must reach Meta
+and the telephony provider to send anything at all. ADR-0011 puts the server in the DC office
+so that a district internet failure does not stop work, so a notification ladder that goes
+dark in that same failure would be incoherent. A **GSM modem or SIM gateway** attached to the
+server sends SMS and places calls over the mobile network with no internet on either end, and
+is recommended as the last rung.
+
+Still outstanding, and it is procurement rather than engineering: a Meta business account with
+**pre-approved templates** (longest lead time — alerts are business-initiated, so Meta must
+approve the wording in advance), an SMS gateway account, a telephony provider, and the modem.
+Adapters are built against fakes in the meantime.
 
 ### Q-08 · Does the Place gazetteer exist anywhere already? `DROPPED 2026-08-02`
 **Answer: do not go into that depth.** Source: project owner, 2026-08-02.
