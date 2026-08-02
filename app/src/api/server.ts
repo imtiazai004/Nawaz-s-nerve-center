@@ -50,6 +50,16 @@ import {
   removeRosterPerson,
   retirePost,
 } from './roster.js';
+import {
+  addResource,
+  crew,
+  dispatch,
+  editResource,
+  readFleet,
+  release,
+  retireResource,
+  serviceState,
+} from './resources.js';
 import { backupHealth } from '../ops/backup.js';
 import { correlationIdFrom, log, withContext } from '../obs/log.js';
 
@@ -636,6 +646,102 @@ async function handleRoster(
   json(res, 404, { error: 'not found' });
 }
 
+/**
+ * What a department can send — M1-02. Everything under `/fleet`.
+ *
+ * Beside `/roster` and gated the same way, because they are the same question asked about
+ * two kinds of thing: what a department has. Dispatch itself is **not** here — sending a
+ * unit is a fact about an emergency, so it lives on the incident (`/incidents/:id/dispatch`)
+ * and lands in the incident log where "which ambulance went to the bazaar fire" stays
+ * answerable a year later.
+ */
+async function handleFleet(
+  pool: Pool,
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  identity: Identity,
+): Promise<void> {
+  const send = <T>(result: AdminResult<T>, okStatus = 200): void => {
+    if (!result.ok) json(res, result.status, { error: result.error });
+    else json(res, okStatus, result.value);
+  };
+  const bad = (): void => void json(res, 400, { error: 'that was not valid json' });
+
+  const unit = /^\/fleet\/units\/([^/]+)(?:\/([a-z-]+))?$/.exec(pathname);
+  if (unit !== null) {
+    const resourceId = unit[1]!;
+    const action = unit[2] ?? null;
+    if (!UUID_RE.test(resourceId)) {
+      json(res, 404, { error: 'no such unit' });
+      return;
+    }
+
+    const input = await bodyOf(req);
+    if (input === null) return bad();
+
+    if (req.method === 'PATCH' && action === null) {
+      send(await editResource(pool, identity, resourceId, input));
+      return;
+    }
+    if (req.method === 'POST' && action === 'off-run') {
+      send(await serviceState(pool, identity, resourceId, true, input['reason']));
+      return;
+    }
+    if (req.method === 'POST' && action === 'on-run') {
+      send(await serviceState(pool, identity, resourceId, false, input['reason']));
+      return;
+    }
+    if (req.method === 'POST' && action === 'retire') {
+      send(await retireResource(pool, identity, resourceId, true, input['reason']));
+      return;
+    }
+    if (req.method === 'POST' && action === 'restore') {
+      send(await retireResource(pool, identity, resourceId, false, input['reason']));
+      return;
+    }
+    if (req.method === 'POST' && action === 'crew') {
+      send(await crew(pool, identity, resourceId, input['personId'], true));
+      return;
+    }
+    if (req.method === 'POST' && action === 'uncrew') {
+      send(await crew(pool, identity, resourceId, input['personId'], false));
+      return;
+    }
+    json(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/fleet') {
+    send(await readFleet(pool, identity, null));
+    return;
+  }
+
+  const department = /^\/fleet\/([^/]+)(?:\/(units))?$/.exec(pathname);
+  if (department !== null) {
+    const departmentId = department[1]!;
+    if (!UUID_RE.test(departmentId)) {
+      json(res, 404, { error: 'no such department' });
+      return;
+    }
+
+    if (req.method === 'GET' && department[2] === undefined) {
+      send(await readFleet(pool, identity, departmentId));
+      return;
+    }
+    if (req.method === 'POST' && department[2] === 'units') {
+      const input = await bodyOf(req);
+      if (input === null) return bad();
+      send(await addResource(pool, identity, departmentId, input), 201);
+      return;
+    }
+    json(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  json(res, 404, { error: 'not found' });
+}
+
 async function handleIncidents(
   pool: Pool,
   req: IncomingMessage,
@@ -702,6 +808,33 @@ async function handleIncidents(
       actors: result.actors,
       responsibleDepartments: result.responsibleDepartments,
     });
+    return;
+  }
+
+  // Dispatch and stand-down (M1-03).
+  //
+  // Handled before the policy-table commands because their authority question is a different
+  // one: not "may this seat change this field of this incident" but "is this unit yours to
+  // send". A department that holds the incident may commit what it has and may not commit
+  // another department's ambulance — see `api/resources.ts`.
+  if (route.action === 'dispatch' || route.action === 'release') {
+    if (req.method !== 'POST') {
+      json(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    const body = await readJson();
+    if (body === null) {
+      json(res, 400, { error: 'invalid json' });
+      return;
+    }
+
+    const result =
+      route.action === 'dispatch'
+        ? await dispatch(pool, identity, route.incidentId, body)
+        : await release(pool, identity, route.incidentId, body);
+
+    if (!result.ok) json(res, result.status, { error: result.error });
+    else json(res, 200, result.value);
     return;
   }
 
@@ -887,6 +1020,20 @@ export function createSyncServer(options: ServerOptions): Server {
           }
 
           await handleAdmin(pool, req, res, url.pathname, identity);
+          return;
+        }
+
+        // What a department can send (M1-02). Same gate as the roster.
+        if (url.pathname === '/fleet' || url.pathname.startsWith('/fleet/')) {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+
+          await handleFleet(pool, req, res, url.pathname, identity);
           return;
         }
 

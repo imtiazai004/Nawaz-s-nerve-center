@@ -33,7 +33,7 @@ export interface ConfigActor {
 }
 
 export type ConfigSubject =
-  'department' | 'routing_signal' | 'sla_target' | 'seat' | 'person' | 'duty';
+  'department' | 'routing_signal' | 'sla_target' | 'seat' | 'person' | 'duty' | 'resource';
 export type ConfigAction = 'created' | 'updated' | 'retired' | 'restored';
 
 export interface ConfigChange {

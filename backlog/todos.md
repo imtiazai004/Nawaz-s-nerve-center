@@ -136,6 +136,13 @@ question that was "waiting on the district" turned into a screen where they ente
 | M1a-12 | **INV-03 hole closed**: a department with no posts is recorded on the incident | `DONE` | M1a-10 | Found by the roster tests. `runNotifyPass` counted it in the job's return value and wrote **nothing to the incident**, so the board showed an emergency as notified when nobody could be told. A counter in a return value is the log line INV-03 forbids |
 | M1a-11 | Placeholder contacts | `DONE` | — | Migration 0008. A stand-in number fills a post so the roster is complete and editable, and is **never dialled and never counted as reached**. Rescue 1122 unblocked (R-01) |
 
+### M1 — Rescue 1122, in full
+
+| # | Task | Status | Depends on | Acceptance |
+|---|---|---|---|---|
+| M1-02 | Resources and teams as data | `DONE` | M1a-10 | Migration 0011. Vehicles, teams and equipment in one table, because to dispatch they are one thing. **No status column** — commitment is a fold over the event log, so a screen cannot say an ambulance is free while the log says it is at a road accident. Out of service is stored, with a reason, because the log cannot know it. 14 + 21 tests |
+| M1-03 | Dispatch and stand-down | `DONE` | M1-02 | New `released` event, because `assigned` only ever added — without it a vehicle stayed committed to every incident it ever attended. **A committed unit can still be sent, with a warning:** a district with one ambulance and two road accidents has to be able to move it, and refusing would be software overruling the only person who can see both scenes |
+
 ### Operations
 
 | # | Task | Status | Depends on | Acceptance |

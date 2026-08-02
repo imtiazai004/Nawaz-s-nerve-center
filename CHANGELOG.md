@@ -1361,3 +1361,30 @@ built rather than facts we were missing.
   on the district's list, which is the result worth having: no unknown structural damage
   under the roster loaded before routing existed.
 - **Tests:** 451 → 463.
+
+## 2026-08-03 — Something to send, and sending it (M1-02, M1-03)
+
+- **Added:** migration `0011_resources.sql`, `domain/resources.ts`, `db/resourceStore.ts`,
+  `api/resources.ts`, and `/fleet` + `POST /incidents/:id/dispatch` + `.../release`.
+  Vehicles, teams and equipment in one table, because to dispatch they are one thing: a unit
+  a department commits to an emergency. Only teams have members.
+- **No status column, deliberately.** Whether an ambulance is committed is a fold over the
+  event log — assigned to an incident nobody has closed. A stored status would be a second
+  copy free to drift, and the way it drifts is a screen saying a vehicle is free while the
+  log says it is at a road accident. A test asserts the column does not exist. *Out of
+  service* **is** stored, because a vehicle in the workshop is not a fact about any incident;
+  it requires a reason, in the API and in a CHECK constraint.
+- **Added the `released` event.** `assigned` only ever added, so a vehicle stayed committed to
+  every incident it had ever attended until each one closed — meaning "what can Rescue send
+  right now" degraded over a shift into a list of things that all looked busy, wrong in the
+  direction that stops help going out.
+- **A committed unit can still be sent, with a warning.** A district with one ambulance and
+  two road accidents has to be able to move it; refusing would be software overruling the
+  only person who can see both scenes. The warning is careful about what it does **not**
+  claim: dispatching here does not stand the unit down from the other incident, because that
+  would be one screen deciding about an emergency it is not looking at. It shows as committed
+  to both, which is the truth.
+- **Dispatch is all-or-nothing.** If any named unit cannot go, none do — a partial dispatch
+  leaves an operator believing they sent three things when two went, and the one that did not
+  go is the one they would have replaced.
+- **Tests:** 463 → 498.

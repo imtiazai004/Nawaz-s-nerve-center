@@ -150,7 +150,20 @@ interface Payloads {
     failure: string;
   };
   acknowledged: { seatId: Uuid };
+  /** Units committed to this incident: vehicles, teams, equipment (M1-02). */
   assigned: { resourceIds: readonly Uuid[] };
+  /**
+   * Units stood down from this incident.
+   *
+   * Necessary because `assigned` only ever adds. Without it a vehicle stays committed to
+   * every incident it ever attended until each of those is closed, so "what can Rescue send
+   * right now" degrades over a shift into a list of things that all look busy — and the
+   * answer an operator gets at 02:00 is wrong in the direction that stops help going out.
+   *
+   * A reason is required. Standing a unit down mid-incident is a decision somebody will be
+   * asked about afterwards (INV-06).
+   */
+  released: { resourceIds: readonly Uuid[]; reason: string };
   action_logged: { note: string; evidenceIds?: readonly Uuid[] };
   escalated: { fromSeatId: Uuid | null; toSeatId: Uuid; trigger: EscalationTrigger };
   reassigned: {
@@ -181,6 +194,7 @@ export const REASON_REQUIRED: ReadonlySet<EventType> = new Set<EventType>([
   'merged',
   'unmerged',
   'reopened',
+  'released',
 ]);
 
 export function severityRank(s: AssessedSeverity): number {

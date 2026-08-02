@@ -47,6 +47,7 @@ const NEVER_CACHE = [
   '/notifications',
   '/admin',
   '/roster',
+  '/fleet',
 ];
 
 function isNeverCache(url: URL): boolean {

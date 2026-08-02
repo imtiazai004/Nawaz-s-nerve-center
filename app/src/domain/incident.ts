@@ -286,6 +286,18 @@ export function foldIncident(
         break;
       }
 
+      case 'released': {
+        // Removed from the live set rather than flagged. "Assigned, then released" stays
+        // fully readable in the event history; what the projection has to answer is the live
+        // question — is this unit committed *right now* — and a list that only grows cannot
+        // answer it.
+        for (const id of e.payload.resourceIds) {
+          const at = assignedResourceIds.indexOf(id);
+          if (at !== -1) assignedResourceIds.splice(at, 1);
+        }
+        break;
+      }
+
       case 'action_logged': {
         actions.push({ at: e.occurredAt, by: actorOf(e), note: e.payload.note });
         if (status === 'acknowledged' || status === 'routed') status = 'responding';
