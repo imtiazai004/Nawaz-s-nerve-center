@@ -1231,3 +1231,31 @@ built rather than facts we were missing.
   same district); and the notification ladder gained a **GSM modem** rung (the server's own
   internet is a dependency the answer did not account for, and ADR-0011 exists precisely so
   a district outage does not stop work).
+
+## 2026-08-02 — M1a: the administration console
+
+- **Added:** routing signals (`domain/routing.ts`), the config store and its append-only
+  `config_event` log (`db/configStore.ts`), the administration API (`api/admin.ts`), the
+  district performance view (`api/performance.ts`), the console itself (`web/src/admin.ts`),
+  and migration `0007_administration.sql`.
+- **Changed:** intake now routes automatically and records the result — **including when the
+  result is nobody.** An unmatched emergency appends an empty `routed` event rather than
+  leaving an absence to be inferred, and appears as unassigned on both administrative
+  dashboards. SLA targets move out of `PLACEHOLDER_SLA` and into a table the administration
+  edits; the board and the escalation job both read it.
+- **Open:** `Q-06` closed — not by gathering numbers, but by building the screen the district
+  sets them on.
+- **Gate:** M1a passes. In a real browser, an operator adds a department, gives it a routing
+  signal, and an emergency reported by a different officer reaches it. **This was M2's gate**
+  and it arrives a milestone early, as a consequence of ADR-0010 rather than as work.
+- **Three bugs the tests found, all mine, all silent in production:**
+  1. `targetsFor` merged a department override into the district default by taking whichever
+     was *tighter*. A department given more time than the district kept the district's
+     deadline — the administration set 999 minutes and the board went on measuring 240.
+  2. `setSlaTarget` shared one parameter array between an INSERT and an UPDATE referencing
+     different placeholders, so **changing** an existing deadline failed every time while
+     **setting** a new one worked. Every test written until then happened to create rather
+     than change; the browser test edited a value that already existed, and found it.
+  3. The console painted whichever request returned last, so a slow response from a tab the
+     operator had left landed on top of the tab they were now on.
+- **Tests:** 340 → 410, across 26 files.

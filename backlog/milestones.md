@@ -64,6 +64,27 @@ into build work instead:
 > routing signal, and an emergency in that category reaches it **without a developer
 > touching anything**.
 
+**Passed, 2026-08-02.** `src/__tests__/admin.e2e.test.ts` does exactly that in a real
+browser: an operator types a department name, types a routing signal, and an emergency
+reported by a different officer arrives at a department that did not exist a minute earlier.
+Nothing restarted, no code names it.
+
+What shipped with it: routing signals, the unassigned queue, SLA targets as configuration
+(Q-06), an append-only configuration history, and the district performance view. 35 tests.
+
+**Three bugs the tests found, all of them mine, all of them silent in production:**
+
+- `targetsFor` merged a department's override into the district default by taking whichever
+  was **tighter**. A department given *more* time than the district silently kept the
+  district's deadline — the administration set 999 minutes on a screen and the board went on
+  measuring 240.
+- `setSlaTarget` shared one parameter array between an INSERT and an UPDATE that referenced
+  different placeholders. **Changing an existing deadline failed every time**; setting a new
+  one worked, and every test written until then happened to create rather than change. Only
+  the browser test edited a value that already existed.
+- The console painted whichever request returned last, so a slow response from a tab the
+  operator had left landed on top of the tab they were now looking at.
+
 ---
 
 ## M1 — Rescue 1122, in full · weeks 4–7

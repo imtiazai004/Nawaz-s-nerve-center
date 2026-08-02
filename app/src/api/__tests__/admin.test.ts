@@ -377,6 +377,33 @@ describe.skipIf(dbUrl === undefined)('the administration console (integration)',
       expect(district['unknown']).toBeDefined();
     });
 
+    /**
+     * Changing one, not just setting one.
+     *
+     * These were the same code path in the caller's head and two different ones in Postgres:
+     * the insert worked and the update failed with "could not determine data type of
+     * parameter $1", because the shared parameter array bound two placeholders the UPDATE
+     * never referenced. Every SLA test written before this one created a fresh row, so the
+     * district could set a deadline exactly once and never revise it. Caught by the browser
+     * test, where an operator naturally edits a value that already exists.
+     */
+    it('changes a deadline that already has a value', async () => {
+      const first = await call('PUT', '/admin/sla', dcToken, {
+        severity: 'moderate',
+        ackMinutes: 45,
+      });
+      expect(first.status).toBe(200);
+
+      const second = await call('PUT', '/admin/sla', dcToken, {
+        severity: 'moderate',
+        ackMinutes: 46,
+      });
+      expect(second.status).toBe(200);
+
+      const sla = await call('GET', '/admin/sla', dcToken);
+      expect((sla.body['district'] as Record<string, number>)['moderate']).toBe(46);
+    });
+
     it('lets a department have a tighter deadline than the district', async () => {
       const created = await call('POST', '/admin/departments', dcToken, {
         name: `Fast Response ${RUN}`,

@@ -115,6 +115,25 @@ the spine.
 | M0-36 | **Rapid intake — measured against the 15s budget** | `DONE` | M0-14 | ~800ms at 4× CPU throttle. Two taps, no typing, submit-then-enrich. 10 tests |
 | M0-48 | Layered location capture that never blocks | `DONE` | M0-36 | New. GPS watched from open; whatever arrived by submit is attached. Captured layers recorded |
 
+### M1a — the administration console
+
+The milestone that came out of **ADR-0010**. Two offices are the authority for the whole
+district, so their console is the product rather than a supporting screen — and almost every
+question that was "waiting on the district" turned into a screen where they enter the answer.
+
+| # | Task | Status | Depends on | Acceptance |
+|---|---|---|---|---|
+| M1a-01 | Routing signals per department | `DONE` | M0-51 | `domain/routing.ts`. Category or keyword, matched on whole words so `gas` never matches `gasht`. Several departments matching is the correct answer, not a conflict. **An assumed category never satisfies a category signal** — the ADR-0009 error, one field over. 23 tests |
+| M1a-02 | Auto-route at intake; unassigned is recorded, never inferred | `DONE` | M1a-01 | No match appends an **empty `routed` event**, so "we looked and found nobody" is a fact with a timestamp rather than indistinguishable from "nobody has looked yet". Routing cannot make intake fail (INV-01) |
+| M1a-03 | Departments as editable data | `DONE` | M0-51 | Create, rename, retire, restore, contact number. Retiring retires the routing signals with it — a department that no longer exists must stop receiving emergencies. **The two administrative offices cannot retire themselves** |
+| M1a-04 | SLA targets as configuration (**closes Q-06**) | `DONE` | — | Migration 0007 seeds `PLACEHOLDER_SLA` into `sla_target` and the table becomes the authority. Per department and per severity, `unknown` included. The board and the escalation job both read it |
+| M1a-05 | `config_event` — an append-only record of every configuration change | `DONE` | — | Who, when, why, before and after. Same guarantee as the incident log, enforced by triggers. Without it, "why was this not flagged late?" has no answer six weeks later |
+| M1a-06 | The unassigned queue, loudly | `DONE` | M1a-02 | A banner above everything, a summary tally, and a marked row. Named on both administrative dashboards because they are the ones who can fix it (ADR-0005) |
+| M1a-07 | District performance — every department side by side | `DONE` | — | Median before mean, measured from `occurredAt` so an outage shows as an outage, ranked by what needs attention. **A department with no data shows a dash, never a zero** |
+| M1a-08 | The console itself | `DONE` | M1a-03…07 | Four tabs. Offered only to the two offices, and refused server-side when the tab is bypassed (INV-05). 25 API tests + 10 browser tests |
+| M1a-09 | Collapse `Tier` to two rungs | `TODO` | ADR-0010 | Four values remain in the type and two are used. A follow-up, not a prerequisite |
+| M1a-10 | Departments the district can reach: people and numbers per department | `TODO` | M1a-03 | The console edits the department; it does not yet edit its **roster**. Rescue 1122 having no contact number is still a gap only the directory loader can fill |
+
 ### Operations
 
 | # | Task | Status | Depends on | Acceptance |
@@ -180,8 +199,15 @@ ladder cannot work until that is answered) and **Q-19** (two officers sharing on
 drill), a deployment decision (M0-37 scheduling and M0-05 secrets, both on P-08), or a thing
 that does not exist yet (M0-11 needs a payload v2 before a v2 reader means anything).
 
-**M1 is the work now, and it stalls on two answers:** Q-18 (tiers, or escalation cannot walk
-the ladder on real data) and Rescue 1122's contact number.
+**M1a is done and it moved the ground under the rest of the plan.** Q-18 is answered by
+ADR-0010, Q-06 by a screen rather than a number, and "which departments respond to what" by
+routing signals the district writes. M2's gate — *adding a department is a configuration
+exercise measured in hours* — is met a milestone early and proved by a browser test.
+
+**What M1 still needs is one phone number.** Rescue 1122's post is loaded vacant, and a
+vacant post is exactly what the escalation ladder is built to surface rather than swallow.
+The console now shows it: a department with routing signals and nobody to notify is flagged
+on its own card.
 
 **M0-38 is now a scheduling problem, not an engineering one.** The runbook is written for
 someone who did not build this, and every step in it has been executed by the test suite

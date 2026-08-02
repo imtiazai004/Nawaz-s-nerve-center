@@ -123,7 +123,7 @@ that blocks release on failure.
 
 - **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven, CI
   running**
-- **Phase:** Implementation. 340 tests pass on every push. **M1 is the work now. Every M0
+- **Phase:** Implementation. 410 tests pass on every push. **M1a is done; M1 is the work now. Every M0
   task that is code is done.** What remains open: the restore **drill** (M0-38, needs a
   second person), backup **scheduling** (M0-53, unblocked now that P-08 is answered),
   replication to the standby (M0-54), secrets (M0-05), and M0-11 payload versioning, which
@@ -144,10 +144,19 @@ that blocks release on failure.
   for the whole district. Every other department reports to them. **The ladder has two rungs
   and there is no third.** The four-tier hierarchy in ADR-0004 was a generic guess; it is
   superseded.
-- **This makes the administration console the critical path, not a supporting screen.** The
-  two offices create and edit departments, set contact numbers, set SLA targets, and
-  configure the routing signals that send an emergency to the right department. See the new
-  **M1a** in `backlog/milestones.md`.
+- **The administration console is built (M1a, 2026-08-02) and its gate has passed.** In a
+  real browser, an operator adds a department, gives it a routing signal, and an emergency
+  reported by a different officer arrives at a department that did not exist a minute
+  earlier — no developer, no restart, no code naming it. That was scheduled as M2's gate and
+  arrives a milestone early because ADR-0010 made it fall out of the design.
+- **Routing is configuration.** Each department carries signals — a category, or a keyword
+  matched on whole words — and several departments matching one emergency is the correct
+  answer, not a conflict. **Nothing is guessed:** no match appends an *empty* `routed` event,
+  so "we looked and found nobody" is a recorded fact with a timestamp rather than something
+  inferred from an absence, and it appears on both administrative dashboards as unassigned.
+- **Configuration has its own append-only log** (`config_event`). The same argument as
+  ADR-0001, applied to settings: a settings table holding only the current value cannot
+  answer *why was this not flagged late?* six weeks later.
 - **Almost every question that was "waiting on the district" is now build work.** SLA targets
   (Q-06), department structure (Q-18), Rescue's missing number, which departments respond —
   all of them are things the administration sets in the software rather than facts to be
@@ -280,7 +289,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **340 tests passing** across 22 files, including **17 backup/restore tests that run a real
+- **410 tests passing** across 26 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -587,7 +596,7 @@ Build with Claude/
 │   ├── 08-runbook.md          ← restore procedure, for whoever is on the phone at 02:00
 │   └── adr/                   ← architecture decision records
 │       ├── README.md          ← index and template
-│       └── ADR-0001..0007
+│       └── ADR-0001..0012
 ├── .github/workflows/ci.yml   ← CI (M0-04). Real Postgres 17, real Chromium, `npm run check`
 ├── app/                       ← the application
 │   ├── package.json           ← `npm run check` = typecheck + lint + format + test
@@ -603,13 +612,17 @@ Build with Claude/
 │   │   ├── index.html         ← app shell
 │   │   └── src/sw.ts          ← service worker. NEVER cache /sync
 │   │   └── src/main.ts        ← boot; connectivity from sync outcomes, not navigator.onLine
+│   │   └── src/admin.ts       ← the administration console (M1a). Four tabs, no authority
 │   └── src/
 │       ├── domain/            ← pure logic, no database, no framework
 │       │   ├── events.ts      ← the event catalog (ADR-0001)
 │       │   ├── incident.ts    ← the fold: events → state, with provenance
 │       │   ├── authority.ts   ← the policy table as data (ADR-0003)
+│       │   ├── assumptions.ts ← what the system fills in when nobody said
+│       │   ├── routing.ts     ← signals → departments (ADR-0010). Never guesses
 │       │   └── sla.ts         ← deadlines and the occurred/recorded split (ADR-0002)
 │       ├── db/                ← pool, migration runner, event store
+│       │   └── configStore.ts ← departments, signals, SLA targets + the config log (M1a)
 │       ├── auth/              ← scrypt passwords, seat-scoped sessions (M0-19)
 │       ├── jobs/              ← escalation scan, notification pass, scheduler (M0-29, 32)
 │       ├── obs/               ← structured logs + correlation ids (M0-03)
@@ -618,6 +631,8 @@ Build with Claude/
 │       ├── api/               ← sync protocol and the node:http server
 │       │   ├── lifecycle.ts   ← commands: intake, triage, route, ack, close (M0-24…31)
 │       │   ├── board.ts       ← the central board projection (M0-33). No board table
+│       │   ├── admin.ts       ← the administration console API (M1a). The gate is here
+│       │   ├── performance.ts ← every department side by side (M1a). Folded, not stored
 │       │   └── notifications.ts ← the seat's inbox (M0-32). No inbox table either
 │       ├── outbox/            ← the offline substrate (ADR-0002)
 │       │   └── adapters/      ← IndexedDB store, HTTP transport, browser harness

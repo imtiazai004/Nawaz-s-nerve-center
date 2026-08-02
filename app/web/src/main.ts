@@ -21,6 +21,7 @@ import { IndexedDbOutboxStore, requestPersistence } from '../../src/outbox/adapt
 import { HttpTransport } from '../../src/outbox/adapters/httpTransport.js';
 import type { IncidentEvent } from '../../src/domain/events.js';
 import { buildCapture, describeFix, startLocationWatch, type Fix } from './location.js';
+import { mountAdmin, type AdminConsole } from './admin.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -39,6 +40,14 @@ interface Identity {
   seatTitle: string | null;
   departmentId: string | null;
   departmentName: string | null;
+  /**
+   * The DC Office and the AC Headquarter Bannu Office (ADR-0010).
+   *
+   * Decides whether the Administration tab is offered. It decides nothing else: every
+   * `/admin` request is checked server-side against the caller's department, so this is a
+   * courtesy to the operator and not a control (INV-05).
+   */
+  isAdministration: boolean;
 }
 
 function deviceId(): string {
@@ -133,8 +142,14 @@ async function boot(): Promise<void> {
     // The board and the inbox both need a seat to scope them, so they are offered only once
     // signed in. Intake never is — an emergency can be captured signed out (INV-01).
     nav.hidden = !signedIn;
+    // Offered only to the two offices that are the authority for the whole district
+    // (ADR-0010). The server does the actual refusing.
+    navAdmin.hidden = !signedIn || identity?.isAdministration !== true;
+
     if (!signedIn) {
-      if (boardView.hidden === false || inboxView.hidden === false) showView('report');
+      if (boardView.hidden === false || inboxView.hidden === false || adminView.hidden === false) {
+        showView('report');
+      }
       paintInboxCount(0);
     } else {
       void refreshInboxCount();
@@ -319,6 +334,14 @@ async function boot(): Promise<void> {
   const boardRows = el('boardRows');
   const boardEmpty = el('boardEmpty');
   const boardAsOf = el('boardAsOf');
+  const boardUnassigned = el('boardUnassigned');
+
+  // The administration console (M1a). Mounted for everyone and shown to nobody until the
+  // identity says so — building it lazily would mean the tab appearing a beat after the
+  // rest of the app, on the screen whose whole job is to be trusted.
+  const navAdmin = el<HTMLButtonElement>('navAdmin');
+  const adminView = el('adminView');
+  const admin: AdminConsole = mountAdmin();
 
   interface BoardRow {
     incidentId: string;
@@ -336,6 +359,10 @@ async function boot(): Promise<void> {
     notificationsFailed: number;
     notificationsUndelivered: number;
     responsibleDepartments: string[];
+    /** Routing ran and matched nothing. Nobody has this one (ADR-0010). */
+    unassigned: boolean;
+    /** The deadline actually applied to this row, set by the administration (Q-06). */
+    targetMinutes: number;
   }
   interface BoardData {
     asOf: string;
@@ -346,6 +373,7 @@ async function boot(): Promise<void> {
       worst: string | null;
       unassessed: number;
       notificationsUnmet: number;
+      unassigned: number;
     };
     incidents: BoardRow[];
   }
@@ -394,13 +422,27 @@ async function boot(): Promise<void> {
       // INV-03, on the board, in words: "a message that did not reach the duty officer
       // surfaces as an unmet obligation, not as a log line."
       tally('unmet', 'nobody reached', String(data.summary.notificationsUnmet)),
+      tally('unassigned', 'nobody has it', String(data.summary.unassigned)),
     );
+
+    // Above everything, because an unassigned emergency is not low priority — it is one
+    // that has not been given to anybody. It is also a routing signal somebody forgot to
+    // write, which is why the wording points at both (ADR-0005, ADR-0010).
+    boardUnassigned.hidden = data.summary.unassigned === 0;
+    if (data.summary.unassigned > 0) {
+      const n = data.summary.unassigned;
+      boardUnassigned.textContent =
+        `${String(n)} emergenc${n === 1 ? 'y has' : 'ies have'} no department. ` +
+        'The routing signals matched nothing — assign them, and add a signal so the next one ' +
+        'goes straight through.';
+    }
 
     boardRows.replaceChildren(
       ...data.incidents.map((row) => {
         const div = document.createElement('div');
         div.className = 'row';
         div.dataset['overdue'] = String(row.overdue);
+        div.dataset['unassigned'] = String(row.unassigned);
         div.dataset['incident'] = row.incidentId;
 
         const sev = document.createElement('span');
@@ -522,20 +564,21 @@ async function boot(): Promise<void> {
     showView(show ? 'board' : 'report');
   }
 
-  function showView(view: 'report' | 'board' | 'detail' | 'inbox'): void {
+  function showView(view: 'report' | 'board' | 'detail' | 'inbox' | 'admin'): void {
     reportView.hidden = view !== 'report';
     boardView.hidden = view !== 'board';
     detailView.hidden = view !== 'detail';
     inboxView.hidden = view !== 'inbox';
+    adminView.hidden = view !== 'admin';
 
     // Detail is reached from the board or the inbox, so whichever tab you came from stays
     // current while reading one.
     navReport.setAttribute('aria-current', view === 'report' ? 'page' : 'false');
     navInbox.setAttribute('aria-current', view === 'inbox' ? 'page' : 'false');
-    navBoard.setAttribute(
-      'aria-current',
-      view === 'board' || view === 'detail' ? 'page' : 'false',
-    );
+    navBoard.setAttribute('aria-current', view === 'board' || view === 'detail' ? 'page' : 'false');
+    navAdmin.setAttribute('aria-current', view === 'admin' ? 'page' : 'false');
+
+    if (view === 'admin') admin.show();
 
     if (view === 'inbox') void refreshInbox();
 
@@ -692,6 +735,7 @@ async function boot(): Promise<void> {
   navBoard.addEventListener('click', () => showView('board'));
   navReport.addEventListener('click', () => showView('report'));
   navInbox.addEventListener('click', () => showView('inbox'));
+  navAdmin.addEventListener('click', () => showView('admin'));
   el('back').addEventListener('click', () => showView('board'));
 
   // ------------------------------------------------------- incident detail (M0-35)

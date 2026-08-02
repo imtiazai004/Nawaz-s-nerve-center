@@ -526,16 +526,25 @@ export async function setSlaTarget(
 
     const before = existing.rows[0] ?? null;
 
-    const { rows } = await tx.query<{ target_id: string }>(
+    // Two statements, each with only the parameters it uses.
+    //
+    // They were one call with a shared parameter array, and the UPDATE branch referenced
+    // only `$3` and `$4` — leaving `$1` and `$2` bound but unmentioned, which Postgres
+    // rejects with "could not determine data type of parameter $1". So **changing an
+    // existing deadline failed every time while setting a new one worked**, and every test
+    // written until then happened to create rather than change.
+    const { rows } =
       before === null
-        ? `INSERT INTO sla_target (department_id, severity, ack_minutes)
-           VALUES ($1, $2, $3) RETURNING target_id`
-        : `UPDATE sla_target SET ack_minutes = $3, updated_at = now()
-            WHERE target_id = $4 RETURNING target_id`,
-      before === null
-        ? [departmentId, severity, ackMinutes]
-        : [departmentId, severity, ackMinutes, before.target_id],
-    );
+        ? await tx.query<{ target_id: string }>(
+            `INSERT INTO sla_target (department_id, severity, ack_minutes)
+             VALUES ($1, $2, $3) RETURNING target_id`,
+            [departmentId, severity, ackMinutes],
+          )
+        : await tx.query<{ target_id: string }>(
+            `UPDATE sla_target SET ack_minutes = $1, updated_at = now()
+              WHERE target_id = $2 RETURNING target_id`,
+            [ackMinutes, before.target_id],
+          );
 
     await recordChange(tx, {
       subject: 'sla_target',

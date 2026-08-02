@@ -28,17 +28,23 @@ may look.
 
 ## High
 
-### Q-06 · What are the real acknowledgement SLA targets? `RESOLVED AS A BUILD TASK 2026-08-02`
+### Q-06 · What are the real acknowledgement SLA targets? `RESOLVED AND BUILT 2026-08-02`
 **Answer: the DC and AC Headquarter offices set them inside the software.** They are an
 internal rule the administration owns, not a number to be gathered and hard-coded. Source:
 project owner, 2026-08-02.
 
-**This converts a question into work.** SLA targets must become **editable configuration** on
-the administrative dashboards, per department and per severity, with `PLACEHOLDER_SLA` as
-nothing more than the initial value a fresh install starts from.
+**Built the same day (M1a-04).** Migration 0007 seeds `PLACEHOLDER_SLA` into a `sla_target`
+table and the table becomes the authority from that moment. Targets are set per department
+and per severity from the Deadlines tab of the administration console; the board and the
+escalation job both read them; every change is recorded in `config_event` with who made it.
+`unknown` is settable too — not a level (ADR-0009), but the deadline is precisely where the
+urgency of an unassessed report now lives.
 
-Until that screen exists the board still renders "past deadline" from a guess, so this is
-not closed in effect — it is closed as a *question* and opened as a *task*.
+The board no longer renders a guess as though it were the district's rule.
+
+**Two bugs found while closing this, both of which would have been silent:** a department
+given a *longer* deadline than the district kept the district's shorter one, and changing an
+existing deadline failed every time while setting a new one worked. Both are pinned by tests.
 
 ### Q-07 · Which notification channels are actually reliable in Bannu? `RESOLVED 2026-08-02`
 **Answer: WhatsApp first; if WhatsApp does not reach them, redirect to a direct phone call;

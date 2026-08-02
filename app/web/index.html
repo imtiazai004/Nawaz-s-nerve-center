@@ -205,8 +205,138 @@
       #boardSummary .tally[data-kind="unassessed"] { border-color: var(--pending); color: var(--pending); }
       #boardSummary .tally[data-kind="overdue"] { border-color: var(--critical); color: var(--critical); }
       #boardSummary .tally[data-kind="unmet"] { border-color: var(--critical); color: var(--critical); }
+      #boardSummary .tally[data-kind="unassigned"] { border-color: var(--critical); color: var(--critical); }
       /* An unmet obligation spans the row, because it concerns the whole incident. */
       .row .unmet { grid-column: 1 / -1; }
+
+      /* Nobody has these. Loud, above everything, never a colour on its own (INV-04). */
+      #boardUnassigned {
+        margin: 0 0 0.7rem; padding: 0.6rem 0.8rem;
+        background: #f0dad6; color: var(--critical);
+        border-left: 4px solid var(--critical);
+        font-size: 0.9rem; font-weight: 700;
+      }
+      .row[data-unassigned="true"] { border-left: 4px solid var(--critical); }
+
+      /* ------------------------------------------------ administration console */
+      body:has(#adminView:not([hidden])) main { max-width: 64rem; }
+
+      #adminTabs { display: flex; gap: 0.2rem; margin-bottom: 0.9rem; flex-wrap: wrap; }
+      #adminTabs button {
+        margin: 0; padding: 0.35rem 0.75rem; min-height: 40px;
+        font: inherit; font-size: 0.82rem; font-weight: 700;
+        background: none; border: 1px solid var(--line); border-radius: 3px;
+        color: var(--slate); cursor: pointer;
+      }
+      #adminTabs button[aria-current="page"] {
+        background: var(--ink); border-color: var(--ink); color: var(--paper);
+      }
+      #adminError {
+        margin: 0 0 0.9rem; padding: 0.6rem 0.8rem;
+        background: #f0dad6; color: var(--critical);
+        font-size: 0.88rem; font-weight: 600;
+      }
+      #adminBody .note { margin-top: 0; }
+      .sectionhead {
+        font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em;
+        color: var(--slate); margin: 1.2rem 0 0.5rem;
+      }
+
+      #addDepartment {
+        display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: stretch;
+        margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line);
+      }
+      #addDepartment input { flex: 1 1 12rem; min-width: 0; margin: 0; padding: 0.5rem; font: inherit; }
+      #addDepartment button {
+        margin: 0; padding: 0.5rem 1rem; font: inherit; font-weight: 700;
+        background: var(--ink); color: var(--paper); border: none; border-radius: 2px; cursor: pointer;
+      }
+
+      .dept {
+        background: var(--card); border: 1px solid var(--line); border-radius: 3px;
+        padding: 0.7rem 0.85rem; margin-bottom: 0.6rem;
+      }
+      .dept[data-retired="true"] { opacity: 0.6; background: none; }
+      .dept header { display: flex; align-items: baseline; gap: 0.5rem; padding: 0; border: none; }
+      .dept .name { margin: 0; font-size: 0.95rem; }
+      .dept .tag {
+        font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+        padding: 0.1rem 0.35rem; border: 1px solid var(--line); border-radius: 2px; color: var(--slate);
+      }
+      .dept .tag.admin { border-color: var(--ink); color: var(--ink); }
+      .dept .desc { margin: 0.3rem 0 0; font-size: 0.85rem; }
+      .dept .meta { margin: 0.25rem 0 0; font-size: 0.78rem; color: var(--slate); }
+      .dept .meta .warn { color: var(--critical); }
+
+      .signals { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0 0; }
+      .signal {
+        display: inline-flex; align-items: baseline; gap: 0.35rem;
+        padding: 0.15rem 0.45rem; border: 1px solid var(--line); border-radius: 2px;
+        font-size: 0.8rem; background: var(--paper);
+      }
+      .signal .kind { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--slate); }
+      .signal .pattern { font-weight: 700; }
+      .nosignals { font-size: 0.8rem; font-weight: 700; color: var(--critical); }
+
+      .addsignal { display: flex; gap: 0.35rem; margin-top: 0.5rem; flex-wrap: wrap; }
+      .addsignal select, .addsignal input { margin: 0; padding: 0.35rem; font: inherit; font-size: 0.85rem; }
+      .addsignal input { flex: 1 1 12rem; min-width: 0; }
+      .addsignal button {
+        margin: 0; padding: 0.35rem 0.7rem; font: inherit; font-size: 0.8rem; font-weight: 700;
+        background: none; border: 1px solid var(--ink); border-radius: 2px; cursor: pointer;
+      }
+
+      .dept .actions { display: flex; gap: 0.8rem; margin-top: 0.6rem; }
+      button.link {
+        margin: 0; padding: 0; width: auto; font: inherit; font-size: 0.78rem;
+        background: none; border: none; color: var(--slate);
+        text-decoration: underline; cursor: pointer;
+      }
+      button.link.danger { color: var(--critical); }
+
+      .deadlines {
+        display: grid; grid-template-columns: 1fr repeat(5, 5rem);
+        gap: 0.4rem; align-items: center; padding: 0.35rem 0; border-bottom: 1px solid var(--line);
+      }
+      .deadlines.district { grid-template-columns: repeat(5, 1fr); border: none; }
+      .deadlines.district .cell { display: flex; flex-direction: column; gap: 0.2rem; }
+      .deadlines .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--slate); }
+      .deadlines .deptname { font-size: 0.85rem; }
+      input.ack { margin: 0; padding: 0.35rem; width: 100%; font: inherit; font-size: 0.85rem; }
+      @media (max-width: 46rem) {
+        .deadlines { grid-template-columns: 1fr; }
+        .deadlines.district { grid-template-columns: repeat(2, 1fr); }
+      }
+
+      #adminPerformance .tallies { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0 1rem; }
+      #adminPerformance .tally {
+        padding: 0.4rem 0.7rem; background: var(--card); border: 1px solid var(--line);
+        border-radius: 3px; font-size: 0.8rem; font-weight: 600;
+      }
+      #adminPerformance .tally b { font-size: 1.1rem; display: block; }
+      #adminPerformance .tally[data-kind="overdue"],
+      #adminPerformance .tally[data-kind="unassigned"],
+      #adminPerformance .tally[data-kind="unmet"] { border-color: var(--critical); color: var(--critical); }
+
+      #performanceTable { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+      #performanceTable th {
+        text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--slate); border-bottom: 1px solid var(--ink); padding: 0.35rem 0.4rem;
+      }
+      #performanceTable td { padding: 0.4rem; border-bottom: 1px solid var(--line); }
+      #performanceTable tr[data-overdue="true"] td { background: #f7e9e6; }
+
+      .change {
+        display: grid; grid-template-columns: 9rem 1fr 12rem;
+        gap: 0.3rem 0.8rem; padding: 0.45rem 0.2rem;
+        border-bottom: 1px solid var(--line); font-size: 0.82rem;
+      }
+      .change .when { color: var(--slate); font-variant-numeric: tabular-nums; }
+      .change .what { font-weight: 600; }
+      .change .who { color: var(--slate); font-size: 0.78rem; }
+      .change .why { grid-column: 1 / -1; color: var(--slate); font-size: 0.78rem; font-style: italic; }
+      .change[data-action="retired"] .what { color: var(--critical); }
+      @media (max-width: 46rem) { .change { grid-template-columns: 1fr; } }
 
       #boardRows { border-top: 1px solid var(--line); }
       .row {
@@ -326,6 +456,14 @@
       <button type="button" id="navInbox">
         Waiting for you <span id="inboxCount" class="count" hidden>0</span>
       </button>
+      <!--
+        Shown only to the DC Office and the AC Headquarter Bannu Office (ADR-0010).
+
+        Hiding it is a courtesy, not a control. Every /admin request is checked server-side
+        against the caller's department, so a hidden tab and a typed URL get the same
+        answer (INV-05).
+      -->
+      <button type="button" id="navAdmin" hidden>Administration</button>
     </nav>
 
     <main>
@@ -421,9 +559,39 @@
       -->
       <section id="boardView" hidden>
         <p id="boardAsOf"><span id="boardAsOfText">Loading…</span><span id="boardScope"></span></p>
+        <!--
+          Emergencies the routing signals could not place (ADR-0010).
+
+          Above the summary and above every row, because nobody has them. An unassigned
+          emergency is not a low-priority one — it is one that has not been given to
+          anybody, and it is also a signal somebody forgot to configure. Quiet is not an
+          option here (ADR-0005).
+        -->
+        <p id="boardUnassigned" hidden></p>
         <div id="boardSummary"></div>
         <div id="boardRows"></div>
         <p id="boardEmpty" hidden>No open incidents in the last seven days.</p>
+      </section>
+
+      <!--
+        The administration console (M1a).
+
+        The two offices that are the authority for the whole district create and retire
+        departments, say what each one answers for, set the acknowledgement deadlines
+        everything is measured against, and see every department side by side.
+
+        Almost everything on this screen was previously either a guess in a source file or a
+        question waiting on the district. It is all data now, edited here.
+      -->
+      <section id="adminView" hidden>
+        <nav id="adminTabs">
+          <button type="button" data-tab="departments" aria-current="page">Departments</button>
+          <button type="button" data-tab="deadlines">Deadlines</button>
+          <button type="button" data-tab="performance">Performance</button>
+          <button type="button" data-tab="history">History</button>
+        </nav>
+        <p id="adminError" hidden></p>
+        <div id="adminBody"></div>
       </section>
 
       <!--
