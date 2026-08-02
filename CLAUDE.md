@@ -246,6 +246,15 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
   **16 notification tests**, 18 escalation tests, 6 real-browser durability tests, 13
   offline-launch tests, 15 login tests, 10 rapid-intake tests, and the 14-step M0 gate.
 - `cd app && npm run check` runs typecheck, lint, format check and tests. **Keep it green.**
+- **CI runs exactly that command on every push** (`.github/workflows/ci.yml`), against a real
+  PostgreSQL 17 and a real Chromium — ~1m25s. If CI and local can disagree about what green
+  means, the one nobody is watching wins.
+  - **A missing `TEST_DATABASE_URL` under `CI` is a hard failure, not a skip**
+    (`src/testing/loadEnv.ts`). Otherwise one broken secret drops every integration suite and
+    the build goes green having run fifty tests instead of 297.
+  - **`PG_BIN` is set to `/usr/lib/postgresql/17/bin`.** `/usr/bin/pg_dump` on Debian is
+    `pg_wrapper`, which picks a version, and it picked 16 against the 17 server. The workflow
+    asserts the version rather than printing it.
 
 - **`app/src/api/board.ts` — the central board (M0-33).** `GET /incidents`, folded on demand
   from the same event log. **There is no board table**, so it cannot fall out of step with
@@ -461,6 +470,7 @@ Build with Claude/
 │   └── adr/                   ← architecture decision records
 │       ├── README.md          ← index and template
 │       └── ADR-0001..0007
+├── .github/workflows/ci.yml   ← CI (M0-04). Real Postgres 17, real Chromium, `npm run check`
 ├── app/                       ← the application
 │   ├── package.json           ← `npm run check` = typecheck + lint + format + test
 │   ├── tsconfig.json          ← strict, including noUncheckedIndexedAccess

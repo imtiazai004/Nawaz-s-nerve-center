@@ -822,3 +822,59 @@ The last engineering item on the M0 gate. What remains of M0-38 is a person and 
   a service nobody has chosen is speculative work — and because a project with no off-machine
   copy is one disk failure from being gone, which is a poor look for the week the backup
   system was built.
+
+## 2026-08-02 — P-09 resolved, M0-04 done, and CI immediately earned its keep
+
+- **Resolved: P-09.** The repository is on GitHub, private, at
+  `imtiazai004/Nawaz-s-nerve-center`, branch `main`. Everything up to this point existed on
+  one disk.
+  **Recorded because the two get conflated: this says nothing about where the application
+  runs.** P-08 is still open, and on-premise remains a live and arguably better option — the
+  system is offline-first because *Bannu's* connectivity is unreliable, and a cloud server
+  turns a district internet outage into every handset and the control room losing sight of
+  their own system at once. A server in the DC office keeps the local network working.
+- **Added: `.github/workflows/ci.yml` (M0-04).** One job, running the same command a
+  developer runs, against a **real PostgreSQL 17 and a real Chromium**. Slower than a mocked
+  build; that is the point — the properties under test are durability and genuine
+  immutability, and a stand-in demonstrates neither. ~1m25s.
+- **Added: a missing `TEST_DATABASE_URL` under `CI` is now a hard failure rather than a
+  skip.** Locally the skip is a kindness — you can run the domain tests with no cluster. In
+  CI it is a trap: one broken secret would drop every integration suite and the build would
+  go **green with roughly fifty tests instead of 297**, reporting success having proven
+  almost nothing.
+- **Fixed: `esbuild` was a phantom dependency.** `build.mjs` imported it directly while it
+  was only present as a transitive dependency of vitest — it resolved because npm hoisted
+  another package's internals to the top level. It would have broken on a vite bump or a
+  stricter package manager, and it would have broken **the build**, at a moment nobody was
+  touching the build. Declaring it installs nothing extra; it dedupes to the same copy.
+- **Fixed: two `eventStore` cursor tests found "the end of the log" by paging
+  `loadSince(pool, 0, 10_000)`.** That is the end of the log right up until the log has more
+  than ten thousand events in it — and the test database crossed 11,000 this week. Not a
+  regression: a test that was always going to fail eventually, on a day unrelated to whatever
+  change happened to trigger it. Added `currentCursor()`, which `server.ts` was already doing
+  inline with duplicated SQL.
+
+**CI found two more faults on its first run, and both were invisible locally.**
+
+- **`pg_dump` resolved to version 16 against a 17 server.** `/usr/bin/pg_dump` on Debian is
+  `pg_wrapper`, which *chooses* a version, and with client 16 on the runner image it chose 16
+  even though 17.10 had installed correctly. Fixed by pointing `PG_BIN` at
+  `/usr/lib/postgresql/17/bin` — the seam `ops/backup.ts` already had for the portable local
+  cluster — and the workflow now **asserts** the version instead of printing it, so a wrapper
+  change fails where the cause is obvious rather than six steps later as a confusing test
+  failure.
+- **The login suite had a stale-state race.** `reportEmergency` waited for `#sent` to become
+  visible — but `#sent` stays visible after the first report, so the wait returned instantly
+  and `lastIncidentId()` could still be the *previous* report's. Test 8 then asserted "this
+  was not stored while signed out" against test 5's incident, which had been legitimately
+  stored. It passed locally on timing and failed on CI's empty database. It now waits for the
+  id to **change**, which does not depend on how fast the machine is. `rapidIntake` reloads
+  the page between reports and never had this — checked rather than assumed.
+- **The lesson worth keeping:** both faults were state- and timing-dependent, and a developer
+  machine with a fat database and a warm cache is the environment least likely to show them.
+  That is the argument for CI, and it made it on the first run.
+- **Verified:** the full suite passes against a **freshly created database with `CI=true`** —
+  the exact condition that exposed both — 297/297 across 19 files, and green on GitHub.
+- **Known and benign:** GitHub warns that `actions/checkout@v4` and `actions/setup-node@v4`
+  target Node 20 and are forced onto Node 24. Not a failure; recorded so the next person does
+  not go looking.
