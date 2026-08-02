@@ -1388,3 +1388,37 @@ built rather than facts we were missing.
   leaves an operator believing they sent three things when two went, and the one that did not
   go is the one they would have replaced.
 - **Tests:** 463 → 498.
+
+## 2026-08-03 — When it happened, and what was photographed (M1-04, M1-05)
+
+- **Changed:** `log_action` accepts an `occurredAt`. An operator logs "on scene" ten minutes
+  after arriving and a crew writes up an hour of work at once; recording all of it as
+  happening when somebody found time to type would put a lie into the record a post-incident
+  report is folded from. `recordedAt` stays server-assigned and is never the caller's — a
+  client that could set it could rewrite how long the district took. A stated time in the
+  future is ignored.
+- **Added:** evidence. Migration `0012_evidence.sql`, `ops/evidence.ts`,
+  `api/evidenceRoutes.ts`, `POST /incidents/:id/evidence` and `GET /evidence/:id`.
+  `resolved` and `closed` have carried an optional `evidenceIds` since migration 0001 and
+  those ids referenced nothing; this is the thing they point at.
+- **The bytes are on disk, not in the database.** Photographs inside the nightly dump would
+  take it from megabytes to gigabytes and the thing that then fails is the restore, at 02:00.
+  ADR-0011 also sends that dump out of the district, and every photograph of every emergency
+  crossing that boundary nightly is a far larger disclosure than the contact list — it would
+  have happened without anybody deciding it.
+- **Two rules about not trusting an upload**, each with a test that tries to break it. The
+  client never chooses the path: a filename is a label, recorded and displayed and never
+  joined onto anything. The declared content type never decides how the file is served:
+  everything goes back as `application/octet-stream`, `nosniff`, as an attachment — because
+  an operator's browser executing an "image" somebody uploaded is the obvious way into a
+  control room, and `image/svg+xml` is a script.
+- **A file whose hash no longer matches is still served**, with `x-integrity: MISMATCH`. It
+  may be the only photograph of the scene; refusing would turn a detectable problem into a
+  missing one. What must never happen is presenting it as verified.
+- **Raw body, not multipart** — see the header of `api/evidenceRoutes.ts`. Hand-rolling a
+  multipart parser in `node:http` is where the interesting bugs live, and adding a framework
+  to avoid writing one is the dependency ADR-0007 exists to refuse.
+- **Three test bugs of mine, all the same shape**: assertions that assumed a fresh database.
+  A `UNIQUE` path reused between runs, two `examples` lists capped at ten, and a board
+  summary capped at 500 incidents. Fixed to assert the actual claim rather than a total.
+- **Tests:** 498 → 520.

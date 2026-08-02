@@ -40,3 +40,6 @@ web/dist/
 # would have committed the contact list a second time. Verified with `git check-ignore -v`.
 **/db/seed/*.json
 !**/db/seed/*.example.json
+
+# Evidence files. The record of them is in the database; the bytes are not the repo's.
+app/var/

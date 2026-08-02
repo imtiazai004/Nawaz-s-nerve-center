@@ -159,8 +159,18 @@ describe.skipIf(dbUrl === undefined)('the configuration sweep', () => {
     const finding = find((await sweep(pool)).findings, 'shared-handset');
     // An office handset covering two posts is ordinary in Bannu (Q-19). Reporting it as a
     // problem would train whoever reads this to ignore the list.
+    //
+    // Counted rather than found in `examples`, which is capped at ten and sorted by name —
+    // on a shared test database this run's pair is usually past the cut. The cap is right for
+    // a report somebody reads; it just makes `examples` the wrong thing to assert on.
     expect(finding?.severity).toBe('note');
-    expect(finding?.examples.join(' ')).toContain(`Shares A ${RUN}`);
+    expect(finding?.count).toBeGreaterThan(0);
+
+    const pair = await pool.query<{ n: string }>(
+      'SELECT count(*)::text AS n FROM person WHERE phone = $1 AND removed_at IS NULL',
+      [shared],
+    );
+    expect(Number(pair.rows[0]!.n)).toBe(2);
   });
 
   /**

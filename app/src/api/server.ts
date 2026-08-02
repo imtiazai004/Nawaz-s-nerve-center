@@ -60,6 +60,8 @@ import {
   retireResource,
   serviceState,
 } from './resources.js';
+import { download, listEvidence, upload } from './evidenceRoutes.js';
+import { listFor } from '../ops/evidence.js';
 import { backupHealth } from '../ops/backup.js';
 import { correlationIdFrom, log, withContext } from '../obs/log.js';
 
@@ -85,6 +87,13 @@ export interface ServerOptions {
   readonly nodeEnv?: string;
   /** Directory of built web assets. When absent, the server is API-only. */
   readonly webRoot?: string;
+  /**
+   * Where evidence files are written (M1-05).
+   *
+   * Outside the web root, always — a directory the server serves statically is a directory
+   * where an uploaded file becomes a URL somebody's browser will open.
+   */
+  readonly evidenceRoot?: string;
 }
 
 const MIME: Readonly<Record<string, string>> = {
@@ -332,9 +341,24 @@ function parseCommand(kind: CommandKind, body: Record<string, unknown>): Command
         ...(nonEmpty(body['reason']) ? { reason: body['reason'].trim() } : {}),
       };
 
-    case 'log_action':
+    case 'log_action': {
       if (!nonEmpty(body['note'])) return 'note is required';
-      return { kind, note: body['note'].trim() };
+
+      // A stated time is accepted only if it parses and is not in the future. A clock skewed
+      // forward would otherwise let an action be logged as having happened after the
+      // incident closed, and the timeline would read as nonsense to whoever reviews it.
+      const stated = body['occurredAt'];
+      const when =
+        typeof stated === 'string' && Number.isFinite(Date.parse(stated))
+          ? new Date(stated).toISOString()
+          : null;
+
+      return {
+        kind,
+        note: body['note'].trim(),
+        ...(when !== null && when <= new Date().toISOString() ? { occurredAt: when } : {}),
+      };
+    }
 
     case 'override': {
       const field = body['field'];
@@ -748,6 +772,7 @@ async function handleIncidents(
   res: ServerResponse,
   route: { readonly incidentId: string | null; readonly action: string | null },
   identity: Identity,
+  evidenceRoot: string,
 ): Promise<void> {
   const readJson = async (): Promise<Record<string, unknown> | null> => bodyOf(req);
 
@@ -807,7 +832,30 @@ async function handleIncidents(
       events: result.events,
       actors: result.actors,
       responsibleDepartments: result.responsibleDepartments,
+      // Sent with the incident rather than fetched separately. The detail screen needs both
+      // to render one timeline, and a second round trip is a second thing that can be
+      // half-loaded on a bad connection.
+      evidence: await listFor(pool, route.incidentId),
     });
+    return;
+  }
+
+  // Evidence (M1-05). Authority comes from the incident, so these sit inside the incident
+  // handler rather than beside it.
+  if (route.action === 'evidence') {
+    if (req.method === 'POST') {
+      const reply = await upload(pool, evidenceRoot, req, route.incidentId, identity);
+      if (!reply.ok) json(res, reply.status, { error: reply.error });
+      else json(res, reply.status, reply.body);
+      return;
+    }
+    if (req.method === 'GET') {
+      const reply = await listEvidence(pool, route.incidentId, identity);
+      if (!reply.ok) json(res, reply.status, { error: reply.error });
+      else json(res, reply.status, reply.body);
+      return;
+    }
+    json(res, 405, { error: 'method not allowed' });
     return;
   }
 
@@ -891,6 +939,10 @@ async function handlePull(pool: Pool, res: ServerResponse, url: URL): Promise<vo
 
 export function createSyncServer(options: ServerOptions): Server {
   const { pool, webRoot } = options;
+  // Defaulted rather than required, so every existing caller keeps working — but defaulted
+  // to a directory **outside** the web root, because a directory the server serves
+  // statically is a directory where an uploaded file becomes a URL a browser will open.
+  const evidenceRoot = options.evidenceRoot ?? join(process.cwd(), 'var', 'evidence');
   const authMode = options.authMode ?? 'stub';
   const nodeEnv = options.nodeEnv ?? process.env['NODE_ENV'] ?? 'development';
 
@@ -1023,6 +1075,29 @@ export function createSyncServer(options: ServerOptions): Server {
           return;
         }
 
+        // Fetching one file. Scoped by the incident it belongs to, resolved inside.
+        const evidenceFile = /^\/evidence\/([^/]+)$/.exec(url.pathname);
+        if (evidenceFile !== null) {
+          if (req.method !== 'GET') {
+            json(res, 405, { error: 'method not allowed' });
+            return;
+          }
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+          if (!UUID_RE.test(evidenceFile[1]!)) {
+            json(res, 404, { error: 'no such evidence' });
+            return;
+          }
+
+          const reply = await download(pool, evidenceRoot, res, evidenceFile[1]!, identity);
+          if (reply !== null && !reply.ok) json(res, reply.status, { error: reply.error });
+          return;
+        }
+
         // What a department can send (M1-02). Same gate as the roster.
         if (url.pathname === '/fleet' || url.pathname.startsWith('/fleet/')) {
           const token = readToken(req);
@@ -1072,7 +1147,7 @@ export function createSyncServer(options: ServerOptions): Server {
             return;
           }
 
-          await handleIncidents(pool, req, res, incidentRoute, identity);
+          await handleIncidents(pool, req, res, incidentRoute, identity, evidenceRoot);
           return;
         }
 

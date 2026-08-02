@@ -463,20 +463,21 @@ describe.skipIf(dbUrl === undefined)('the administration console (integration)',
 
   describe('what the two offices see', () => {
     it('counts unassigned emergencies on the board summary (ADR-0005)', async () => {
-      const before = (await (
-        await fetch(`${base}/incidents`, { headers: { authorization: `Bearer ${dcToken}` } })
-      ).json()) as Board;
-
-      await call('POST', '/incidents', rescueToken, {
+      const created = await call('POST', '/incidents', rescueToken, {
         category: `nothing-matches-${RUN}`,
       });
+      const id = created.body['incidentId'] as string;
 
-      const after = (await (
+      const board = (await (
         await fetch(`${base}/incidents`, { headers: { authorization: `Bearer ${dcToken}` } })
       ).json()) as Board;
 
-      expect(after.summary.unassigned).toBeGreaterThan(before.summary.unassigned);
-      expect(after.incidents.some((r) => r.unassigned)).toBe(true);
+      // Asserted on **this** incident rather than on the count going up. The board is capped
+      // at the most recent 500, so on a test database with more unassigned incidents than
+      // that, one more changes nothing — and the claim being tested was never about the
+      // total anyway.
+      expect(board.incidents.find((r) => r.incidentId === id)?.unassigned).toBe(true);
+      expect(board.summary.unassigned).toBeGreaterThan(0);
     });
 
     it('shows every department with its signals, its posts, and its vacancies', async () => {

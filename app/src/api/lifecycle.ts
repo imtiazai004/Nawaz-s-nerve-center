@@ -66,7 +66,20 @@ export type Command =
     }
   | { readonly kind: 'route'; readonly departmentIds: readonly Uuid[]; readonly reason: string }
   | { readonly kind: 'acknowledge'; readonly reason?: string }
-  | { readonly kind: 'log_action'; readonly note: string }
+  | {
+      readonly kind: 'log_action';
+      readonly note: string;
+      /**
+       * When it actually happened, if not now.
+       *
+       * An operator logs "on scene" ten minutes after arriving, and a crew back from a call
+       * writes up an hour of work at once. Recording all of it as happening at the moment
+       * somebody typed would put a lie in the one record a post-incident report is folded
+       * from — and it is the same lie ADR-0002 already refuses for a report captured
+       * offline. A stated time in the future is ignored rather than trusted.
+       */
+      readonly occurredAt?: string;
+    }
   | { readonly kind: 'reassign'; readonly departmentIds: readonly Uuid[]; readonly reason: string }
   | {
       readonly kind: 'override';
@@ -233,10 +246,18 @@ function eventFor(
   clientSeq: number,
   state: IncidentState,
 ): IncidentEvent {
+  // `recordedAt` is always now and is never the caller's to state — it is when the server
+  // learned of it, and a client that could set it could rewrite how long the district took.
+  // `occurredAt` may be earlier when the actor says so, which is the whole point of keeping
+  // the two apart (ADR-0002).
+  const stated =
+    command.kind === 'log_action' && isNonEmpty(command.occurredAt) ? command.occurredAt : null;
+  const occurredAt = stated !== null && stated <= now ? stated : now;
+
   const envelope = {
     eventId: randomUUID(),
     incidentId,
-    occurredAt: now,
+    occurredAt,
     recordedAt: now,
     clientSeq,
     // Stamped from the session. Whatever the body claimed is not consulted.
