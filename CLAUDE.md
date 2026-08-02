@@ -120,7 +120,7 @@ that blocks release on failure.
 
 - **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven, CI
   running**
-- **Phase:** Implementation. 336 tests pass on every push. **M1 is the work now. Every M0
+- **Phase:** Implementation. 340 tests pass on every push. **M1 is the work now. Every M0
   task that is code is done.** Four remain open: the restore **drill** (M0-38, needs a
   second person), backup **scheduling** (M0-37) and secrets (M0-05), both waiting on P-08,
   and M0-11 payload versioning, which needs a payload v2 to exist before a v2 reader means
@@ -149,8 +149,22 @@ cutting the network at the driver, real HTTP, real PostgreSQL.
 ```
 .\scripts\dev-db.ps1 start     # portable Postgres 17 on port 5433, no elevation needed
 cd app && npm install && npm run check
+npm start                      # build web + compile server + run on PORT (default 3000)
 ```
 Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
+
+**`npm start` compiles.** It is `node build.mjs` (the PWA) then `tsc -p tsconfig.build.json`
+(the server, into `dist/`) then `node dist/main.js`. It used to be
+`node --experimental-strip-types src/main.ts`, which **never worked**: type stripping does
+not remap a `.js` import specifier to the `.ts` beside it, and every import here is written
+with `.js` because that is what compiled ESM needs. Vitest resolves those specifiers itself,
+so 338 tests passed against an application that could not be launched. `src/__tests__/
+deployable.e2e.test.ts` now builds the real artifact, runs it, and waits for `/health` —
+because nothing else could have caught this, and nothing had.
+
+The same day, the same shape: the process started and exited with `DATABASE_URL is not set`,
+because `app/.env` — named here and in `docs/05-stack.md` as where configuration lives — was
+only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 
 **What exists**
 - Planning and architecture documents in `docs/` (thesis, invariants, connectivity
@@ -243,7 +257,7 @@ Connection strings are in `app/.env` (gitignored). See `docs/05-stack.md`.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **336 tests passing** across 21 files, including **17 backup/restore tests that run a real
+- **340 tests passing** across 22 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -554,7 +568,8 @@ Build with Claude/
 ├── .github/workflows/ci.yml   ← CI (M0-04). Real Postgres 17, real Chromium, `npm run check`
 ├── app/                       ← the application
 │   ├── package.json           ← `npm run check` = typecheck + lint + format + test
-│   ├── tsconfig.json          ← strict, including noUncheckedIndexedAccess
+│   ├── tsconfig.json          ← strict; checks src, web/src and build.mjs
+│   ├── tsconfig.build.json    ← emits the server to dist/. `npm start` needs a real compile
 │   ├── vitest.config.ts       ← db tests run serially against one cluster
 │   ├── eslint.config.js
 │   ├── .prettierrc.json

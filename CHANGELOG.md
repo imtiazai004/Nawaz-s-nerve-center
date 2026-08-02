@@ -1124,3 +1124,35 @@ Found by a CI-only failure in the enrichment test, which turned out not to be a 
 - **Verified:** 338/338 tests across 21 files. The two new outbox tests drive the race
   deterministically with a transport hook rather than hoping for the timing that CI happened
   to produce.
+
+## 2026-08-02 — `npm start` had never worked
+
+Asked whether the app could be opened on localhost. Answering that honestly took two fixes,
+and the first is the most uncomfortable finding in this project so far.
+
+- **Fixed: `npm start` had never worked.** Not regressed — never, not once. It ran
+  `node --experimental-strip-types src/main.ts`, and type stripping does **not** remap a
+  `.js` import specifier to the `.ts` file beside it. Every import in this codebase is
+  written with `.js`, which is correct for compiled ESM and is exactly what `tsc` resolves —
+  there simply was no compile step. **Vitest resolves those specifiers itself**, which is why
+  338 tests, three consecutive green runs and a green CI all passed against an application
+  that could not be launched.
+  `npm start` is now `node build.mjs` → `tsc -p tsconfig.build.json` → `node dist/main.js`.
+  The most boring option, and the one the import style already assumed.
+- **Fixed: `app/.env` was only ever read by the test setup.** The process started, found no
+  `DATABASE_URL`, and exited. `CLAUDE.md` and `docs/05-stack.md` both name that file as where
+  configuration lives, and the application had never read it. `main.ts` loads it when present
+  — absent is not an error, because a real deployment passes real environment variables.
+- **Added: `src/__tests__/deployable.e2e.test.ts`.** It compiles the real artifact, runs it
+  the way a district server would, and waits for `/health` to answer with `db: "up"`. Every
+  other test in this repository proves the system is *correct*; this is the only one that
+  proves it can be *turned on*.
+- **The lesson, and it is not "add a smoke test".** Both faults were invisible to 340 tests,
+  to CI, and to every green run — and both surfaced within ninety seconds of somebody trying
+  to **use** the thing. A test suite verifies the code it imports. It cannot verify the way
+  the code is launched, and this project had been treating a green suite as if it could.
+  It is the same argument as M0-38: a restore procedure nobody has performed is a document,
+  and an application nobody has started is a library.
+- **Verified:** 340/340 tests across 22 files, and the server observed serving the real PWA
+  on `localhost:3000` against the dev database — sign-in, rapid intake, the district board
+  showing named departments from the district's own contact list, and incident detail.

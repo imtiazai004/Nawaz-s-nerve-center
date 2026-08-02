@@ -6,6 +6,7 @@
  * to restart at 02:00, in exchange for nothing this district needs.
  */
 
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,6 +16,21 @@ import { createScheduler } from './jobs/scheduler.js';
 import { log } from './obs/log.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Load `app/.env` if it is there.
+ *
+ * `docs/05-stack.md` and `CLAUDE.md` both say connection strings live in `app/.env`, and
+ * until now **only the test setup ever read it** — the actual process started, found no
+ * `DATABASE_URL`, and exited. The documented way to configure the system did not configure
+ * the system.
+ *
+ * Absent is not an error: a real deployment will pass real environment variables, and a
+ * file that is not there simply means they came from somewhere else. Node 22 can do this
+ * without a dependency, so it does.
+ */
+const envPath = join(here, '..', '.env');
+if (existsSync(envPath)) process.loadEnvFile(envPath);
 
 async function start(): Promise<void> {
   const nodeEnv = process.env['NODE_ENV'] ?? 'development';
