@@ -975,7 +975,24 @@ async function boot(): Promise<void> {
     meta.textContent = `Incident ${s.incidentId} · ${
       s.occurredAt === null ? 'time unknown' : `happened ${when(s.occurredAt)}`
     }${s.escalationCount > 0 ? ` · escalated ${s.escalationCount}×` : ''}`;
-    detailHead.replaceChildren(h2, meta);
+    /**
+     * The post-incident report (M1-06), from the incident it describes.
+     *
+     * Opened in a new tab as plain text rather than rendered here. Two reasons: an operator
+     * needs to copy it into whatever their department submits upward (Q-02 made export the
+     * point rather than integration), and re-rendering the same fold in a second place is
+     * how the screen and the document start disagreeing about the same night.
+     */
+    const takeReport = document.createElement('button');
+    takeReport.type = 'button';
+    takeReport.id = 'takeReport';
+    takeReport.className = 'act';
+    takeReport.textContent = 'Post-incident report';
+    takeReport.addEventListener('click', () => {
+      window.open(`/incidents/${s.incidentId}/report?format=text`, '_blank', 'noopener');
+    });
+
+    detailHead.replaceChildren(h2, meta, takeReport);
 
     const ack = document.createElement('div');
     ack.className = 'value';

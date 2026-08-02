@@ -61,6 +61,7 @@ import {
   serviceState,
 } from './resources.js';
 import { download, listEvidence, upload } from './evidenceRoutes.js';
+import { postIncidentReport } from './report.js';
 import { listFor } from '../ops/evidence.js';
 import { backupHealth } from '../ops/backup.js';
 import { correlationIdFrom, log, withContext } from '../obs/log.js';
@@ -773,6 +774,7 @@ async function handleIncidents(
   route: { readonly incidentId: string | null; readonly action: string | null },
   identity: Identity,
   evidenceRoot: string,
+  wantsText = false,
 ): Promise<void> {
   const readJson = async (): Promise<Record<string, unknown> | null> => bodyOf(req);
 
@@ -837,6 +839,36 @@ async function handleIncidents(
       // half-loaded on a bad connection.
       evidence: await listFor(pool, route.incidentId),
     });
+    return;
+  }
+
+  // The post-incident report (M1-06).
+  //
+  // Two formats from one fold: JSON for a screen, plain text for submitting upward. Q-02
+  // made export the point rather than integration, and plain text can be pasted into an
+  // email, a register or a form with no tooling on the other end — a district office should
+  // never need this software installed to read what it produced.
+  if (route.action === 'report') {
+    if (req.method !== 'GET') {
+      json(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    const result = await postIncidentReport(pool, route.incidentId, identity);
+    if (!result.ok) {
+      json(res, result.status, { error: result.error });
+      return;
+    }
+    if (wantsText) {
+      const body = Buffer.from(result.text, 'utf8');
+      res.writeHead(200, {
+        'content-type': 'text/plain; charset=utf-8',
+        'content-length': body.length,
+        'cache-control': 'no-store',
+      });
+      res.end(body);
+      return;
+    }
+    json(res, 200, result.report);
     return;
   }
 
@@ -1147,7 +1179,15 @@ export function createSyncServer(options: ServerOptions): Server {
             return;
           }
 
-          await handleIncidents(pool, req, res, incidentRoute, identity, evidenceRoot);
+          await handleIncidents(
+            pool,
+            req,
+            res,
+            incidentRoute,
+            identity,
+            evidenceRoot,
+            url.searchParams.get('format') === 'text',
+          );
           return;
         }
 

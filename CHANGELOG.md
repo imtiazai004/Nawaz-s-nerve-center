@@ -1445,3 +1445,34 @@ built rather than facts we were missing.
   requests over twelve seconds and expects none. The district runs one server, and it is also
   handling emergencies.
 - **Tests:** 520 → 533.
+
+## 2026-08-03 — The post-incident report (M1-06)
+
+- **Added:** `domain/report.ts`, `api/report.ts`, `GET /incidents/:id/report` (JSON) and
+  `?format=text` (plain text), plus a button on the incident detail screen.
+- **Folded from the event log. Nothing is typed.** If an operator retypes what the system
+  already knows, the retyped version becomes a second account of the same night, free to
+  disagree with the first. Q-01 established that departments already run other systems and
+  Q-02 turned that into an export target — this produces the account a department submits
+  upward, so the platform **replaces** work instead of adding to it. That is the strongest
+  answer to the double-entry problem that kills adoption.
+- **Every duration is measured from `occurredAt`.** An hour a report spent on a handset with
+  no signal reads as an hour; measuring from arrival would render an outage as speed
+  (ADR-0002). The arrival gap is stated as its own fact, per entry as well as overall.
+- **It ends with "what this record does not contain".** No acknowledgement, nothing sent, no
+  actions logged, no evidence, no outcome, notifications that failed — each named with its
+  consequence. This is the section a hand-written report always omits, and a review handed a
+  document with the holes removed reads a clean response. A test fails any gap whose
+  explanation is shorter than a phrase.
+- **An override shows both values.** What the department originally assessed stays in the
+  document beside what replaced it, with the reason (ADR-0003) — a report that kept only the
+  winner would be the system taking a side.
+- **Plain text as well as JSON**, because it can be pasted into an email, a register or a
+  form, and a district office should never need this software installed to read what it
+  produced.
+- **A test-fixture bug of mine**, worth noting because the system was right and the test was
+  wrong: several tests built a complete incident using the same ambulance name, and the
+  second collided with the first. Two live units with one name in a department is refused —
+  correctly, because it makes a radio call ambiguous — and the dispatch that followed then
+  had nothing to send.
+- **Tests:** 533 → 552.
