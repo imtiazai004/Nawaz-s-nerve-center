@@ -427,7 +427,20 @@ export function mountAdmin(): AdminConsole {
     if (departmentId !== null) input.dataset['department'] = departmentId;
     input.value = value === null ? '' : String(value);
     input.placeholder = String(placeholder);
-    input.setAttribute('aria-label', `${severity} deadline in minutes`);
+
+    // Whether this department has set its own, or is showing the district's.
+    //
+    // Without it the two are the same rectangle with the same number in it, and an
+    // administrator cannot tell "this department chose 15" from "nobody has decided, so it
+    // inherits 15". They behave differently the moment the district value changes, and this
+    // whole screen exists so somebody can see what has actually been decided.
+    input.dataset['set'] = String(value !== null);
+    input.setAttribute(
+      'aria-label',
+      value === null
+        ? `${severity} deadline, inheriting the district's ${String(placeholder)} minutes`
+        : `${severity} deadline, set to ${String(value)} minutes`,
+    );
 
     input.addEventListener('change', () => {
       const minutes = Number(input.value);
@@ -463,9 +476,13 @@ export function mountAdmin(): AdminConsole {
       ),
     );
 
+    // The heading sits outside the grid. Inside it, it took the first cell and pushed the
+    // five severities onto four columns plus an orphan — which read as though "not yet
+    // assessed" belonged to a different group.
+    wrap.append(text('h4', 'sectionhead', 'District default'));
+
     const district = document.createElement('div');
     district.className = 'deadlines district';
-    district.append(text('h4', 'sectionhead', 'District default'));
     for (const severity of SEVERITIES) {
       const cell = document.createElement('label');
       cell.className = 'cell';
@@ -481,8 +498,24 @@ export function mountAdmin(): AdminConsole {
 
     wrap.append(text('h4', 'sectionhead', 'Per department'));
     wrap.append(
-      text('p', 'meta', 'Blank means the district value applies. A department may be given more time, not only less.'),
+      text(
+        'p',
+        'meta',
+        'A greyed number is the district value being inherited, not a choice this department ' +
+          'has made — type over it to set one, and clear it to go back. A department may be ' +
+          'given more time, not only less.',
+      ),
     );
+
+    // Column headings. Five unlabelled boxes of numbers in a row is not a table anybody can
+    // read, and getting the wrong column here sets the wrong deadline on the wrong severity.
+    const heads = document.createElement('div');
+    heads.className = 'deadlines headings';
+    heads.append(text('span', 'deptname', ''));
+    for (const severity of SEVERITIES) {
+      heads.append(text('span', 'label', severity === 'unknown' ? 'not assessed' : severity));
+    }
+    wrap.append(heads);
 
     for (const dept of departments.filter((d) => d.retiredAt === null)) {
       const row = document.createElement('div');

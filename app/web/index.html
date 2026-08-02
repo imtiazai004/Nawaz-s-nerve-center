@@ -302,7 +302,17 @@
       .deadlines.district .cell { display: flex; flex-direction: column; gap: 0.2rem; }
       .deadlines .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--slate); }
       .deadlines .deptname { font-size: 0.85rem; }
+      .deadlines.headings { border-bottom: 1px solid var(--ink); padding-bottom: 0.2rem; }
       input.ack { margin: 0; padding: 0.35rem; width: 100%; font: inherit; font-size: 0.85rem; }
+
+      /*
+        An inherited value and a chosen one must not be the same rectangle with the same
+        number in it. They diverge the moment the district value changes, and this screen
+        exists so somebody can see what has actually been decided.
+      */
+      input.ack[data-set="false"] { border-style: dashed; }
+      input.ack[data-set="false"]::placeholder { color: var(--slate); opacity: 0.7; font-style: italic; }
+      input.ack[data-set="true"] { border: 1px solid var(--ink); font-weight: 700; }
       @media (max-width: 46rem) {
         .deadlines { grid-template-columns: 1fr; }
         .deadlines.district { grid-template-columns: repeat(2, 1fr); }
