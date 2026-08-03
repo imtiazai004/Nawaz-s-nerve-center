@@ -112,6 +112,25 @@ export async function addUtility(
   return result.rows[0]!.utility_id;
 }
 
+/**
+ * Say which department answers for a service.
+ *
+ * Null is allowed and means "nobody yet" — a service the district watches but has not
+ * assigned. That is a visible, fixable gap and it is better than either inventing an owner or
+ * refusing to list the service.
+ */
+export async function assignUtility(
+  pool: Pool,
+  input: { utilityId: string; departmentId: string | null },
+): Promise<boolean> {
+  const result = await pool.query(
+    'UPDATE utility SET department_id = $2 WHERE utility_id = $1 AND retired_at IS NULL',
+    [input.utilityId, input.departmentId],
+  );
+
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function retireUtility(pool: Pool, utilityId: string): Promise<boolean> {
   const result = await pool.query(
     'UPDATE utility SET retired_at = now() WHERE utility_id = $1 AND retired_at IS NULL',

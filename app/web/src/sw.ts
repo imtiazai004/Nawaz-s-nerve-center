@@ -13,9 +13,9 @@
 declare const self: ServiceWorkerGlobalScope;
 
 /** Bump to ship a new shell. Old caches are deleted on activate. */
-// v2: the shell and its stylesheet changed shape for the responsive layout (M4). A browser
-// still holding v1 keeps serving the old narrow shell until this version changes.
-const CACHE = 'dnc-shell-v2';
+// v3: the responsive shell (M4), and `/dashboard` and `/status` joining NEVER_CACHE. A
+// browser holding an older cache keeps serving the stale shell until this version changes.
+const CACHE = 'dnc-shell-v3';
 
 const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest'];
 
@@ -50,6 +50,20 @@ const NEVER_CACHE = [
   '/admin',
   '/roster',
   '/fleet',
+  /**
+   * `/dashboard` and `/status` — added after they shipped without being here (M4).
+   *
+   * Both are live district state. Cached, the dashboard shows counts and a weather reading
+   * from whenever the page was last online while its own "as of" clock ticks forward — the
+   * exact stale-but-confident failure this whole feature was built to prevent (INV-02).
+   *
+   * `/status` was worse. An officer set a service's owning department, the write succeeded,
+   * and the screen kept showing "nobody assigned" — because the reload after the write was
+   * answered from cache. It looked like a save that silently did nothing, which is the one
+   * outcome that makes people stop trusting a form.
+   */
+  '/dashboard',
+  '/status',
 ];
 
 function isNeverCache(url: URL): boolean {

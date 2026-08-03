@@ -25,6 +25,7 @@ import { mountAdmin, type AdminConsole } from './admin.js';
 import { mountRoster, type RosterPanel } from './roster.js';
 import { mountWorkspace, type Workspace } from './workspace.js';
 import { createDashboard, startClock } from './dashboard.js';
+import { mountStatus } from './status.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -157,6 +158,8 @@ async function boot(): Promise<void> {
     navShift.hidden = !signedIn || identity?.departmentId === null;
     // Everybody signed in gets a dashboard. What it *contains* is scoped by the server.
     navDashboard.hidden = !signedIn;
+    // Everybody signed in may state something. What, exactly, is decided server-side.
+    navStatus.hidden = !signedIn;
 
     if (!signedIn) {
       if (
@@ -165,7 +168,8 @@ async function boot(): Promise<void> {
         adminView.hidden === false ||
         mineView.hidden === false ||
         shiftView.hidden === false ||
-        dashboardView.hidden === false
+        dashboardView.hidden === false ||
+        statusView.hidden === false
       ) {
         showView('report');
       }
@@ -369,12 +373,22 @@ async function boot(): Promise<void> {
   // view the board uses — one definition of what an incident looks like, two ways in.
   const navShift = el<HTMLButtonElement>('navShift');
   const navDashboard = el<HTMLButtonElement>('navDashboard');
+  const navStatus = el<HTMLButtonElement>('navStatus');
+  const statusView = el('statusView');
   const dashboardView = el('dashboardView');
 
   /**
    * The dashboard (M4). Refreshes only while it is the screen somebody is looking at.
    */
   const dashboard = createDashboard();
+
+  /**
+   * The Status screen (M4).
+   *
+   * `onChanged` refreshes the dashboard's numbers the next time it is opened, so an officer
+   * who reports a power cut and switches tabs does not see their own report missing.
+   */
+  const statusPanel = mountStatus({ onChanged: () => void dashboard.show() });
 
   // Runs from load, on every screen, signed in or out. See `startClock`.
   startClock();
@@ -620,9 +634,10 @@ async function boot(): Promise<void> {
   }
 
   function showView(
-    view: 'report' | 'board' | 'detail' | 'inbox' | 'admin' | 'mine' | 'shift' | 'dashboard',
+    view: 'report' | 'board' | 'detail' | 'inbox' | 'admin' | 'mine' | 'shift' | 'dashboard' | 'status',
   ): void {
     dashboardView.hidden = view !== 'dashboard';
+    statusView.hidden = view !== 'status';
     reportView.hidden = view !== 'report';
     boardView.hidden = view !== 'board';
     detailView.hidden = view !== 'detail';
@@ -640,6 +655,7 @@ async function boot(): Promise<void> {
     navMine.setAttribute('aria-current', view === 'mine' ? 'page' : 'false');
     navShift.setAttribute('aria-current', view === 'shift' ? 'page' : 'false');
     navDashboard.setAttribute('aria-current', view === 'dashboard' ? 'page' : 'false');
+    navStatus.setAttribute('aria-current', view === 'status' ? 'page' : 'false');
 
     // Polling stops the moment the operator leaves. A background refresh against a screen
     // nobody is looking at is a request the district's one server did not need to serve.
@@ -649,6 +665,7 @@ async function boot(): Promise<void> {
       el('ticker').hidden = true;
     }
     if (view === 'dashboard') void dashboard.show();
+    if (view === 'status') void statusPanel.show();
     if (view === 'shift' && identity !== null) {
       void shift.show({
         departmentId: identity.departmentId,
@@ -819,6 +836,7 @@ async function boot(): Promise<void> {
   navMine.addEventListener('click', () => showView('mine'));
   navShift.addEventListener('click', () => showView('shift'));
   navDashboard.addEventListener('click', () => showView('dashboard'));
+  navStatus.addEventListener('click', () => showView('status'));
   el('back').addEventListener('click', () => showView('board'));
 
   // ------------------------------------------------------- incident detail (M0-35)

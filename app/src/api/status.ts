@@ -21,9 +21,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Pool } from '../db/pool.js';
 import type { Identity } from '../auth/sessions.js';
-import { inTransaction, recordChange } from '../db/configStore.js';
+import { inTransaction, listDepartments, recordChange } from '../db/configStore.js';
 import {
   addUtility,
+  assignUtility,
   issueAlert,
   listFacts,
   listPresence,
@@ -102,11 +103,13 @@ export async function handleStatus(
     // Everyone signed in sees the whole picture. There is nothing private in it — it is the
     // same aggregate a television shows — and a department that cannot see whether the power
     // is out cannot plan around it.
-    const [utilities, presence, facts, alerts] = await Promise.all([
+    const [utilities, presence, facts, alerts, departments] = await Promise.all([
       listUtilities(pool),
       listPresence(pool, identity.isAdministration ? null : identity.departmentId),
       listFacts(pool),
       liveAlerts(pool, 20),
+      // Only the two offices assign a service to a department, so only they need the list.
+      identity.isAdministration ? listDepartments(pool) : Promise.resolve([]),
     ]);
 
     return {
@@ -116,6 +119,9 @@ export async function handleStatus(
         presence,
         facts,
         alerts,
+        departments: departments
+          .filter((d) => d.retiredAt === null)
+          .map((d) => ({ departmentId: d.departmentId, name: d.name })),
         // What this caller is allowed to change, so the screen renders the right controls
         // rather than offering buttons that will be refused.
         canConfigure: identity.isAdministration,
@@ -239,6 +245,37 @@ export async function handleStatus(
     );
 
     return { status: 201, body: { utilityId } };
+  }
+
+  if (method === 'POST' && path === '/status/utilities/assign') {
+    if (!identity.isAdministration) return bad(403, 'only the DC or AC Headquarter office');
+
+    const utilityId = typeof body?.['utilityId'] === 'string' ? body['utilityId'] : '';
+    if (!UUID_RE.test(utilityId)) return bad(400, 'which service?');
+
+    // An empty department means "nobody yet", which is a legitimate answer — the district may
+    // be watching something it has not yet decided who answers for.
+    const raw = body?.['departmentId'];
+    const departmentId = typeof raw === 'string' && raw !== '' ? raw : null;
+    if (departmentId !== null && !UUID_RE.test(departmentId)) return bad(400, 'which department?');
+
+    if (!(await assignUtility(pool, { utilityId, departmentId }))) {
+      return bad(404, 'no such service');
+    }
+
+    await inTransaction(pool, (tx) =>
+      recordChange(tx, {
+        subject: 'utility',
+        subjectId: utilityId,
+        action: 'updated',
+        before: null,
+        after: { departmentId },
+        actor: { seatId: identity.seatId, personId: identity.personId },
+        reason: text(body?.['reason'], MAX_NOTE) ?? 'assigned an answerable department',
+      }),
+    );
+
+    return { status: 200, body: { ok: true } };
   }
 
   if (method === 'POST' && path === '/status/utilities/retire') {
