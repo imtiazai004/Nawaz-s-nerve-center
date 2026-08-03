@@ -763,9 +763,33 @@
         background: var(--primary); color: var(--on-accent); border: none; border-radius: 2px; cursor: pointer;
       }
 
+      /*
+       * The console's department cards, same shape again.
+       *
+       * A department with no routing signal gets the amber edge: nothing will ever reach it,
+       * and that is a gap somebody can close. The card already says so in words.
+       */
       .dept {
-        background: var(--card); border: 1px solid var(--line); border-radius: 3px;
+        background: var(--card); border: 1px solid var(--line);
+        border-left: 5px solid var(--line); border-radius: 6px;
         padding: 0.7rem 0.85rem; margin-bottom: 0.6rem;
+      }
+      .dept:has(.nosignals) { border-left-color: var(--pending); }
+      .dept[data-administration="true"] { border-left-color: var(--primary); }
+
+      @media (min-width: 90rem) {
+        #adminDepartments {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 0 0.8rem; align-items: start;
+        }
+        /*
+         * Only the cards column. Everything else in this panel — the integrity sweep, the
+         * add-department form, the "79 live" line — spans the width.
+         *
+         * Written as "anything that is not a card" rather than by naming each one, because
+         * the next thing added to this screen would otherwise silently become a column and
+         * nobody would think to look here.
+         */
+        #adminDepartments > :not(.dept) { grid-column: 1 / -1; }
       }
       .dept[data-retired="true"] { opacity: 0.6; background: none; }
       .dept header { display: flex; align-items: baseline; gap: 0.5rem; padding: 0; border: none; }
@@ -1040,9 +1064,29 @@
         font-size: 0.88rem; font-weight: 700;
       }
 
+      /*
+       * Roster cards, in the same language as the board's and the shift screen's.
+       *
+       * A post with nobody in it gets the amber edge, because that is what it is: a gap the
+       * district can close, not an error. Colour repeats the words already on the card
+       * (INV-04) — "nobody holds this post" is written there too.
+       */
       .post, .rosterperson {
-        background: var(--card); border: 1px solid var(--line); border-radius: 3px;
-        padding: 0.6rem 0.8rem; margin-bottom: 0.5rem;
+        background: var(--card); border: 1px solid var(--line);
+        border-left: 5px solid var(--line); border-radius: 6px;
+        padding: 0.7rem 0.85rem; margin-bottom: 0.6rem;
+      }
+      .post:has(.nobody) { border-left-color: var(--pending); }
+      .rosterperson { border-left-color: var(--primary); }
+
+      /* Cards flow into columns once the screen has room, exactly like the board's. */
+      @media (min-width: 56rem) {
+        .rosterposts, .rosterpeople {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 0 0.7rem; align-items: start;
+        }
+      }
+      @media (min-width: 90rem) {
+        .rosterposts, .rosterpeople { grid-template-columns: repeat(3, 1fr); }
       }
       .post[data-retired="true"] { opacity: 0.6; background: none; }
       .post header { display: flex; align-items: baseline; gap: 0.5rem; padding: 0; border: none; }

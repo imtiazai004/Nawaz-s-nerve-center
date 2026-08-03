@@ -250,6 +250,10 @@ export function mountAdmin(): AdminConsole {
     card.className = 'dept';
     card.dataset['department'] = dept.departmentId;
     card.dataset['retired'] = String(dept.retiredAt !== null);
+    // Drives the card's left edge, so the two offices that are the district's authority are
+    // distinguishable at a glance from the eighty departments they are the authority for
+    // (ADR-0010). The card already says "administration" in words beside the name.
+    card.dataset['administration'] = String(dept.isAdministration);
 
     const head = document.createElement('header');
     head.append(text('h4', 'name', dept.name));

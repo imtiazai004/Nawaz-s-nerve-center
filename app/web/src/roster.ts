@@ -404,6 +404,13 @@ export function mountRoster(host: RosterHost): RosterPanel {
       );
     }
 
+    /**
+     * The cards go in their own container so a wide screen can lay them out in columns.
+     *
+     * The heading and the add form stay outside it: a form stretched across three columns is
+     * harder to fill in, and an empty-state sentence broken into a narrow column reads as a
+     * card rather than as an explanation.
+     */
     wrap.append(text('h4', 'sectionhead', 'Posts'));
     if (view.editable) wrap.append(addPostForm(view));
     if (view.posts.length === 0) {
@@ -411,12 +418,18 @@ export function mountRoster(host: RosterHost): RosterPanel {
         text('p', 'nobody', 'This department has no posts, so nothing can ever be sent to it.'),
       );
     }
-    for (const post of view.posts) wrap.append(postCard(view, post));
+    const posts = document.createElement('div');
+    posts.className = 'rosterposts';
+    for (const post of view.posts) posts.append(postCard(view, post));
+    wrap.append(posts);
 
     wrap.append(text('h4', 'sectionhead', 'People'));
     if (view.editable) wrap.append(addPersonForm(view));
     if (view.people.length === 0) wrap.append(text('p', 'meta', 'Nobody on this roster yet.'));
-    for (const person of view.people) wrap.append(personCard(view, person));
+    const people = document.createElement('div');
+    people.className = 'rosterpeople';
+    for (const person of view.people) people.append(personCard(view, person));
+    wrap.append(people);
 
     if (mine === generation) host.container.replaceChildren(wrap);
   }
