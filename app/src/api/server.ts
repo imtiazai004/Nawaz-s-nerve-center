@@ -68,6 +68,7 @@ import { postIncidentReport } from './report.js';
 import { backupNow, backupsForConsole } from './backups.js';
 import { handleDashboard, writeDashboard } from './dashboard.js';
 import { handleStatus, writeStatus } from './status.js';
+import { handleContacts, writeContacts } from './contacts.js';
 import { listFor } from '../ops/evidence.js';
 import { backupHealth } from '../ops/backup.js';
 import { replicationHealthSafe } from '../ops/replication.js';
@@ -907,6 +908,9 @@ async function handleIncidents(
       events: result.events,
       actors: result.actors,
       responsibleDepartments: result.responsibleDepartments,
+      // The same departments by id, so the detail screen can offer "reach them" without a
+      // second request (M5).
+      responsibleDepartmentIds: result.responsibleDepartmentIds,
       // Sent with the incident rather than fetched separately. The detail screen needs both
       // to render one timeline, and a second round trip is a second thing that can be
       // half-loaded on a bad connection.
@@ -1206,6 +1210,26 @@ export function createSyncServer(options: ServerOptions): Server {
          * It is the same endpoint on a phone, a desk PC and a screen on an office wall. What
          * changes with the device is the *layout*, in the browser, and nothing else.
          */
+        /**
+         * How to reach a department (M5).
+         *
+         * Behind a session and deliberately not scoped further: the person who needs to ring
+         * Rescue at 02:00 is whoever is awake, not whoever holds the right department. The
+         * numbers never reach the dashboard, which is the screen a room can read.
+         */
+        if (url.pathname.startsWith('/contacts/')) {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+
+          writeContacts(res, await handleContacts(pool, req, url.pathname, identity));
+          return;
+        }
+
         if (url.pathname === '/dashboard') {
           const token = readToken(req);
           const identity = token === null ? null : await resolveSession(pool, token);

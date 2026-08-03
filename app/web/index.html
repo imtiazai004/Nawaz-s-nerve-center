@@ -486,6 +486,70 @@
         outline-offset: -2px;
       }
 
+
+      /* ------------------------------------------------------- reaching a department (M5) */
+      /*
+       * The button that opens the numbers, and the panel that shows them.
+       *
+       * It is a plain overlay rather than a <dialog>: the app supports a browser old enough
+       * to be on a district handset, and `showModal` is the kind of thing that works on the
+       * machine it was written on. Escape and click-outside are wired by hand.
+       */
+      button.reach {
+        font: inherit; font-size: 0.76rem; font-weight: 700;
+        min-height: 32px; padding: 0 0.7rem; margin: 0;
+        background: none; color: var(--primary);
+        border: 1px solid var(--primary); border-radius: 999px;
+        cursor: pointer; white-space: nowrap;
+      }
+      button.reach:hover { background: var(--primary); color: var(--on-accent); }
+
+      .coverlay {
+        position: fixed; inset: 0; z-index: 1000;
+        display: grid; place-items: center;
+        padding: 1rem;
+        background: rgba(4, 10, 20, 0.72);
+      }
+      .cpanel {
+        width: min(30rem, 100%);
+        max-height: 85vh; overflow-y: auto;
+        background: var(--card); border: 1px solid var(--line);
+        border-radius: 10px; padding: 1rem 1.1rem 1.1rem;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      }
+      .cpanelhead {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 1rem; margin-bottom: 0.8rem;
+      }
+      .cpanelhead h3 { margin: 0; font-size: 1.05rem; }
+
+      .creach {
+        padding: 0.7rem 0; border-bottom: 1px solid var(--line);
+      }
+      .creach:last-of-type { border-bottom: none; }
+      .chead { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; }
+      .chead .cwho { font-weight: 700; }
+      /* The number as the district typed it — an officer checking against a piece of paper
+         needs it to look the same. Only the link form is normalised. */
+      .cnum {
+        font-size: 1.15rem; font-weight: 700; letter-spacing: 0.02em;
+        font-variant-numeric: tabular-nums; margin: 0.15rem 0 0.5rem;
+        user-select: text;
+      }
+      .cnone { font-size: 0.82rem; color: var(--pending); font-weight: 600; }
+      /* A stand-in is shown, and shown as a stand-in. */
+      .creach.placeholder .cnum { color: var(--muted); text-decoration: line-through; }
+
+      .channels { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+      button.chan {
+        font: inherit; font-size: 0.8rem; font-weight: 700;
+        min-height: 40px; padding: 0 0.85rem; margin: 0;
+        background: var(--card2); color: var(--ink);
+        border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+      }
+      button.chan:hover { border-color: var(--primary); color: var(--primary); }
+      button.chan.wa:hover { border-color: var(--ok); color: var(--ok); }
+
       .empty { font-size: 0.82rem; color: var(--slate); }
       /* How old a thing is. Always smaller and quieter than the thing it qualifies. */
       .age { font-size: 0.74rem; color: var(--slate); font-weight: 600; }

@@ -25,6 +25,7 @@
  */
 
 import { mountRoster, type RosterPanel } from './roster.js';
+import { reachButton } from './contact.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -258,6 +259,9 @@ export function mountAdmin(): AdminConsole {
     const head = document.createElement('header');
     head.append(text('h4', 'name', dept.name));
     if (dept.isAdministration) head.append(text('span', 'tag admin', 'administration'));
+    // The numbers, on the card. Somebody adding a routing signal to a department is somebody
+    // who may want to tell them it now exists.
+    head.append(reachButton(dept.departmentId));
     if (dept.retiredAt !== null) head.append(text('span', 'tag retired', 'retired'));
     card.append(head);
 

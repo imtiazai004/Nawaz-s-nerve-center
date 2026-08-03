@@ -694,6 +694,14 @@ export async function readIncident(
       readonly events: readonly IncidentEvent[];
       readonly actors: ActorDirectory;
       readonly responsibleDepartments: readonly string[];
+      /**
+       * The same departments, by id.
+       *
+       * Sent alongside the names so the detail screen can offer "reach them" without a second
+       * request. Names are what an operator reads; an id is what a lookup needs, and a screen
+       * that has one and not the other ends up matching on a name somebody may rename.
+       */
+      readonly responsibleDepartmentIds: readonly string[];
     }
   | { readonly ok: false; readonly status: number; readonly error: string }
 > {
@@ -725,5 +733,6 @@ export async function readIncident(
     // Named, not just identified (M0-51). An unmatched id is shown as an id rather than
     // hidden — a department missing from the registry is a problem, not a blank field.
     responsibleDepartments: state.responsibleDepartmentIds.map((id) => departments[id]?.name ?? id),
+    responsibleDepartmentIds: state.responsibleDepartmentIds,
   };
 }

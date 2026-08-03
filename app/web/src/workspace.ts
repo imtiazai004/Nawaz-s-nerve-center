@@ -25,6 +25,7 @@
  */
 
 import { categoryWords, duration } from './words.js';
+import { reachButton } from './contact.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -331,6 +332,19 @@ export function mountWorkspace(onOpenIncident: (incidentId: string) => void): Wo
       const sev = text('span', 'sev', row.assessed ? row.severity : 'unassessed');
       sev.dataset['level'] = row.severity;
       head.append(sev, text('span', 'cat', categoryWords(row.category)), text('span', 'state', row.status));
+
+      /**
+       * The numbers for everybody else who holds this.
+       *
+       * On live work rather than on "needs you now": the officer who has already taken an
+       * emergency is the one who needs to ring the other department about it. Their own
+       * department is excluded — they do not need a button to reach themselves.
+       */
+      for (const [i, id] of row.responsibleDepartmentIds.entries()) {
+        if (id === who?.departmentId) continue;
+        head.append(reachButton(id, `Reach ${row.responsibleDepartments[i] ?? 'them'}`));
+      }
+
       card.append(head);
 
       const sent = onIncident[row.incidentId] ?? [];

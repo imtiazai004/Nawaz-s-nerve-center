@@ -27,6 +27,7 @@ import { mountWorkspace, type Workspace } from './workspace.js';
 import { createDashboard, startClock } from './dashboard.js';
 import { mountStatus } from './status.js';
 import { categoryWords, duration } from './words.js';
+import { reachButton } from './contact.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -1010,6 +1011,7 @@ async function boot(): Promise<void> {
       seats: Record<string, { title: string; tier: string }>;
     };
     responsibleDepartments: string[];
+    responsibleDepartmentIds: string[];
   }
 
   /**
@@ -1180,6 +1182,25 @@ async function boot(): Promise<void> {
         ? data.responsibleDepartments.join(', ')
         : 'not yet routed';
     dept.append(deptK, deptV);
+
+    /**
+     * The numbers, here, on the incident.
+     *
+     * This is where somebody decides to escalate — and the decision they make next is to pick
+     * up a phone. Making them leave for the roster, find the department, find the post, find
+     * the holder and read a number back is the friction that ends with them ringing somebody
+     * they already know instead of whoever is actually on duty.
+     */
+    for (const [i, id] of data.responsibleDepartmentIds.entries()) {
+      dept.append(
+        reachButton(
+          id,
+          data.responsibleDepartmentIds.length === 1
+            ? 'Reach them'
+            : `Reach ${data.responsibleDepartments[i] ?? 'them'}`,
+        ),
+      );
+    }
 
     detailValues.replaceChildren(
       valueBlock('Severity', s.severity, data.actors, 'not yet assessed'),

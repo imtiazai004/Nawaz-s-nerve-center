@@ -64,6 +64,7 @@ const NEVER_CACHE = [
    */
   '/dashboard',
   '/status',
+  '/contacts',
 ];
 
 function isNeverCache(url: URL): boolean {
