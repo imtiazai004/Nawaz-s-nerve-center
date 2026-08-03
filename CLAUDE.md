@@ -101,7 +101,27 @@ onboarded — challenge them now, not later.
 | [0009](docs/adr/ADR-0009-unassessed-is-not-a-severity.md) | "Unassessed" is a value, never a level; aggregates report two numbers | Accepted |
 | [0010](docs/adr/ADR-0010-two-rung-ladder.md) | Two rungs: departments report to the DC and AC HQ offices. No third tier | Accepted |
 | [0011](docs/adr/ADR-0011-deployment-topology.md) | One record on district hardware: DC primary, AC HQ standby, nightly encrypted copy to Google Cloud | Accepted |
-| [0012](docs/adr/ADR-0012-notification-channel-ladder.md) | Notifications walk a ladder — WhatsApp, then a call, then SMS; in-app always | Accepted |
+| [0012](docs/adr/ADR-0012-notification-channel-ladder.md) | Notifications walk a ladder — WhatsApp, then a call, then SMS; in-app always | **Superseded 2026-08-03** |
+| [0013](docs/adr/ADR-0013-one-app-every-screen.md) | One application, on every size of screen. Nothing private on a screen a room can read | Accepted · amended same day |
+
+**ADR-0012 was superseded on 2026-08-03**, by the owner. It decided that the system would
+send alerts down a ladder of providers — WhatsApp Business, a voice provider, an SMS gateway,
+a GSM modem. None of that was ever asked for. What was wanted:
+
+> ju banda alert jare karega ya escalate karega etc etc un ko mutalqa number mil jaye and us
+> pr click kare tou contact karne ka channel selection mai ho … es mai Meta business account,
+> telephony ya SMS gateway ki koi zarurt nhe hai
+
+So the system **hands an officer the number** and opens WhatsApp, the dialler or messages on
+their own handset. A human has the conversation. This is smaller *and better*: a chain of
+providers fails in ways nobody sees — a template unapproved, a gateway out of credit, a modem
+with no signal — and every one of those is discovered on the night it matters. An officer who
+dialled a number knows within ten seconds whether it rang.
+
+**ADR-0013 was amended on the day it was written.** It originally decided a separate wall
+screen at `/display`, because I read "the prototype's things belong in our app" as "build the
+prototype". The owner corrected it, the whole thing was reversed, and the amendment is left in
+place as the record — see the note below on how the ADR log is corrected.
 
 **ADR-0004 was amended on 2026-08-03**, not superseded: its four-tier ladder is gone
 (ADR-0010) and everything else it decided — seats, duty assignments, authority-attaches-to-
@@ -127,9 +147,9 @@ that blocks release on failure.
 
 > **Update this section every session.**
 
-- **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven, CI
-  running**
-- **Phase:** Implementation. 631 tests pass on every push.
+- **Milestone:** M4/M5 — **the product now looks and behaves like the district's own
+  prototype**, on every size of screen.
+- **Phase:** Implementation. 700 tests pass on every push.
 - **M0, M1a and M1 are done; M3's notification work and M0's operations work landed with
   them (2026-08-03).** One emergency now goes from a field officer's handset to a
   post-incident report with nothing stubbed — see `src/__tests__/m1gate.e2e.test.ts`, which
@@ -147,10 +167,32 @@ that blocks release on failure.
   reachable from outside so field handsets sync from anywhere, and **nightly** encrypted
   dumps go to Google Cloud. A rented database was rejected: it would take the control room
   down with the district's internet line.
-- **Notification policy is settled (ADR-0012).** WhatsApp first, then a voice call, then SMS,
-  with the in-app inbox always in parallel — held as configuration, not code. Note the rung
-  the owner's answer did not cover: the **server** also needs internet to send WhatsApp at
-  all, so a **GSM modem** is the only channel that survives a district outage.
+- **Notification policy was reversed by the owner (2026-08-03). ADR-0012 is superseded.**
+  The software does **not** send anything. It hands an officer the relevant number — the duty
+  officer's mobile first, the department's office line second — and a click opens WhatsApp,
+  the dialler or messages **on that officer's own handset**. No Meta business account, no
+  telephony provider, no SMS gateway, no GSM modem. Nothing is recorded when a channel is
+  opened; the panel says so rather than implying otherwise. The **in-app inbox stays** — it
+  needs no provider, and it is what INV-03 is measured against.
+
+- **The product's shape is settled (ADR-0013, 2026-08-03), and it came from the owner's own
+  prototype.** One application, one set of markup, laid out by CSS at three widths: one column
+  on a phone, two on a laptop, three and larger type on an office screen. The client reads the
+  viewport in exactly one place — to choose which screen somebody *lands* on after signing in
+  — and that picks a starting screen, never a layout. There is no second page for large
+  screens; there was, for half a day, and reversing it is recorded in the ADR.
+
+- **The dashboard is the home of the product, not an add-on.** It carries every panel the
+  prototype had and the ones this system grew that it never had. It is **scoped to whoever
+  asked**: the two offices see the district, a department sees its own work — the same panels,
+  not a thinner version. Only "this system" (backup, standby, alerts) is administration-only,
+  because those are theirs to fix and three red rows a department cannot act on teach it to
+  ignore red rows.
+
+- **Nothing private ever reaches the dashboard**, because it is also what appears on a large
+  screen in an office where a room can read it. Every response is walked through
+  `wallSafetyViolations` and a violation **fails the request** rather than stripping the
+  field — a leak that ships minus one column is a leak nobody finds.
 - **The district's structure is now settled (ADR-0010, 2026-08-02), and it is simpler than
   the model assumed.** Two offices — **DC** and **AC Headquarter Bannu** — are the authority
   for the whole district. Every other department reports to them. **The ladder has two rungs
@@ -311,7 +353,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **631 tests passing** across 39 files, including **17 backup/restore tests that run a real
+- **700 tests passing** across 44 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -650,11 +692,17 @@ Build with Claude/
 │   ├── .env.example           ← copy to .env; .env is gitignored, never commit it
 │   ├── build.mjs              ← esbuild for the web client → web/dist (gitignored)
 │   ├── db/migrations/         ← forward-only SQL. Correct a mistake by writing the next one
-│   ├── web/                   ← the PWA
-│   │   ├── index.html         ← app shell
-│   │   └── src/sw.ts          ← service worker. NEVER cache /sync
+│   ├── web/                   ← the PWA. ONE app: phone, laptop and office screen (ADR-0013)
+│   │   ├── index.html         ← app shell + all CSS. The palette is one block at the top
+│   │   ├── theme.css          ← shared tokens
+│   │   └── src/sw.ts          ← service worker. NEVER cache /sync, /dashboard, /status
 │   │   └── src/main.ts        ← boot; connectivity from sync outcomes, not navigator.onLine
-│   │   └── src/admin.ts       ← the administration console (M1a). Five tabs, no authority
+│   │   └── src/dashboard.ts   ← the dashboard (M4). Every panel leads to an existing screen
+│   │   └── src/status.ts      ← where the district states its own condition (M4)
+│   │   └── src/contact.ts     ← "Reach them" (M5). Opens WhatsApp/dialler/SMS. Sends nothing
+│   │   └── src/words.ts       ← category names and durations, in one place
+│   │   └── src/workspace.ts   ← the shift screen (M1-01)
+│   │   └── src/admin.ts       ← the administration console (M1a). No authority lives here
 │   │   └── src/roster.ts      ← the roster (M1a-10). One component, two doors
 │   └── src/
 │       ├── domain/            ← pure logic, no database, no framework
@@ -683,13 +731,19 @@ Build with Claude/
 │       │   ├── admin.ts       ← the administration console API (M1a). The gate is here
 │       │   ├── performance.ts ← every department side by side (M1a). Folded, not stored
 │       │   ├── roster.ts      ← posts, people, handovers (M1a-10). Two audiences, one gate
+│       │   ├── dashboard.ts   ← the dashboard feed (M4). Scoped to whoever asked
+│       │   ├── status.ts      ← where the district states its own condition (M4)
+│       │   ├── contacts.ts    ← the numbers, so a human can ring them (M5). Sends nothing
 │       │   └── notifications.ts ← the seat's inbox (M0-32). No inbox table either
+│       ├── ops/               ← backup, restore, off-site, replication, weather, integrity
 │       ├── outbox/            ← the offline substrate (ADR-0002)
 │       │   └── adapters/      ← IndexedDB store, HTTP transport, browser harness
 │       ├── __tests__/         ← spine.e2e.test.ts — THE M0 GATE
 │       └── testing/           ← test setup, browser global types
 ├── scripts/
-│   └── dev-db.ps1             ← start/stop the local Postgres
+│   ├── dev-db.ps1             ← start/stop the local Postgres
+│   ├── reset-test-db.mjs      ← `npm run test:reset` — the local test DB drifts; this clears it
+│   └── demo-data.mjs          ← `npm run demo` / `demo:clear`. Everything it writes says "(demo)"
 ├── backlog/
 │   ├── milestones.md          ← M0–M5 with pass/fail gates
 │   └── todos.md               ← live task list

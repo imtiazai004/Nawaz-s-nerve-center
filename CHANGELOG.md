@@ -1581,3 +1581,176 @@ built rather than facts we were missing.
 - `08-runbook.md` gains the nightly run, the off-site copy, and **how to decrypt a `.sql.enc`
   file** — a backup nobody can decrypt is not a backup.
 - **Tests:** 570 → 631.
+
+---
+
+## 2026-08-03 — The prototype becomes the product
+
+The owner supplied a working HTML prototype of a district control-room dashboard and asked
+that the software be built on it. This entry covers a full day's work, **two corrections from
+the owner**, and one design I got badly wrong before getting it right.
+
+### The two corrections, because they are the important part
+
+**First, I built the wrong thing.** The prototype was shared to say *the things in it belong
+in our app*; I read it as *build the thing in it* and produced a separate wall screen at
+`/display`, with its own page, its own script and its own kind of credential. The owner:
+
+> ye software just mobile ya laptop k lye nhe hai … ye mobile, laptop ya barre screen sub pr
+> fit and zabardast chalega … **tum multiple screens bana kr complecated and messy naa banao**
+
+All of it was reversed the same day (migration 0016). What survived was the reasoning that had
+nothing to do with the split — nothing private on a screen a room can read, and every value
+carrying its own age.
+
+**Second, I mistook restraint for quality.** The dashboard was honest and nearly empty: eleven
+panels reading "not reported". I was satisfied with it because it was true. It is impossible
+to judge a design on, and the owner was right to ask for mock data.
+
+### Added
+
+- **`GET /dashboard`** — one feed, scoped to whoever asked. The two offices get the district;
+  a department gets its own work plus the facts that belong to everybody. The same endpoint
+  answers a phone, a desk PC and a screen on an office wall.
+- **The dashboard itself**, carrying every panel the prototype had and the ones this system
+  grew that it never had: district counters, Emergency Situation, weather, alerts, district
+  status, district services, public utilities, officer presence, published numbers, live
+  emergencies by kind, what can be sent, response over seven days, and — for the two offices —
+  whether this system's own machinery is working.
+- **The Status screen** — where everything the dashboard shows is typed. One screen for four
+  kinds of statement, scoped: a department reports the services it answers for and the posts
+  it holds; the two offices also issue advisories and set the district's standing facts.
+- **Utility and service reports, presence reports, advisories, district facts, live weather**
+  (migrations 0015, 0017). Weather is fetched **server-side** from Open-Meteo every fifteen
+  minutes: one fetch serves every screen, no key is ever in a kiosk browser, and a district
+  with no line shows one honest "last fetched" instead of each screen failing differently.
+- **`npm run demo` / `npm run demo:clear`** — plausible district data behind every panel,
+  everything marked `(demo)` and the mark visible on screen.
+- **ADR-0013** — one application on every size of screen.
+
+### Changed
+
+- **One application, three shapes.** Phone, laptop, office screen — same markup, laid out by
+  CSS at three widths. The client reads the viewport in exactly one place, to choose which
+  screen somebody *lands* on after signing in, and that picks a starting screen rather than a
+  layout.
+- **The whole app wears the prototype's control-room palette.** Thirty-four hardcoded colour
+  literals became tokens first, which is why the flip is one block rather than a hunt. Two
+  departures from the prototype, both deliberate: no web font (that request fails on a
+  district line and takes the layout with it), and every state still carries a word as well as
+  a colour (INV-04).
+- **Every screen is now cards** — board, shift, inbox, roster, console. The board was a
+  four-column table that lost two columns on a phone and read as a ruled list on a wall.
+- **The 48–64rem caps are gone** from the board, console, shift and roster. On a 1920px screen
+  those were a narrow ribbon with a metre of empty paper either side — the complaint that
+  started this.
+- **Every dashboard panel leads somewhere.** A situation card opens the board filtered to that
+  kind; a department row filters to that department; a utility row opens Status. The dashboard
+  deliberately grows no detail view of its own — a second one would drift from the board's.
+- **`districtPerformance` split into a gate and a calculation**, so a department can be shown
+  its own row without being handed everybody else's, and without a second median that would
+  eventually disagree with the console's table.
+- **Category codes and raw minute counts** now go through one module. The board said "rta"
+  beside "Fire" and "1641m past deadline" where a person says "1 day"; both were always there
+  and were simply small enough to overlook until the text got larger.
+
+### Removed
+
+- **`/display`, its script, and the `wall_screen` table** (migration 0016). All of it existed
+  only because I had split the app in two.
+
+### Decided
+
+- **ADR-0013** — one application, on every size of screen. Amended the same day it was
+  written, and the amendment is the record of the first correction above.
+- **Nothing on the dashboard is private**, checked on every response rather than trusted, and
+  a violation fails the request rather than stripping the field. A leak that ships minus one
+  column is a leak nobody finds.
+- **Advisories are issued by the DC and AC Headquarter offices only** (owner, 2026-08-03). A
+  board any department could post to is a board nobody can trust, and the district plans
+  around what is on it.
+- **Markets, schools, the hospital and the roads are not four new things.** Each is a name, a
+  state, a note and an age — exactly what `utility` already held. One `panel` column rather
+  than four tables, four endpoints and four console screens, so the district can add a fifth
+  kind of thing to watch without a release.
+
+### Six defects, four of them latent and serious
+
+- **The service worker was caching `/status` and `/dashboard`.** An officer assigned a service
+  to a department, the write succeeded, and the screen kept reading "nobody assigned" — the
+  reload after the write was answered from cache. A save that appears to do nothing is the one
+  outcome that stops people trusting a form. The dashboard was quietly worse: counts and a
+  weather reading from whenever the page was last online, while its own "as of" clock ticked
+  forward. INV-02, by a caching layer.
+- **The wall-safety check flagged UUIDs as phone numbers.** A uuid is 32 hex characters, so
+  some contain a run that reads as a Pakistani number — and a violation refuses the whole
+  response, so the dashboard returned 500 for every caller and blamed a number that was not
+  there. It fired on a seeded row drawing an unlucky id.
+- **The shell budget weighed the development build** — sourcemaps, no minification, 40% larger
+  than anything the district downloads. It failed at 168 KB while the real shell was 123 KB. A
+  budget that fails on a file nobody downloads teaches everybody to raise the budget. It now
+  builds production and measures that; `build.mjs` reads `NODE_ENV` per build rather than once
+  at import, which is why the first attempt silently kept measuring the wrong file.
+- **`page.waitForFunction(async …)`, third occurrence.** An async callback returns a Promise,
+  which is always truthy, so the wait returns on the first poll and the assertions race the
+  work. It passed for weeks and stopped the day the server had more to do.
+- **One panel throwing blanked the six after it** — four numbers and five empty boxes, no
+  error, and indistinguishable from a quiet district.
+- **`#boot { display: grid }` beat the browser's `[hidden]` rule**, so a screen read
+  "Connecting…" with the real display sitting below the fold, correct data on it.
+
+### Open
+
+- R-13: which point the district actually wants the weather taken at.
+- R-15: real values for tehsils, union councils, population, area.
+- Published emergency numbers beyond 1122, 15 and 16.
+
+- **Tests:** 631 → 700.
+
+---
+
+## 2026-08-03 — Notifications: the software does not make the call
+
+A second correction from the owner, and a large removal.
+
+> es ka ye matlab nhe hai k software call karega, jis k lye tum nai itne saare chez deye hue
+> hain … ju banda alert jare karega ya escalate karega … un ko mutalqa number mil jaye and us
+> pr click kare tou contact karne ka channel selection mai ho … es mai Meta business account,
+> telephony ya SMS gateway ki koi zarurt nhe hai
+
+M3 built a ladder of providers — WhatsApp Business, a voice provider, an SMS gateway, a GSM
+modem in the DC office — and four message templates for Meta to approve. **None of it was
+asked for.** What was wanted is far simpler and is a better design.
+
+### Added
+
+- **`GET /contacts/department/:id`** — the numbers, behind a session. The duty officer's
+  mobile first, the department's office line second: the post is who is on duty now, and the
+  office is what to try when nobody is.
+- **"Reach them"** on the incident detail, on live work in the shift screen, and on the
+  console's department cards — wherever somebody assigns or escalates. It opens WhatsApp, the
+  dialler, or messages **on the officer's own handset**, and a human has the conversation.
+
+### Decided
+
+- **Nothing is recorded when somebody opens a channel** (owner's decision). The panel says so
+  rather than implying otherwise: no tick, nothing reading "notified". What happened is that
+  an app opened.
+- A **stand-in number is shown struck through with its channels disabled**. Dialling one
+  reaches nobody, and finding that out at 02:00 is the failure this system exists to prevent.
+- A **short published number** (1122, 15, 16) offers Call and SMS but not WhatsApp.
+- **Any signed-in officer may read a department's numbers**, deliberately not scoped further:
+  the person who needs to ring Rescue at 02:00 is whoever is awake. The line that is not
+  crossed is the dashboard, which a room can read (ADR-0013 §1).
+
+### Why this is better, not merely smaller
+
+A chain of providers fails in ways nobody sees — a template unapproved, a gateway out of
+credit, a modem with no signal — and every one of those is discovered on the night it matters.
+An officer who dialled a number knows within ten seconds whether it rang.
+
+### Still to come
+
+The provider machinery — adapters, the channel ladder, the Administration → Alerts tab, the
+Meta template drafts, `channel_ladder`, ADR-0012 — is removed in the next entry. The in-app
+inbox stays: it needs no provider, and it is what INV-03 is measured against.
