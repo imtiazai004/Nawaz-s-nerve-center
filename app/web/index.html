@@ -265,6 +265,7 @@
 
       .keys { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
       @media (min-width: 56rem) { .keys { grid-template-columns: repeat(4, 1fr); } }
+      @media (min-width: 90rem) { .panel.wide .keys { grid-template-columns: repeat(5, 1fr); } }
       .key { border-radius: 4px; padding: 0.55rem 0.7rem; background: var(--card2); }
       .key .n {
         display: block;
@@ -879,12 +880,23 @@
       #shift .quiet { margin: 0; font-size: 0.88rem; color: var(--slate); }
       #shift .quiet.warn { color: var(--critical); font-weight: 700; }
 
+      /*
+       * The shift screen's cards, in the same language as the board's.
+       *
+       * Same left bar, same radius, same hover. A duty officer moves between these two screens
+       * all day; if an overdue emergency looks different on each, they have to learn twice.
+       */
       .work {
-        background: var(--card); border: 1px solid var(--line); border-radius: 3px;
-        padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; cursor: pointer;
+        background: var(--card); border: 1px solid var(--line);
+        border-left: 5px solid var(--unknown); border-radius: 6px;
+        padding: 0.7rem 0.85rem; margin-bottom: 0.6rem; cursor: pointer;
+        transition: border-color 120ms;
       }
-      .work:hover, .work:focus-visible { background: var(--card2); }
-      .work[data-overdue="true"] { border-left: 4px solid var(--critical); background: var(--critical-wash); }
+      .work:hover, .work:focus-visible { border-color: var(--primary); outline: none; }
+      .work[data-overdue="true"] {
+        border-left-color: var(--critical);
+        background: linear-gradient(90deg, var(--critical-wash), var(--card) 55%);
+      }
       .work header {
         display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem;
         padding: 0; border: none;
@@ -894,7 +906,29 @@
       }
       .work .sev[data-level="critical"] { color: var(--critical); }
       .work .sev[data-level="unknown"]  { color: var(--pending); }
-      .work .cat { font-weight: 700; font-size: 0.95rem; }
+      .work .cat { font-weight: 700; font-size: 1.05rem; }
+      /*
+       * The shift screen's three lists, side by side once there is room.
+       *
+       * Each is a `<section>` holding a heading and then its cards, so the heading and the
+       * empty-state line span the whole width and only the cards column up. Making the cards
+       * their own wrapper would have been tidier CSS and a change to three call sites in
+       * `workspace.ts` for no behaviour — this is the smaller edit.
+       */
+      @media (min-width: 56rem) {
+        #needsYou, #liveWork, #canSend {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 0 0.7rem;
+          align-items: start;
+        }
+        #needsYou > h2, #liveWork > h2, #canSend > h2,
+        #needsYou > .quiet, #liveWork > .quiet, #canSend > .quiet,
+        #canSend > .tallies {
+          grid-column: 1 / -1;
+        }
+      }
+      @media (min-width: 90rem) {
+        #needsYou, #liveWork, #canSend { grid-template-columns: repeat(3, 1fr); }
+      }
       .work .state { font-size: 0.78rem; color: var(--slate); }
       .work .flag {
         font-size: 0.72rem; font-weight: 800; color: var(--critical);
@@ -1048,34 +1082,75 @@
         background: var(--primary); color: var(--on-accent); border: none; border-radius: 2px; cursor: pointer;
       }
 
-      #boardRows { border-top: 1px solid var(--line); }
+      /*
+       * ================================================= the board, as cards
+       *
+       * It was a four-column table. On a phone two of those columns dropped off the end, and
+       * on an office screen it was a thin ruled list of the kind nobody reads across a room.
+       *
+       * The prototype's card is the better shape and it is used here for the same reasons it
+       * works there: a coloured left edge the eye reads before any word, the severity and the
+       * kind large, and everything else — who has it, how long ago, what could not be
+       * notified — quiet underneath. Cards flow into as many columns as the screen has.
+       */
+      #boardRows {
+        display: grid;
+        gap: 0.7rem;
+        grid-template-columns: 1fr;
+      }
+      @media (min-width: 56rem) { #boardRows { grid-template-columns: 1fr 1fr; } }
+      @media (min-width: 90rem) { #boardRows { grid-template-columns: repeat(3, 1fr); } }
+
       .row {
         display: grid;
-        grid-template-columns: 7.5rem 1fr 7rem 8rem;
-        gap: 0.3rem 0.8rem;
+        grid-template-columns: 1fr auto;
+        gap: 0.15rem 0.7rem;
         align-items: baseline;
-        padding: 0.6rem 0.2rem;
-        border-bottom: 1px solid var(--line);
-        font-size: 0.88rem;
-      }
-      @media (max-width: 40rem) {
-        .row { grid-template-columns: 7.5rem 1fr; }
+        padding: 0.7rem 0.85rem;
+        background: var(--card);
+        border: 1px solid var(--line);
+        /* The bar is the state, before a word is read. Grey until somebody assesses it. */
+        border-left: 5px solid var(--unknown);
+        border-radius: 6px;
+        font-size: 0.9rem;
       }
       .row .sev {
-        font-weight: 800; font-size: 0.72rem;
-        text-transform: uppercase; letter-spacing: 0.07em;
+        grid-row: 1;
+        font-weight: 800; font-size: 0.68rem;
+        text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--slate);
       }
       /* Meaning is in the text, never in colour alone (INV-04). */
       .row .sev[data-level="critical"] { color: var(--critical); }
       .row .sev[data-level="unknown"]  { color: var(--pending); }
-      .row .cat { font-weight: 600; }
-      .row .meta { color: var(--slate); font-size: 0.78rem; }
-      .row .state { font-size: 0.78rem; }
-      .row[data-overdue="true"] { background: var(--critical-wash); }
-      .row .flag { color: var(--critical); font-weight: 700; font-size: 0.72rem; }
+      .row .cat {
+        grid-column: 1 / -1;
+        font-weight: 700; font-size: 1.05rem; line-height: 1.25;
+      }
+      .row .state { grid-row: 1; text-align: right; font-size: 0.72rem; color: var(--slate); }
+      .row .meta { grid-column: 1 / -1; color: var(--slate); font-size: 0.78rem; }
+      .row .flag {
+        grid-column: 1 / -1;
+        color: var(--critical); font-weight: 700; font-size: 0.74rem;
+      }
+
+      /* Past its deadline, and nobody has taken it. */
+      .row[data-overdue="true"] {
+        border-left-color: var(--critical);
+        background: linear-gradient(90deg, var(--critical-wash), var(--card) 55%);
+      }
+      /* With nobody at all — which outranks late, because late still has an owner. */
+      .row[data-unassigned="true"] {
+        border-left-color: var(--critical);
+        background: linear-gradient(90deg, var(--critical-wash), var(--card) 40%);
+      }
+
       #boardEmpty { padding: 1.2rem 0.2rem; color: var(--slate); font-size: 0.9rem; }
-      .row { cursor: pointer; }
-      .row:hover, .row:focus-visible { background: var(--card2); }
+      .row { cursor: pointer; transition: border-color 120ms; }
+      .row:hover, .row:focus-visible {
+        border-color: var(--primary);
+        outline: none;
+      }
 
       /* ------------------------------------------------------------- inbox (M0-34) */
       #nav .count {
@@ -1084,10 +1159,22 @@
         font-size: 0.72rem; font-weight: 800;
       }
       #inboxWho { margin: 0 0 0.8rem; }
+      /*
+       * "Waiting for you" — the same card, because it is the same kind of thing: one item of
+       * work with a reason underneath and something to press.
+       */
+      #inboxRows {
+        display: grid; gap: 0.6rem; grid-template-columns: 1fr;
+      }
+      @media (min-width: 56rem) { #inboxRows { grid-template-columns: 1fr 1fr; } }
+      @media (min-width: 90rem) { #inboxRows { grid-template-columns: repeat(3, 1fr); } }
+
       .inbox-row {
-        display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 0.8rem;
+        display: grid; grid-template-columns: 1fr auto; gap: 0.35rem 0.8rem;
         align-items: center;
-        padding: 0.7rem 0.2rem; border-bottom: 1px solid var(--line);
+        padding: 0.75rem 0.85rem;
+        background: var(--card); border: 1px solid var(--line);
+        border-left: 5px solid var(--pending); border-radius: 6px;
       }
       .inbox-row .what { font-weight: 700; }
       .inbox-row .why { display: block; font-size: 0.8rem; color: var(--slate); }
@@ -1316,6 +1403,28 @@
           <section class="panel">
             <h2><span>Officers</span><span class="age" id="dashPresenceGap"></span></h2>
             <div class="plist" id="dashPresence"></div>
+          </section>
+
+          <!--
+            What the district can send.
+
+            Not in the prototype, because it had no fleet behind it. It belongs here for an
+            obvious reason: "4 open" and "2 ambulances available" are the same decision, and
+            reading them on two screens is how somebody sends a unit that is already out.
+          -->
+          <section class="panel">
+            <h2><span>What can be sent</span><span class="age" id="dashFleetScope"></span></h2>
+            <div class="keys" id="dashResources"></div>
+          </section>
+
+          <!--
+            How quickly emergencies are being taken up, over seven days. A median, not a mean:
+            one incident taken four hours late makes a mean meaningless, and it is the typical
+            case a duty roster is judged on.
+          -->
+          <section class="panel">
+            <h2><span>Response, 7 days</span><span class="age">median to acknowledge</span></h2>
+            <div class="plist" id="dashPerformance"></div>
           </section>
 
           <section class="panel">

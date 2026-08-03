@@ -37,6 +37,9 @@ import {
 } from '../db/wallStore.js';
 import { weatherPanel, type WeatherPanel } from '../ops/weather.js';
 import { replicationHealthSafe } from '../ops/replication.js';
+import { availabilityFor } from '../db/resourceStore.js';
+import { summarise } from '../domain/resources.js';
+import { computePerformance } from './performance.js';
 import {
   age,
   presenceAge,
@@ -132,6 +135,44 @@ export interface Dashboard {
   }[];
   /** Tehsils, union councils, population, area. Null where the district has not said. */
   readonly facts: readonly { readonly label: string; readonly value: string | null }[];
+  /**
+   * What the district can send, and what is already out.
+   *
+   * The prototype had no panel for this because it had no fleet behind it. It belongs beside
+   * the emergency counters for an obvious reason: "4 open" and "2 ambulances available" are
+   * the same decision, and reading them on two different screens is how somebody sends a unit
+   * that is already committed.
+   */
+  readonly resources: {
+    readonly total: number;
+    readonly available: number;
+    readonly committed: number;
+    readonly outOfService: number;
+    /** Named so the panel can say whose fleet this is: a department's, or the district's. */
+    readonly scope: string;
+  };
+  /**
+   * How quickly emergencies are being taken up, over seven days.
+   *
+   * A median rather than a mean: one incident acknowledged four hours late drags a mean into
+   * meaninglessness, and it is the typical case a duty roster is judged on.
+   *
+   * `null` where nothing has been acknowledged — never zero. Zero minutes is the best
+   * possible performance and no data is not performance at all (ADR-0005).
+   */
+  readonly performance: readonly {
+    readonly name: string;
+    readonly open: number;
+    readonly overdue: number;
+    readonly medianAckMinutes: number | null;
+  }[];
+  /**
+   * Emergencies where somebody was supposed to be told and demonstrably was not.
+   *
+   * INV-03 on the home screen. It is a count of **unmet obligations**, not of log lines, and
+   * it is the one number here that means the system itself failed rather than the district.
+   */
+  readonly notificationsUnmet: number;
   /** Live advisories: VIP movement, road closures, weather warnings (two offices issue them). */
   readonly alerts: readonly {
     readonly tag: string;
@@ -225,6 +266,7 @@ async function districtSummary(
   onlyDepartmentId: string | null,
 ): Promise<{
   district: Dashboard['district'];
+  notificationsUnmet: number;
   categories: Dashboard['categories'];
   situation: Dashboard['situation'];
   departments: Dashboard['departments'];
@@ -236,6 +278,7 @@ async function districtSummary(
   midnight.setUTCHours(0, 0, 0, 0);
 
   let openIncidents = 0;
+  let notificationsUnmet = 0;
   let today = 0;
   let unassigned = 0;
   let unassessed = 0;
@@ -311,6 +354,20 @@ async function districtSummary(
 
     if (state.acknowledgedAt === null) overdueUnacknowledged += 1;
 
+    /**
+     * Somebody was owed an alert and did not get one.
+     *
+     * A failed attempt, or one still pending with nobody having collected it. Counted per
+     * incident rather than per attempt: three failed rungs against one duty officer is one
+     * emergency nobody is coming to, not three problems (INV-03).
+     */
+    if (
+      state.notifications.some((n) => n.state === 'failed') ||
+      (state.notifications.length > 0 && state.notifications.every((n) => n.state === 'pending'))
+    ) {
+      notificationsUnmet += 1;
+    }
+
     for (const id of state.responsibleDepartmentIds) {
       const name = directory.get(id) ?? 'unknown department';
       const row = byDepartment.get(name) ?? { open: 0, unacknowledged: 0 };
@@ -329,6 +386,7 @@ async function districtSummary(
       unassessed,
       oldestUnassignedMinutes: oldestUnassigned,
     },
+    notificationsUnmet,
     categories: [...byCategory.entries()]
       .map(([category, b]) => ({ category, label: categoryLabel(category), open: b.open }))
       .sort((a, b) => b.open - a.open || a.label.localeCompare(b.label)),
@@ -495,31 +553,101 @@ export interface Viewer {
   readonly isAdministration: boolean;
 }
 
+/**
+ * What the district can send.
+ *
+ * A department gets its own fleet. The two offices get the sum of every department's, which is
+ * the only figure that answers "is there anything left in the district" — the question asked
+ * at the moment a second emergency arrives.
+ */
+async function resourcePanel(pool: Pool, viewer: Viewer): Promise<Dashboard['resources']> {
+  const departments =
+    viewer.departmentId !== null
+      ? [viewer.departmentId]
+      : (await listDepartments(pool))
+          .filter((d) => d.retiredAt === null)
+          .map((d) => d.departmentId);
+
+  let total = 0;
+  let available = 0;
+  let committed = 0;
+  let outOfService = 0;
+
+  for (const id of departments) {
+    const summary = summarise(await availabilityFor(pool, id));
+    total += summary.total;
+    available += summary.available;
+    committed += summary.committed;
+    outOfService += summary.outOfService;
+  }
+
+  return { total, available, committed, outOfService, scope: viewer.scope };
+}
+
+/**
+ * How quickly emergencies are being taken up.
+ *
+ * Reuses the console's own calculation rather than a second one — a dashboard that computed
+ * its own median would eventually disagree with the performance table, in front of the
+ * officer whose department it is about.
+ */
+async function performancePanel(pool: Pool, viewer: Viewer): Promise<Dashboard['performance']> {
+  const report = await computePerformance(pool, { days: 7 });
+
+  return (
+    report.departments
+      .filter((d) => !d.retired)
+      .filter((d) => viewer.departmentId === null || d.departmentId === viewer.departmentId)
+      // Whoever is furthest behind, first. A performance panel sorted alphabetically is one
+      // where the department that needs attention is wherever the alphabet put it.
+      .sort((a, b) => b.overdue - a.overdue || b.open - a.open)
+      .slice(0, 8)
+      .map((d) => ({
+        name: d.name,
+        open: d.open,
+        overdue: d.overdue,
+        medianAckMinutes: d.medianAckMinutes,
+      }))
+  );
+}
+
 export async function buildDashboard(
   pool: Pool,
   viewer: Viewer,
   now = new Date(),
 ): Promise<Dashboard> {
-  const [summary, utilities, presence, weather, published, facts, alerts, condition] =
-    await Promise.all([
-      districtSummary(pool, now, viewer.departmentId),
-      listUtilities(pool),
-      // A department sees where its own posts are; the offices see the administration's.
-      listPresence(pool, viewer.departmentId),
-      weatherPanel(pool, now),
-      contacts(pool),
-      listFacts(pool),
-      liveAlerts(pool),
-      /**
-       * Whether the record is backed up, whether there is a standby, whether alerts can leave
-       * the building — the two offices only.
-       *
-       * Not secrecy: it is that these are **theirs to fix**. A department shown three red rows
-       * it can do nothing about learns to ignore red rows, and that habit costs something the
-       * day one of them is about its own work (ADR-0005).
-       */
-      viewer.isAdministration ? districtCondition(pool, now) : Promise.resolve([]),
-    ]);
+  const [
+    summary,
+    utilities,
+    presence,
+    weather,
+    published,
+    facts,
+    alerts,
+    resources,
+    performance,
+    condition,
+  ] = await Promise.all([
+    districtSummary(pool, now, viewer.departmentId),
+    listUtilities(pool),
+    // A department sees where its own posts are; the offices see the administration's.
+    listPresence(pool, viewer.departmentId),
+    weatherPanel(pool, now),
+    contacts(pool),
+    listFacts(pool),
+    liveAlerts(pool),
+    resourcePanel(pool, viewer),
+    performancePanel(pool, viewer),
+    /**
+     * Whether the record is backed up, whether there is a standby, whether alerts can leave
+     * the building — the two offices only.
+     *
+     * Not secrecy: it is that these are **theirs to fix**. A department shown three red rows
+     * it can do nothing about learns to ignore red rows, and that habit costs something the
+     * day one of them is about its own work (ADR-0005).
+     */
+    viewer.isAdministration ? districtCondition(pool, now) : Promise.resolve([]),
+  ]);
 
   // One table, two panels. The split is data, so the district can add a fifth kind of thing
   // to watch without a release (migration 0017).
@@ -584,6 +712,8 @@ export async function buildDashboard(
     },
     weather,
     contacts: published,
+    resources,
+    performance,
     condition,
   };
 }

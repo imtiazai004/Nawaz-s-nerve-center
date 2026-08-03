@@ -134,6 +134,14 @@ export interface PerformanceOptions {
  * splitting the credit would mean neither shows a full incident on a screen designed to ask
  * "did you answer?".
  */
+/**
+ * The console's view: every department, for the two offices.
+ *
+ * The authority check lives here and the calculation lives in `computePerformance` below,
+ * because the dashboard needs to show a department **its own** row without handing it
+ * everybody else's — and the alternative was a second median, computed elsewhere, that would
+ * eventually disagree with this table in front of the officer it is about.
+ */
 export async function districtPerformance(
   pool: Pool,
   identity: Identity,
@@ -142,6 +150,14 @@ export async function districtPerformance(
   const denied = requireAdministration<DistrictPerformance>(identity);
   if (denied !== null) return denied;
 
+  return { ok: true, value: await computePerformance(pool, options) };
+}
+
+/** The calculation, with no authority check. Callers scope what they show. */
+export async function computePerformance(
+  pool: Pool,
+  options: PerformanceOptions = {},
+): Promise<DistrictPerformance> {
   const now = options.now ?? new Date().toISOString();
   const windowDays = options.days ?? 30;
 
@@ -263,19 +279,16 @@ export async function districtPerformance(
   });
 
   return {
-    ok: true,
-    value: {
-      asOf: now,
-      windowDays,
-      departments: rows,
-      district: {
-        total: districtTotal,
-        open: districtOpen,
-        overdue: districtOverdue,
-        unassigned: districtUnassigned,
-        medianAckMinutes: round(median(districtAck)),
-        notificationsUnmet: districtUnmet,
-      },
+    asOf: now,
+    windowDays,
+    departments: rows,
+    district: {
+      total: districtTotal,
+      open: districtOpen,
+      overdue: districtOverdue,
+      unassigned: districtUnassigned,
+      medianAckMinutes: round(median(districtAck)),
+      notificationsUnmet: districtUnmet,
     },
   };
 }

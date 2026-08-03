@@ -62,6 +62,15 @@ export interface DashboardFeed {
     lastAt: string | null;
   }[];
   facts: { label: string; value: string | null }[];
+  resources: {
+    total: number;
+    available: number;
+    committed: number;
+    outOfService: number;
+    scope: string;
+  };
+  performance: { name: string; open: number; overdue: number; medianAckMinutes: number | null }[];
+  notificationsUnmet: number;
   alerts: { tag: string; message: string; issuedAt: string; untilAt: string }[];
   services: PanelRow[];
   departments: { name: string; open: number; unacknowledged: number }[];
@@ -217,6 +226,14 @@ function renderKeys(feed: DashboardFeed): void {
     },
     { k: 'Open now', n: d.openIncidents },
     { k: 'Reported today', n: d.today },
+    // INV-03 on the home screen: somebody was owed an alert and demonstrably did not get one.
+    // Counted per emergency, not per attempt — three failed rungs against one duty officer is
+    // one emergency nobody is coming to.
+    {
+      k: 'Nobody reached',
+      n: feed.notificationsUnmet,
+      ...(feed.notificationsUnmet > 0 ? { tone: 'alarm' as const } : {}),
+    },
   ];
 
   for (const key of keys) {
@@ -417,6 +434,89 @@ function renderFacts(feed: DashboardFeed): void {
     node.appendChild(span('k', fact.label));
     const value = span(fact.value === null ? 'v none' : 'v', fact.value ?? 'not supplied yet');
     node.appendChild(value);
+    target.appendChild(node);
+  }
+}
+
+function renderResources(feed: DashboardFeed): void {
+  const r = feed.resources;
+  const target = el('dashResources');
+  clear(target);
+
+  el('dashFleetScope').textContent = r.total === 0 ? '' : `${String(r.total)} in the fleet`;
+
+  if (r.total === 0) {
+    // The reason a dispatch will not happen tonight, said as a sentence. A panel of four
+    // zeroes is technically correct and tells nobody what to do about it.
+    target.appendChild(
+      box('empty', `No vehicles or crews are on ${feed.scope}'s list yet.`),
+    );
+    return;
+  }
+
+  const keys: { k: string; n: number; tone?: 'alarm' | 'warn' }[] = [
+    // Available first, because it is the number somebody is looking for when they ask.
+    // Red at zero: nothing left to send is an emergency about emergencies.
+    { k: 'Available', n: r.available, ...(r.available === 0 ? { tone: 'alarm' as const } : {}) },
+    { k: 'Out on a job', n: r.committed },
+    {
+      k: 'Out of service',
+      n: r.outOfService,
+      ...(r.outOfService > 0 ? { tone: 'warn' as const } : {}),
+    },
+    { k: 'In the fleet', n: r.total },
+  ];
+
+  for (const key of keys) {
+    const node = box(`key${key.tone === undefined ? '' : ` ${key.tone}`}`);
+    node.appendChild(span('n', String(key.n)));
+    node.appendChild(span('k', key.k));
+    target.appendChild(node);
+  }
+}
+
+/** Minutes as a person would say them. */
+function minutes(value: number | null): string {
+  if (value === null) return '—';
+  if (value < 60) return `${String(value)} min`;
+
+  const hours = Math.floor(value / 60);
+  const rest = value % 60;
+  return rest === 0 ? `${String(hours)} hr` : `${String(hours)} hr ${String(rest)} min`;
+}
+
+function renderPerformance(feed: DashboardFeed): void {
+  const target = el('dashPerformance');
+  clear(target);
+
+  if (feed.performance.length === 0) {
+    target.appendChild(box('empty', 'nothing in the last seven days'));
+    return;
+  }
+
+  for (const row of feed.performance) {
+    const node = box('pitem');
+    node.appendChild(span('pn', row.name));
+
+    // A dash, never a zero. Zero minutes is the best possible performance and no data is not
+    // performance at all — the two must not look alike (ADR-0005, INV-04).
+    const value = span('pc', minutes(row.medianAckMinutes));
+    if (row.overdue > 0) value.classList.add('state-critical');
+    node.appendChild(value);
+
+    node.appendChild(
+      box(
+        'pw',
+        row.overdue > 0
+          ? `${String(row.open)} open · ${String(row.overdue)} past the deadline`
+          : `${String(row.open)} open`,
+      ),
+    );
+
+    if (links.onOpenDepartment !== undefined) {
+      leadsTo(node, `Open the board for ${row.name}`, () => links.onOpenDepartment?.(row.name));
+    }
+
     target.appendChild(node);
   }
 }
@@ -624,6 +724,12 @@ export function paint(feed: DashboardFeed): void {
   });
   panel('weather', () => {
     renderWeather(feed);
+  });
+  panel('resources', () => {
+    renderResources(feed);
+  });
+  panel('performance', () => {
+    renderPerformance(feed);
   });
   panel('contacts', () => {
     renderContacts(feed);

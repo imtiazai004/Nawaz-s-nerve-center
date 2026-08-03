@@ -24,6 +24,8 @@
  * a number they learn to scroll past.
  */
 
+import { categoryWords, duration } from './words.js';
+
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
 export interface WorkspaceIdentity {
@@ -224,10 +226,10 @@ export function mountWorkspace(onOpenIncident: (incidentId: string) => void): Wo
       const head = document.createElement('header');
       const sev = text('span', 'sev', row.assessed ? row.severity : 'unassessed');
       sev.dataset['level'] = row.severity;
-      head.append(sev, text('span', 'cat', row.category));
+      head.append(sev, text('span', 'cat', categoryWords(row.category)));
       if (row.overdue) {
         head.append(
-          text('span', 'flag', `${String(row.overdueByMinutes)}m past a ${String(row.targetMinutes)}m deadline`),
+          text('span', 'flag', `${duration(row.overdueByMinutes)} past a ${duration(row.targetMinutes)} deadline`),
         );
       }
       if (unreadFor.has(row.incidentId)) head.append(text('span', 'flag msg', 'message waiting'));
@@ -328,7 +330,7 @@ export function mountWorkspace(onOpenIncident: (incidentId: string) => void): Wo
       const head = document.createElement('header');
       const sev = text('span', 'sev', row.assessed ? row.severity : 'unassessed');
       sev.dataset['level'] = row.severity;
-      head.append(sev, text('span', 'cat', row.category), text('span', 'state', row.status));
+      head.append(sev, text('span', 'cat', categoryWords(row.category)), text('span', 'state', row.status));
       card.append(head);
 
       const sent = onIncident[row.incidentId] ?? [];

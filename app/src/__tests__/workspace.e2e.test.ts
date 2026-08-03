@@ -184,7 +184,16 @@ describe.skipIf(dbUrl === undefined)('M1-01: the department workspace', () => {
 
     const card = page.locator(`.work[data-incident="${id}"]`);
     expect(await card.locator('.sev').textContent()).toBe('critical');
-    expect(await card.locator('.cat').textContent()).toBe(`shift-${RUN}`);
+    /**
+     * The category is shown in words, and a category nobody has a word for is shown as the
+     * district typed it, capitalised — never invented into a nearby one.
+     *
+     * This test uses a made-up category so it cannot collide with a real run's data, so it is
+     * exercising exactly that fallback. The six the report form offers ("rta" → "Road
+     * accident") are covered in the board suite.
+     */
+    const shown = `Shift-${RUN}`;
+    expect(await card.locator('.cat').textContent()).toBe(shown);
   });
 
   it('5. the officer acknowledges it without leaving the screen', async () => {

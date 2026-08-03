@@ -26,6 +26,7 @@ import { mountRoster, type RosterPanel } from './roster.js';
 import { mountWorkspace, type Workspace } from './workspace.js';
 import { createDashboard, startClock } from './dashboard.js';
 import { mountStatus } from './status.js';
+import { categoryWords, duration } from './words.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -623,7 +624,7 @@ async function boot(): Promise<void> {
 
         const cat = document.createElement('span');
         cat.className = 'cat';
-        cat.textContent = row.category;
+        cat.textContent = categoryWords(row.category);
         if (row.overriddenFrom !== null) {
           const note = document.createElement('span');
           note.className = 'meta';
@@ -637,7 +638,7 @@ async function boot(): Promise<void> {
           row.acknowledgedAt !== null
             ? row.status
             : row.overdue
-              ? `unacknowledged · ${row.overdueByMinutes}m past deadline`
+              ? `unacknowledged · ${duration(row.overdueByMinutes)} past deadline`
               : 'unacknowledged';
         if (row.overdue) state.classList.add('flag');
 
