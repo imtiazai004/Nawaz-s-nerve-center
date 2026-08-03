@@ -24,19 +24,33 @@ import type { Identity } from '../auth/sessions.js';
 import { inTransaction, recordChange } from '../db/configStore.js';
 import {
   addUtility,
+  issueAlert,
+  listFacts,
   listPresence,
   listUtilities,
+  liveAlerts,
   reportPresence,
   reportUtility,
   retireUtility,
   seatDepartment,
+  setFact,
   utilityOwner,
+  withdrawAlert,
+  type AlertTag,
 } from '../db/wallStore.js';
 import type { PresenceStatus, UtilityStatus } from '../domain/wall.js';
 
 const UTILITY_STATUSES: readonly string[] = ['normal', 'degraded', 'down'];
 const PRESENCE_STATUSES: readonly string[] = ['office', 'field', 'leave'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ALERT_TAGS: readonly string[] = ['vip', 'security', 'road', 'weather', 'other'];
+
+/**
+ * A district fact is keyed by a word, not a uuid, and `config_event.subject_id` is a uuid
+ * column. One fixed id stands for "the district status board" so the change still lands in
+ * the log people read — the key itself is in the payload, where it can be seen.
+ */
+const FACT_SUBJECT = '00000000-0000-0000-0000-000000000001';
 
 /** Free text that reaches a wall four metres away. Long enough to be useful, short enough to read. */
 const MAX_NOTE = 120;
@@ -88,9 +102,11 @@ export async function handleStatus(
     // Everyone signed in sees the whole picture. There is nothing private in it — it is the
     // same aggregate a television shows — and a department that cannot see whether the power
     // is out cannot plan around it.
-    const [utilities, presence] = await Promise.all([
+    const [utilities, presence, facts, alerts] = await Promise.all([
       listUtilities(pool),
       listPresence(pool, identity.isAdministration ? null : identity.departmentId),
+      listFacts(pool),
+      liveAlerts(pool, 20),
     ]);
 
     return {
@@ -98,6 +114,8 @@ export async function handleStatus(
       body: {
         utilities,
         presence,
+        facts,
+        alerts,
         // What this caller is allowed to change, so the screen renders the right controls
         // rather than offering buttons that will be refused.
         canConfigure: identity.isAdministration,
@@ -243,6 +261,124 @@ export async function handleStatus(
         after: null,
         actor: { seatId: identity.seatId, personId: identity.personId },
         reason,
+      }),
+    );
+
+    return { status: 200, body: { ok: true } };
+  }
+
+  //--------------------------------------------------------------------------------
+  // Alerts and advisories — the two offices issue them
+  //--------------------------------------------------------------------------------
+  //
+  // Owner, 2026-08-03: only the DC and AC Headquarter offices. A district-wide advisory is an
+  // administrative announcement that every department reads and plans around; a board any
+  // department could post to is a board nobody can trust.
+
+  if (method === 'POST' && path === '/status/alerts') {
+    if (!identity.isAdministration) return bad(403, 'only the DC or AC Headquarter office');
+
+    const tag = body?.['tag'];
+    if (typeof tag !== 'string' || !ALERT_TAGS.includes(tag)) {
+      return bad(400, 'tag must be vip, security, road, weather or other');
+    }
+
+    const message = text(body?.['message'], 200);
+    if (message === null || message.length < 3) return bad(400, 'say what the advisory is');
+
+    /**
+     * An advisory must state when it stops mattering.
+     *
+     * Without this, the road reopens and the notice stays up for eleven months until it is
+     * furniture nobody reads. Requiring an end means the board empties itself rather than
+     * relying on somebody remembering to tidy it.
+     */
+    const until = text(body?.['untilAt'], 40);
+    if (until === null) return bad(400, 'say when this advisory ends');
+
+    const ends = new Date(until).getTime();
+    if (Number.isNaN(ends)) return bad(400, 'that is not a time');
+    if (ends <= Date.now()) return bad(400, 'that time has already passed');
+
+    const alertId = await issueAlert(pool, {
+      tag: tag as AlertTag,
+      message,
+      untilAt: until,
+      issuedBy: identity.seatId,
+    });
+
+    await inTransaction(pool, (tx) =>
+      recordChange(tx, {
+        subject: 'district_alert',
+        subjectId: alertId,
+        action: 'created',
+        before: null,
+        after: { tag, message, untilAt: until },
+        actor: { seatId: identity.seatId, personId: identity.personId },
+        reason: 'issued to the district',
+      }),
+    );
+
+    return { status: 201, body: { alertId } };
+  }
+
+  if (method === 'POST' && path === '/status/alerts/withdraw') {
+    if (!identity.isAdministration) return bad(403, 'only the DC or AC Headquarter office');
+
+    const alertId = typeof body?.['alertId'] === 'string' ? body['alertId'] : '';
+    if (!UUID_RE.test(alertId)) return bad(400, 'which advisory?');
+
+    const reason = text(body?.['reason'], MAX_NOTE);
+    if (reason === null) return bad(400, 'say why');
+
+    // Withdrawn, never deleted. "We told the district the road was shut" is a thing somebody
+    // may have to answer for (ADR-0001).
+    if (!(await withdrawAlert(pool, { alertId, reason }))) {
+      return bad(404, 'no such advisory, or it is already withdrawn');
+    }
+
+    await inTransaction(pool, (tx) =>
+      recordChange(tx, {
+        subject: 'district_alert',
+        subjectId: alertId,
+        action: 'retired',
+        before: null,
+        after: null,
+        actor: { seatId: identity.seatId, personId: identity.personId },
+        reason,
+      }),
+    );
+
+    return { status: 200, body: { ok: true } };
+  }
+
+  //--------------------------------------------------------------------------------
+  // The district's standing facts
+  //--------------------------------------------------------------------------------
+
+  if (method === 'POST' && path === '/status/facts') {
+    if (!identity.isAdministration) return bad(403, 'only the DC or AC Headquarter office');
+
+    const key = text(body?.['key'], 40);
+    if (key === null) return bad(400, 'which fact?');
+
+    // Free text, and empty clears it back to "not supplied" rather than storing a blank that
+    // renders as a value nobody typed.
+    const value = text(body?.['value'], 60);
+
+    if (!(await setFact(pool, { key, value, seatId: identity.seatId }))) {
+      return bad(404, 'no such fact');
+    }
+
+    await inTransaction(pool, (tx) =>
+      recordChange(tx, {
+        subject: 'district_fact',
+        subjectId: FACT_SUBJECT,
+        action: 'updated',
+        before: null,
+        after: { key, value },
+        actor: { seatId: identity.seatId, personId: identity.personId },
+        reason: text(body?.['reason'], MAX_NOTE) ?? 'district status board',
       }),
     );
 

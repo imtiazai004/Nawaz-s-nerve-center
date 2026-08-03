@@ -160,6 +160,20 @@ export function reportingGap(readings: readonly Aged<unknown>[]): {
  * It looks for the shapes that identify a person rather than for particular fields, because
  * a field-name allowlist protects only against the mistakes somebody already thought of.
  */
+/**
+ * A uuid, exactly.
+ *
+ * Checked *before* the shapes below, and it is not a nicety. A uuid is 32 hex characters, so
+ * some of them contain a run that reads as a Pakistani number — `…-0207-00f846…` is one
+ * digit away. This fired for real: the dashboard started returning 500 for every caller
+ * because one seeded utility happened to draw an unlucky id, and the error blamed a phone
+ * number that was not there.
+ *
+ * Skipping them is safe in the direction that matters: a uuid identifies a row, not a person,
+ * and nothing in this system encodes a number as one.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const FORBIDDEN: readonly { readonly what: string; readonly re: RegExp }[] = [
   // Pakistani mobile and landline forms, with or without separators or country code.
   { what: 'a phone number', re: /(\+?92|0)\s?\d{2,4}[\s-]?\d{6,8}/ },
@@ -196,6 +210,8 @@ export function wallSafetyViolations(payload: unknown): string[] {
     if (node === null || node === undefined) return;
 
     if (typeof node === 'string') {
+      if (UUID.test(node)) return;
+
       for (const rule of FORBIDDEN) {
         if (rule.re.test(node)) found.push(`${path} looks like ${rule.what}`);
       }

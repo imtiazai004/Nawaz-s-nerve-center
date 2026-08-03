@@ -3,39 +3,163 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#1e2430" />
+    <meta name="theme-color" content="#0b1220" />
     <title>District Nerve Center — Bannu</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <style>
+      /*
+       * ==================================================================== the palette
+       *
+       * A control room, not a document. This is the look of the prototype the owner supplied
+       * and asked the software to be built on: a deep navy ground, one cyan accent, and four state
+       * colours that mean the same four things everywhere in the application.
+       *
+       * Every colour in this file is a token. There are no hex literals below this block —
+       * that was thirty-four of them before this change, and it is why the app could not be
+       * re-themed without hunting.
+       *
+       * Two departures from the prototype, both deliberate:
+       *
+       * **No web font.** It asks Google for Poppins and Inter. That request fails on a district
+       * line, and the layout everybody signed off on stops existing at the moment the district
+       * is cut off — which is the exact case the owner said must keep working. The system
+       * stack is already installed and carries the same weights.
+       *
+       * **Meaning is never carried by colour alone.** Every state also has a word (INV-04).
+       * Roughly one man in twelve cannot separate the red from the green, and this is read by
+       * whoever is on duty.
+       */
       :root {
-        --ink: #14171e;
-        --paper: #f1eee7;
-        --card: #fff;
-        --line: #cfc9bb;
-        --critical: #8c2f22;
-        --pending: #8a6420;
-        --ok: #2f5d3a;
-        --slate: #5f6675;
-        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        --paper: #0b1220;
+        --paper-2: #0f1a2e;
+        --card: #162033;
+        --card2: #1c2842;
+        --line: #233252;
+
+        --ink: #ffffff;
+        --slate: #8fa1be;
+        --muted: #6d7f9c;
+
+        --primary: #00d1ff;
+        --ok: #00c853;
+        --pending: #ffc107;
+        --critical: #ff3d57;
+        /* Grey, never amber. "Nobody has told us" is not a mild version of "there is a
+           problem" — it is a different fact with a different fix (ADR-0009, ADR-0013). */
+        --unknown: #7d8ba3;
+
+        --ok-wash: rgba(0, 200, 83, 0.16);
+        --pending-wash: rgba(255, 193, 7, 0.16);
+        --critical-wash: rgba(255, 61, 87, 0.18);
+        --unknown-wash: rgba(141, 161, 190, 0.12);
+
+        /* Text that sits on a filled accent — a primary button, a selected tile. */
+        --on-accent: #04121c;
+
+        font-family: "Segoe UI", system-ui, -apple-system, "Noto Sans", Arial, sans-serif;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        background: var(--paper);
+        /* The glow behind the header, exactly as the prototype has it. */
+        background:
+          radial-gradient(circle at 50% -10%, rgba(0, 209, 255, 0.1) 0%, transparent 45%),
+          radial-gradient(circle at 50% 0%, var(--paper-2) 0%, var(--paper) 55%);
+        background-attachment: fixed;
         color: var(--ink);
         font-size: 17px;
         line-height: 1.45;
         -webkit-text-size-adjust: 100%;
+        min-height: 100vh;
       }
       header {
-        padding: 0.7rem 1rem;
-        border-bottom: 2px solid var(--ink);
+        padding: 0.6rem 1rem;
+        border-bottom: 1px solid var(--line);
         display: flex;
-        align-items: baseline;
+        align-items: center;
         justify-content: space-between;
         gap: 1rem;
+        box-shadow: 0 0 34px rgba(0, 209, 255, 0.12);
       }
-      h1 { font-size: 0.95rem; margin: 0; letter-spacing: 0.02em; }
+      .brand { display: flex; align-items: center; gap: 0.7rem; min-width: 0; }
+      .mark {
+        width: 2.4em; height: 2.4em; flex: 0 0 auto;
+        border-radius: 10px;
+        background: linear-gradient(135deg, var(--primary), #0077a3);
+        color: var(--on-accent);
+        display: grid; place-items: center;
+        font-weight: 800; font-size: 0.8rem; letter-spacing: 0.02em;
+        box-shadow: 0 0 20px rgba(0, 209, 255, 0.45);
+      }
+      h1 {
+        font-size: 1rem; margin: 0; letter-spacing: 0.06em; font-weight: 800;
+        text-transform: uppercase;
+        background: linear-gradient(90deg, var(--ink), var(--primary));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+        white-space: nowrap;
+      }
+      .org {
+        font-size: 0.68rem; color: var(--slate); font-weight: 600;
+        letter-spacing: 0.08em; text-transform: uppercase;
+      }
+      .now { text-align: right; margin-left: auto; }
+      .clock {
+        font-size: 1.3rem; font-weight: 800; color: var(--primary);
+        line-height: 1.1; font-variant-numeric: tabular-nums;
+        text-shadow: 0 0 18px rgba(0, 209, 255, 0.35);
+      }
+      /*
+       * The signed-in name stays on every width.
+       *
+       * It was hidden below 30rem to buy room for the clock, which broke a test — and the
+       * test was right. An officer about to send an emergency needs to know which account it
+       * will be attributed to, and that matters most on the device they are holding at the
+       * scene. It shrinks instead.
+       */
+      #who { margin-left: 0.8rem; }
+      @media (max-width: 30rem) {
+        #who, #who button { font-size: 0.65rem; }
+        .clock { font-size: 1.05rem; }
+      }
+
+      @media (min-width: 56rem) {
+        h1 { font-size: 1.3rem; letter-spacing: 0.1em; }
+        .clock { font-size: 1.9rem; }
+        .mark { font-size: 0.95rem; }
+      }
+      @media (min-width: 90rem) {
+        h1 { font-size: 1.7rem; }
+        .clock { font-size: 2.3rem; }
+      }
+
+      /* -------------------------------------------------------------------- the ticker */
+      footer#ticker {
+        position: sticky; bottom: 0;
+        border-top: 1px solid var(--line);
+        background: var(--paper);
+        overflow: hidden;
+        font-size: 0.85rem; color: var(--slate); font-weight: 600;
+        padding: 0.35rem 0;
+      }
+      .tick {
+        white-space: nowrap; display: inline-block; padding-left: 100%;
+        animation: tick 30s linear infinite;
+      }
+      @keyframes tick {
+        from { transform: translateX(0); }
+        to { transform: translateX(-100%); }
+      }
+      /*
+       * Somebody who has asked for less motion gets a still line rather than none.
+       *
+       * Turning the animation off entirely would leave the text parked off-screen to the
+       * right, where padding-left:100% put it — a blank bar. So the padding goes too.
+       */
+      @media (prefers-reduced-motion: reduce) {
+        .tick { animation: none; padding-left: var(--pad); }
+      }
+      .tick b { color: var(--primary); font-weight: 800; }
+      .tick .bad { color: var(--critical); font-weight: 800; }
       /*
        * The title and the sign-in line sit inside the same shell as everything else, so on a
        * wide screen they line up with the first panel instead of hugging the glass.
@@ -141,7 +265,7 @@
 
       .keys { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
       @media (min-width: 56rem) { .keys { grid-template-columns: repeat(4, 1fr); } }
-      .key { border-radius: 4px; padding: 0.55rem 0.7rem; background: #eceae4; }
+      .key { border-radius: 4px; padding: 0.55rem 0.7rem; background: var(--card2); }
       .key .n {
         display: block;
         font-size: 2rem;
@@ -154,9 +278,9 @@
         font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
         color: var(--slate); font-weight: 700;
       }
-      .key.alarm { background: #f6e4e0; }
+      .key.alarm { background: var(--critical-wash); }
       .key.alarm .n { color: var(--critical); }
-      .key.warn { background: #f7eeda; }
+      .key.warn { background: var(--pending-wash); }
       .key.warn .n { color: var(--pending); }
 
       .plist { display: grid; gap: 0.1rem; }
@@ -184,10 +308,10 @@
         display: inline-block; padding: 0.1em 0.55em; border-radius: 999px;
         font-size: 0.74rem; font-weight: 700; white-space: nowrap;
       }
-      .tag.ok       { background: #dfe9df; color: var(--ok); }
-      .tag.pending  { background: #f7eeda; color: var(--pending); }
-      .tag.critical { background: #f6e4e0; color: var(--critical); }
-      .tag.unknown  { background: #e6e3da; color: var(--slate); }
+      .tag.ok       { background: var(--ok-wash); color: var(--ok); }
+      .tag.pending  { background: var(--pending-wash); color: var(--pending); }
+      .tag.critical { background: var(--critical-wash); color: var(--critical); }
+      .tag.unknown  { background: var(--card2); color: var(--slate); }
 
       .wx { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
       .wx .t { font-size: 2.6rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
@@ -199,9 +323,68 @@
       .wxgrid .v { font-weight: 700; font-variant-numeric: tabular-nums; }
 
       .nums { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-      .num { background: #eceae4; border-radius: 4px; padding: 0.4rem 0.6rem; }
+      .num { background: var(--card2); border-radius: 4px; padding: 0.4rem 0.6rem; }
       .num .k { font-size: 0.68rem; color: var(--slate); font-weight: 700; }
       .num .v { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+
+      /* --------------------------------------------------- emergency situation cards */
+      .sitgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+      @media (min-width: 56rem) { .sitgrid { grid-template-columns: repeat(3, 1fr); } }
+      @media (min-width: 90rem) { .sitgrid { grid-template-columns: repeat(3, 1fr); } }
+      .sit {
+        background: var(--card2);
+        border: 1px solid var(--line);
+        /* The left bar is the prototype's device and it earns its place: at a glance the
+           eye reads a column of coloured edges before it reads a single word. */
+        border-left: 5px solid var(--unknown);
+        border-radius: 6px;
+        padding: 0.55rem 0.7rem;
+      }
+      .sit .kind {
+        font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--slate); font-weight: 700;
+      }
+      .sit .state { font-size: 1.05rem; font-weight: 800; margin: 0.15rem 0 0.2rem; }
+      .sit .meta {
+        display: flex; justify-content: space-between; gap: 0.5rem;
+        font-size: 0.74rem; color: var(--slate); font-weight: 600;
+      }
+      .sit.ok       { border-left-color: var(--ok); }
+      .sit.ok .state       { color: var(--ok); }
+      .sit.pending  { border-left-color: var(--pending); background: var(--pending-wash); }
+      .sit.pending .state  { color: var(--pending); }
+      .sit.critical { border-left-color: var(--critical); background: var(--critical-wash); }
+      .sit.critical .state { color: var(--critical); }
+      /* Nothing open of this kind: present, but not competing for attention. */
+      .sit.quiet { opacity: 0.62; }
+
+      /* ------------------------------------------------------------------- advisories */
+      .alist { display: grid; gap: 0.55rem; }
+      .alert-row { display: grid; grid-template-columns: auto 1fr; gap: 0.55rem; align-items: start; }
+      .alert-row .atag {
+        font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em;
+        padding: 0.2em 0.5em; border-radius: 4px; white-space: nowrap;
+        background: var(--unknown-wash); color: var(--slate);
+      }
+      .alert-row .atag.vip      { background: var(--pending-wash); color: var(--pending); }
+      .alert-row .atag.security { background: var(--critical-wash); color: var(--critical); }
+      .alert-row .atag.road     { background: var(--unknown-wash); color: var(--primary); }
+      .alert-row .atag.weather  { background: var(--ok-wash); color: var(--ok); }
+      .alert-row .amsg { font-weight: 600; font-size: 0.92rem; }
+      .alert-row .awhen { font-size: 0.72rem; color: var(--slate); display: block; }
+
+      /* ------------------------------------------------------------ standing facts */
+      .factgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+      .fact { background: var(--card2); border-radius: 4px; padding: 0.4rem 0.6rem; }
+      .fact .k {
+        display: block; font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--slate); font-weight: 700;
+      }
+      .fact .v { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+      /* A fact the district has not supplied says so, rather than showing a dash that reads
+         as a value. CLAUDE.md §7: a placeholder must be visibly a placeholder. */
+      .fact .v.none { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
 
       .empty { font-size: 0.82rem; color: var(--slate); }
       /* How old a thing is. Always smaller and quieter than the thing it qualifies. */
@@ -217,10 +400,10 @@
         font-weight: 600;
         border-bottom: 1px solid var(--line);
       }
-      #status[data-state="online"]    { background: #dfe9df; color: var(--ok); }
-      #status[data-state="offline"]   { background: #f2e3c9; color: var(--pending); }
-      #status[data-state="signedout"] { background: #f0dad6; color: var(--critical); }
-      #status[data-state="unknown"]   { background: #e6e3da; color: var(--slate); }
+      #status[data-state="online"]    { background: var(--ok-wash); color: var(--ok); }
+      #status[data-state="offline"]   { background: var(--pending-wash); color: var(--pending); }
+      #status[data-state="signedout"] { background: var(--critical-wash); color: var(--critical); }
+      #status[data-state="unknown"]   { background: var(--card2); color: var(--slate); }
 
       fieldset { border: none; margin: 0 0 0.9rem; padding: 0; }
       legend {
@@ -255,9 +438,9 @@
         user-select: none;
       }
       .tiles input:checked + label {
-        background: var(--ink);
-        border-color: var(--ink);
-        color: #fff;
+        background: var(--primary);
+        border-color: var(--primary);
+        color: var(--on-accent);
       }
       .tiles input:focus-visible + label { outline: 3px solid var(--pending); outline-offset: 2px; }
       /* Severity never relies on colour alone — the label carries the meaning (INV-04). */
@@ -273,7 +456,7 @@
         font: inherit;
         font-size: 1.15rem;
         font-weight: 700;
-        color: #fff;
+        color: var(--on-accent);
         background: var(--critical);
         border: none;
         border-radius: 3px;
@@ -301,7 +484,7 @@
       #sent {
         margin-top: 1rem;
         padding: 0.8rem 1rem;
-        background: #dfe9df;
+        background: var(--ok-wash);
         border-left: 4px solid var(--ok);
       }
       #sent h2 { margin: 0 0 0.2rem; font-size: 0.95rem; }
@@ -309,7 +492,7 @@
       #sent button {
         width: 100%; min-height: 48px; margin-top: 0.5rem;
         font: inherit; font-weight: 600;
-        background: var(--ink); color: #fff; border: none; border-radius: 2px; cursor: pointer;
+        background: var(--primary); color: var(--on-accent); border: none; border-radius: 2px; cursor: pointer;
       }
 
       #queue { margin-top: 1.4rem; border-top: 1px solid var(--line); padding-top: 0.8rem; }
@@ -331,12 +514,12 @@
       }
       #loginError {
         margin-top: 0.9rem; padding: 0.6rem 0.8rem;
-        background: #f0dad6; color: var(--critical);
+        background: var(--critical-wash); color: var(--critical);
         font-size: 0.9rem; font-weight: 600;
       }
       button.plain {
         width: 100%; min-height: 48px; margin-top: 1rem;
-        font: inherit; font-weight: 700; color: #fff;
+        font: inherit; font-weight: 700; color: var(--on-accent);
         background: var(--critical); border: none; border-radius: 2px; cursor: pointer;
       }
       button.plain:disabled { opacity: 0.45; cursor: default; }
@@ -374,7 +557,7 @@
         #nav { max-width: var(--shell); margin: 0 auto; padding-inline: calc(var(--pad) - 0.9rem); }
         #nav button { flex: 1 1 auto; }
       }
-      #nav button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
+      #nav button[aria-current="page"] { color: var(--primary); border-bottom-color: var(--primary); }
 
       /*
        * The screens that are tables get the shell's full width at every size.
@@ -415,7 +598,7 @@
       /* Nobody has these. Loud, above everything, never a colour on its own (INV-04). */
       #boardUnassigned {
         margin: 0 0 0.7rem; padding: 0.6rem 0.8rem;
-        background: #f0dad6; color: var(--critical);
+        background: var(--critical-wash); color: var(--critical);
         border-left: 4px solid var(--critical);
         font-size: 0.9rem; font-weight: 700;
       }
@@ -432,11 +615,11 @@
         color: var(--slate); cursor: pointer;
       }
       #adminTabs button[aria-current="page"] {
-        background: var(--ink); border-color: var(--ink); color: var(--paper);
+        background: var(--primary); border-color: var(--primary); color: var(--on-accent);
       }
       #adminError {
         margin: 0 0 0.9rem; padding: 0.6rem 0.8rem;
-        background: #f0dad6; color: var(--critical);
+        background: var(--critical-wash); color: var(--critical);
         font-size: 0.88rem; font-weight: 600;
       }
       #adminBody .note { margin-top: 0; }
@@ -477,7 +660,7 @@
       #addDepartment input { flex: 1 1 12rem; min-width: 0; margin: 0; padding: 0.5rem; font: inherit; }
       #addDepartment button {
         margin: 0; padding: 0.5rem 1rem; font: inherit; font-weight: 700;
-        background: var(--ink); color: var(--paper); border: none; border-radius: 2px; cursor: pointer;
+        background: var(--primary); color: var(--on-accent); border: none; border-radius: 2px; cursor: pointer;
       }
 
       .dept {
@@ -491,7 +674,7 @@
         font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
         padding: 0.1rem 0.35rem; border: 1px solid var(--line); border-radius: 2px; color: var(--slate);
       }
-      .dept .tag.admin { border-color: var(--ink); color: var(--ink); }
+      .dept .tag.admin { border-color: var(--primary); color: var(--primary); }
       .dept .desc { margin: 0.3rem 0 0; font-size: 0.85rem; }
       .dept .meta { margin: 0.25rem 0 0; font-size: 0.78rem; color: var(--slate); }
       .dept .meta .warn { color: var(--critical); }
@@ -562,7 +745,7 @@
         color: var(--slate); border-bottom: 1px solid var(--ink); padding: 0.35rem 0.4rem;
       }
       #performanceTable td { padding: 0.4rem; border-bottom: 1px solid var(--line); }
-      #performanceTable tr[data-overdue="true"] td { background: #f7e9e6; }
+      #performanceTable tr[data-overdue="true"] td { background: var(--critical-wash); }
 
       .change {
         display: grid; grid-template-columns: 9rem 1fr 12rem;
@@ -582,7 +765,7 @@
       #shiftWho { margin: 0 0 0.2rem; font-weight: 700; color: var(--ink); font-size: 0.9rem; }
       #shiftError {
         margin: 0 0 0.8rem; padding: 0.6rem 0.8rem;
-        background: #f0dad6; color: var(--critical);
+        background: var(--critical-wash); color: var(--critical);
         font-size: 0.88rem; font-weight: 600;
       }
       #shift .asof { font-size: 0.78rem; color: var(--slate); margin: 0 0 0.9rem; }
@@ -601,8 +784,8 @@
         background: var(--card); border: 1px solid var(--line); border-radius: 3px;
         padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; cursor: pointer;
       }
-      .work:hover, .work:focus-visible { background: #faf8f4; }
-      .work[data-overdue="true"] { border-left: 4px solid var(--critical); background: #f7e9e6; }
+      .work:hover, .work:focus-visible { background: var(--card2); }
+      .work[data-overdue="true"] { border-left: 4px solid var(--critical); background: var(--critical-wash); }
       .work header {
         display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem;
         padding: 0; border: none;
@@ -627,7 +810,7 @@
         font: inherit; font-size: 0.85rem; font-weight: 700;
         background: none; border: 1px solid var(--ink); border-radius: 2px; cursor: pointer;
       }
-      button.act.primary { background: var(--ink); color: var(--paper); }
+      button.act.primary { background: var(--primary); color: var(--on-accent); }
       select.send { margin: 0; padding: 0.5rem; min-height: 44px; font: inherit; font-size: 0.85rem; }
 
       #canSend .tallies { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 0.7rem; }
@@ -656,11 +839,11 @@
       /* ------------------------------------------------------------- backups */
       #backups .state {
         margin: 0 0 0.7rem; padding: 0.6rem 0.8rem;
-        border-left: 4px solid var(--ok); background: #dfe9df; color: var(--ok);
+        border-left: 4px solid var(--ok); background: var(--ok-wash); color: var(--ok);
         font-size: 0.88rem; font-weight: 700;
       }
       #backups .state[data-ok="false"] {
-        border-left-color: var(--critical); background: #f0dad6; color: var(--critical);
+        border-left-color: var(--critical); background: var(--critical-wash); color: var(--critical);
       }
       #backups .run {
         display: grid; grid-template-columns: 11rem 5rem 1fr;
@@ -696,7 +879,7 @@
       }
       #alertLadder .dead {
         margin: 0 0 0.9rem; padding: 0.6rem 0.8rem;
-        background: #f0dad6; color: var(--critical);
+        background: var(--critical-wash); color: var(--critical);
         border-left: 4px solid var(--critical);
         font-size: 0.88rem; font-weight: 700;
       }
@@ -710,7 +893,7 @@
 
       #mineError {
         margin: 0 0 0.9rem; padding: 0.6rem 0.8rem;
-        background: #f0dad6; color: var(--critical);
+        background: var(--critical-wash); color: var(--critical);
         font-size: 0.88rem; font-weight: 600;
       }
       #rosterPicker { width: 100%; margin: 0 0 1rem; padding: 0.5rem; font: inherit; }
@@ -719,7 +902,7 @@
       /* A post nothing can reach. Loud, above everything, and in words (INV-04). */
       .unreachable {
         margin: 0 0 0.9rem; padding: 0.6rem 0.8rem;
-        background: #f0dad6; color: var(--critical);
+        background: var(--critical-wash); color: var(--critical);
         border-left: 4px solid var(--critical);
         font-size: 0.88rem; font-weight: 700;
       }
@@ -763,7 +946,7 @@
       .addperson .ph input { width: auto; margin: 0; }
       .addpost button, .addperson button {
         margin: 0; padding: 0.45rem 0.9rem; font: inherit; font-size: 0.85rem; font-weight: 700;
-        background: var(--ink); color: var(--paper); border: none; border-radius: 2px; cursor: pointer;
+        background: var(--primary); color: var(--on-accent); border: none; border-radius: 2px; cursor: pointer;
       }
 
       #boardRows { border-top: 1px solid var(--line); }
@@ -789,16 +972,16 @@
       .row .cat { font-weight: 600; }
       .row .meta { color: var(--slate); font-size: 0.78rem; }
       .row .state { font-size: 0.78rem; }
-      .row[data-overdue="true"] { background: #f7e9e6; }
+      .row[data-overdue="true"] { background: var(--critical-wash); }
       .row .flag { color: var(--critical); font-weight: 700; font-size: 0.72rem; }
       #boardEmpty { padding: 1.2rem 0.2rem; color: var(--slate); font-size: 0.9rem; }
       .row { cursor: pointer; }
-      .row:hover, .row:focus-visible { background: #e9e5dc; }
+      .row:hover, .row:focus-visible { background: var(--card2); }
 
       /* ------------------------------------------------------------- inbox (M0-34) */
       #nav .count {
         display: inline-block; min-width: 1.4rem; padding: 0 0.3rem;
-        background: var(--critical); color: #fff; border-radius: 999px;
+        background: var(--critical); color: var(--on-accent); border-radius: 999px;
         font-size: 0.72rem; font-weight: 800;
       }
       #inboxWho { margin: 0 0 0.8rem; }
@@ -814,7 +997,7 @@
         min-height: 44px; padding: 0 0.8rem; font: inherit; font-size: 0.82rem;
         font-weight: 700; border-radius: 3px; cursor: pointer;
       }
-      .inbox-row .open { background: var(--ink); color: #fff; border: none; }
+      .inbox-row .open { background: var(--primary); color: var(--on-accent); border: none; }
       .inbox-row .seen { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
       #inboxEmpty { padding: 1.2rem 0.2rem; color: var(--slate); font-size: 0.9rem; }
 
@@ -870,7 +1053,27 @@
   </head>
   <body>
     <header>
-      <h1>District Nerve Center · Bannu</h1>
+      <div class="brand">
+        <div class="mark">DC</div>
+        <div>
+          <h1>District Nerve Center</h1>
+          <div class="org">Bannu · Khyber Pakhtunkhwa</div>
+        </div>
+      </div>
+
+      <!--
+        The clock is not decoration.
+
+        A screen on an office wall shows numbers that were true at some point. A clock that is
+        visibly running is the cheapest proof anybody has that the page is alive at all — and
+        when it stops, that is the first thing somebody notices. It is beside the connection
+        state deliberately: together they answer "is this thing still working".
+      -->
+      <div class="now">
+        <div class="clock" id="clock">--:--</div>
+        <div class="org" id="dateline"></div>
+      </div>
+
       <div id="who" hidden>
         <span id="whoName"></span>
         <br /><button type="button" id="logout">Sign out</button>
@@ -939,6 +1142,33 @@
             <h2><span id="dashTitle">District</span><span class="age" id="dashAsOf"></span></h2>
             <div class="keys" id="dashKeys"></div>
             <p class="note" id="dashLede"></p>
+          </section>
+
+          <!--
+            Emergency Situation — the prototype's centre panel.
+
+            One card per kind of emergency the district watches, whether or not anything is
+            open. Six calm cards say "nothing is happening" in a way an empty panel cannot:
+            an empty panel might mean the page failed to load.
+          -->
+          <section class="panel wide">
+            <h2>Emergency situation</h2>
+            <div class="sitgrid" id="dashSituation"></div>
+          </section>
+
+          <section class="panel">
+            <h2><span>Alerts &amp; advisories</span><span class="age" id="dashAlertCount"></span></h2>
+            <div class="alist" id="dashAlerts"></div>
+          </section>
+
+          <section class="panel">
+            <h2>District status</h2>
+            <div class="factgrid" id="dashFacts"></div>
+          </section>
+
+          <section class="panel">
+            <h2><span>District services</span><span class="age" id="dashServiceGap"></span></h2>
+            <div class="plist" id="dashServices"></div>
           </section>
 
           <section class="panel">
@@ -1160,6 +1390,18 @@
         </section>
       </section>
     </main>
+
+    <!--
+      The ticker.
+
+      The prototype has one and it earns its place: it is the only thing on the page that is
+      always moving, so a frozen page is visible from across a room without reading a word of
+      it. What it carries is the district's own summary — never an emergency's detail, for the
+      same reason nothing else on this screen carries one.
+    -->
+    <footer id="ticker" hidden>
+      <div class="tick" id="tickerText"></div>
+    </footer>
 
     <script src="/app.js"></script>
   </body>

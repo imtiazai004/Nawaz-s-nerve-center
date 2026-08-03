@@ -15,6 +15,8 @@ import type { PresenceStatus, UtilityStatus } from '../domain/wall.js';
 export interface Utility {
   readonly utilityId: string;
   readonly name: string;
+  /** Which panel it appears in: the utilities, or the district's services. */
+  readonly panel: 'utility' | 'services';
   readonly departmentId: string | null;
   readonly departmentName: string | null;
   readonly staleMinutes: number;
@@ -28,6 +30,7 @@ export interface Utility {
 interface UtilityRow {
   utility_id: string;
   name: string;
+  panel: 'utility' | 'services';
   department_id: string | null;
   department_name: string | null;
   stale_minutes: number;
@@ -51,7 +54,7 @@ interface UtilityRow {
  */
 export async function listUtilities(pool: Pool): Promise<Utility[]> {
   const result = await pool.query<UtilityRow>(
-    `SELECT u.utility_id, u.name, u.department_id, d.name AS department_name,
+    `SELECT u.utility_id, u.name, u.panel, u.department_id, d.name AS department_name,
             u.stale_minutes, u.position,
             r.status, r.note, r.reported_at, s.title AS reported_by
        FROM utility u
@@ -71,6 +74,7 @@ export async function listUtilities(pool: Pool): Promise<Utility[]> {
   return result.rows.map((row) => ({
     utilityId: row.utility_id,
     name: row.name,
+    panel: row.panel,
     departmentId: row.department_id,
     departmentName: row.department_name,
     staleMinutes: row.stale_minutes,
@@ -84,13 +88,25 @@ export async function listUtilities(pool: Pool): Promise<Utility[]> {
 
 export async function addUtility(
   pool: Pool,
-  input: { name: string; departmentId: string | null; staleMinutes?: number; position?: number },
+  input: {
+    name: string;
+    departmentId: string | null;
+    panel?: 'utility' | 'services';
+    staleMinutes?: number;
+    position?: number;
+  },
 ): Promise<string> {
   const result = await pool.query<{ utility_id: string }>(
-    `INSERT INTO utility (name, department_id, stale_minutes, position)
-     VALUES ($1, $2, COALESCE($3, 240), COALESCE($4, 0))
+    `INSERT INTO utility (name, panel, department_id, stale_minutes, position)
+     VALUES ($1, COALESCE($2, 'utility'), $3, COALESCE($4, 240), COALESCE($5, 0))
      RETURNING utility_id`,
-    [input.name, input.departmentId, input.staleMinutes ?? null, input.position ?? null],
+    [
+      input.name,
+      input.panel ?? null,
+      input.departmentId,
+      input.staleMinutes ?? null,
+      input.position ?? null,
+    ],
   );
 
   return result.rows[0]!.utility_id;
@@ -287,4 +303,120 @@ export async function pruneWeather(pool: Pool, keep = 50): Promise<number> {
   );
 
   return result.rowCount ?? 0;
+}
+
+//--------------------------------------------------------------------------------
+// The facts about Bannu that do not change on a Tuesday
+//--------------------------------------------------------------------------------
+
+export interface DistrictFact {
+  readonly key: string;
+  readonly label: string;
+  readonly value: string | null;
+}
+
+/**
+ * Tehsils, union councils, population, area.
+ *
+ * Returned with `value` null when nobody has supplied one, rather than omitted. The gap is
+ * the point: a district status board missing its population is a board with a job for
+ * somebody, and dropping the row would turn that into a board that looks complete.
+ */
+export async function listFacts(pool: Pool): Promise<DistrictFact[]> {
+  const result = await pool.query<{ key: string; label: string; value: string | null }>(
+    'SELECT key, label, value FROM district_fact ORDER BY position, label',
+  );
+
+  return result.rows.map((row) => ({ key: row.key, label: row.label, value: row.value }));
+}
+
+export async function setFact(
+  pool: Pool,
+  input: { key: string; value: string | null; seatId: string | null },
+): Promise<boolean> {
+  const result = await pool.query(
+    'UPDATE district_fact SET value = $2, updated_at = now(), updated_by = $3 WHERE key = $1',
+    [input.key, input.value, input.seatId],
+  );
+
+  return (result.rowCount ?? 0) > 0;
+}
+
+//--------------------------------------------------------------------------------
+// Alerts and advisories
+//--------------------------------------------------------------------------------
+
+export type AlertTag = 'vip' | 'security' | 'road' | 'weather' | 'other';
+
+export interface DistrictAlert {
+  readonly alertId: string;
+  readonly tag: AlertTag;
+  readonly message: string;
+  readonly issuedAt: string;
+  readonly issuedBy: string | null;
+  readonly untilAt: string;
+}
+
+/**
+ * What the district is currently advising.
+ *
+ * Live only: withdrawn advisories and expired ones are excluded, because an advisory board
+ * that keeps yesterday's road closure on it is a board people stop reading. The rows are
+ * still in the table — "we told the district the road was shut" is a thing somebody may have
+ * to answer for (ADR-0001).
+ */
+export async function liveAlerts(pool: Pool, limit = 8): Promise<DistrictAlert[]> {
+  const result = await pool.query<{
+    alert_id: string;
+    tag: AlertTag;
+    message: string;
+    issued_at: string;
+    issued_by: string | null;
+    until_at: string;
+  }>(
+    `SELECT a.alert_id, a.tag, a.message, a.issued_at, s.title AS issued_by, a.until_at
+       FROM district_alert a
+       LEFT JOIN seat s ON s.seat_id = a.issued_by
+      WHERE a.withdrawn_at IS NULL AND a.until_at > now()
+      ORDER BY a.issued_at DESC
+      LIMIT $1`,
+    [limit],
+  );
+
+  return result.rows.map((row) => ({
+    alertId: row.alert_id,
+    tag: row.tag,
+    message: row.message,
+    issuedAt: row.issued_at,
+    issuedBy: row.issued_by,
+    untilAt: row.until_at,
+  }));
+}
+
+export async function issueAlert(
+  pool: Pool,
+  input: { tag: AlertTag; message: string; untilAt: string; issuedBy: string | null },
+): Promise<string> {
+  const result = await pool.query<{ alert_id: string }>(
+    `INSERT INTO district_alert (tag, message, until_at, issued_by)
+     VALUES ($1, $2, $3, $4)
+     RETURNING alert_id`,
+    [input.tag, input.message, input.untilAt, input.issuedBy],
+  );
+
+  return result.rows[0]!.alert_id;
+}
+
+export async function withdrawAlert(
+  pool: Pool,
+  input: { alertId: string; reason: string },
+): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE district_alert
+        SET withdrawn_at = now(), withdrawn_reason = $2
+      WHERE alert_id = $1 AND withdrawn_at IS NULL`,
+    [input.alertId, input.reason],
+  );
+
+  return (result.rowCount ?? 0) > 0;
 }

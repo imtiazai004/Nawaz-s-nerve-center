@@ -19,7 +19,9 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test",
     "test:reset": "npm run build:server && node scripts/reset-test-db.mjs",
-    "sweep": "npm run build:server && node scripts/sweep.mjs"
+    "sweep": "npm run build:server && node scripts/sweep.mjs",
+    "demo": "npm run build:server && node scripts/demo-data.mjs",
+    "demo:clear": "npm run build:server && node scripts/demo-data.mjs --clear"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

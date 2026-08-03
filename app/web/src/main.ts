@@ -24,7 +24,7 @@ import { buildCapture, describeFix, startLocationWatch, type Fix } from './locat
 import { mountAdmin, type AdminConsole } from './admin.js';
 import { mountRoster, type RosterPanel } from './roster.js';
 import { mountWorkspace, type Workspace } from './workspace.js';
-import { createDashboard } from './dashboard.js';
+import { createDashboard, startClock } from './dashboard.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -375,6 +375,9 @@ async function boot(): Promise<void> {
    * The dashboard (M4). Refreshes only while it is the screen somebody is looking at.
    */
   const dashboard = createDashboard();
+
+  // Runs from load, on every screen, signed in or out. See `startClock`.
+  startClock();
   const shiftView = el('shiftView');
   const shift: Workspace = mountWorkspace((incidentId) => {
     void openDetail(incidentId);
@@ -641,7 +644,10 @@ async function boot(): Promise<void> {
     // Polling stops the moment the operator leaves. A background refresh against a screen
     // nobody is looking at is a request the district's one server did not need to serve.
     if (view !== 'shift') shift.stop();
-    if (view !== 'dashboard') dashboard.stop();
+    if (view !== 'dashboard') {
+      dashboard.stop();
+      el('ticker').hidden = true;
+    }
     if (view === 'dashboard') void dashboard.show();
     if (view === 'shift' && identity !== null) {
       void shift.show({

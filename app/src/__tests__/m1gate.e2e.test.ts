@@ -60,6 +60,36 @@ const CPU_SLOWDOWN = 4;
  */
 const SHELL_BUDGET_BYTES = 160 * 1024;
 
+/**
+ * Weigh the client the way the district receives it.
+ *
+ * `buildWeb()` honours `NODE_ENV`: production minifies and drops sourcemaps. The rest of this
+ * gate wants the development build — it is what the browser under test loads, and a minified
+ * one makes a failure unreadable — so this flips the flag for one build and puts it back.
+ *
+ * **The measurement happens inside**, before the restore. Returning a path and stat-ing it
+ * afterwards is what the first attempt did, and the `finally` had already overwritten the
+ * production build with the development one — so it weighed the wrong file and reported the
+ * same 168 KB it was trying to stop reporting.
+ */
+async function shippedShellBytes(): Promise<number> {
+  const before = process.env['NODE_ENV'];
+  process.env['NODE_ENV'] = 'production';
+
+  try {
+    const root = await buildWeb();
+    const js = await stat(join(root, 'app.js'));
+    const html = await stat(join(root, 'index.html'));
+
+    return js.size + html.size;
+  } finally {
+    if (before === undefined) delete process.env['NODE_ENV'];
+    else process.env['NODE_ENV'] = before;
+    // Put the development build back, so a later test in this file loads what it expects.
+    await buildWeb();
+  }
+}
+
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
@@ -273,13 +303,17 @@ describe.skipIf(dbUrl === undefined)('M1 GATE: Rescue 1122, one emergency, end t
   }, 120_000);
 
   it('3. the shell a field officer downloads has not quietly grown', async () => {
-    // The bundle now carries the administration console, the roster editor and the shift
-    // screen — none of which this officer will ever open. Cached after first load, so this
-    // is a first-launch-on-a-weak-connection budget, and it exists so growth is noticed here
-    // rather than by somebody in Domel.
-    const js = await stat(join(webRoot, 'app.js'));
-    const html = await stat(join(webRoot, 'index.html'));
-    const total = js.size + html.size;
+    // The bundle now carries the administration console, the roster editor, the shift screen
+    // and the dashboard — none of which this officer will ever open. Cached after first load,
+    // so this is a first-launch-on-a-weak-connection budget, and it exists so growth is
+    // noticed here rather than by somebody in Domel.
+    //
+    // **Measured against a production build**, because that is the artefact the officer
+    // downloads. This test used to weigh the development build, which ships sourcemaps and no
+    // minification — 40% larger than anything the district would ever receive. It failed on
+    // the M4 dashboard at 168 KB while the real shell was 122 KB, and a budget that fails on
+    // a file nobody downloads teaches everybody to raise the budget.
+    const total = await shippedShellBytes();
 
     // eslint-disable-next-line no-console -- worth seeing on every run
     console.log(

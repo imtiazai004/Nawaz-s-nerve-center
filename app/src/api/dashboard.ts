@@ -27,7 +27,14 @@ import type { Identity } from '../auth/sessions.js';
 import { loadRecentIncidents } from '../db/eventStore.js';
 import { foldIncident } from '../domain/incident.js';
 import { listDepartments } from '../db/configStore.js';
-import { listPresence, listUtilities, type Presence, type Utility } from '../db/wallStore.js';
+import {
+  listFacts,
+  listPresence,
+  listUtilities,
+  liveAlerts,
+  type Presence,
+  type Utility,
+} from '../db/wallStore.js';
 import { weatherPanel, type WeatherPanel } from '../ops/weather.js';
 import { replicationHealthSafe } from '../ops/replication.js';
 import {
@@ -46,7 +53,13 @@ import {
 const PRESENCE_STALE_MINUTES = 720;
 
 export interface PanelRow {
-  readonly id: string;
+  /**
+   * No id.
+   *
+   * The dashboard shows aggregates; nothing on it is a thing to open. Sending a row id would
+   * be sending a handle to something, which is the first step towards a screen that lets a
+   * room click through to an emergency (ADR-0013 §1).
+   */
   readonly name: string;
   readonly status: string | null;
   readonly label: string;
@@ -93,9 +106,42 @@ export interface Dashboard {
     readonly unacknowledged: number;
   }[];
   readonly utilities: readonly PanelRow[];
+  /**
+   * Markets, schools, the hospital, the roads.
+   *
+   * The same shape as a utility and reported the same way, because they *are* the same kind
+   * of fact: a name, a state, a note and an age. One mechanism rather than four (migration
+   * 0017).
+   */
+  readonly services: readonly PanelRow[];
   readonly presence: readonly PanelRow[];
+  /**
+   * How each kind of emergency stands right now — the prototype's "Emergency Situation".
+   *
+   * Derived from the log on every request; nothing is stored. A status word rather than a
+   * count alone, because "Fire · 3 open, one unacknowledged" is read at a glance and "3" is
+   * not.
+   */
+  readonly situation: readonly {
+    readonly category: string;
+    readonly label: string;
+    readonly state: 'ok' | 'pending' | 'critical';
+    readonly status: string;
+    readonly open: number;
+    readonly lastAt: string | null;
+  }[];
+  /** Tehsils, union councils, population, area. Null where the district has not said. */
+  readonly facts: readonly { readonly label: string; readonly value: string | null }[];
+  /** Live advisories: VIP movement, road closures, weather warnings (two offices issue them). */
+  readonly alerts: readonly {
+    readonly tag: string;
+    readonly message: string;
+    readonly issuedAt: string;
+    readonly untilAt: string;
+  }[];
   readonly reporting: {
     readonly utilities: { total: number; answering: number; quiet: number };
+    readonly services: { total: number; answering: number; quiet: number };
     readonly presence: { total: number; answering: number; quiet: number };
   };
   readonly weather: WeatherPanel;
@@ -127,14 +173,12 @@ function categoryLabel(code: string): string {
 }
 
 function panelRow(
-  id: string,
   name: string,
   reading: Aged<UtilityStatus | PresenceStatus>,
   label: string,
   note: string | null,
 ): PanelRow {
   return {
-    id,
     name,
     // A stale value is not sent as a status. The screen would render it, somebody would style
     // it green, and the label saying "no report since 02:00" would be the small text under a
@@ -152,7 +196,7 @@ function utilityRows(utilities: readonly Utility[], now: Date): PanelRow[] {
   return utilities.map((u) => {
     const reading = age(u.status, u.reportedAt, u.staleMinutes, now);
 
-    return panelRow(u.utilityId, u.name, reading, utilityLabel(reading, hhmm), u.note);
+    return panelRow(u.name, reading, utilityLabel(reading, hhmm), u.note);
   });
 }
 
@@ -160,7 +204,7 @@ function presenceRows(people: readonly Presence[], now: Date): PanelRow[] {
   return people.map((p) => {
     const reading = presenceAge(p.status, p.reportedAt, p.untilAt, PRESENCE_STALE_MINUTES, now);
 
-    return panelRow(p.seatId, p.seatTitle, reading, presenceLabel(reading, hhmm), p.note);
+    return panelRow(p.seatTitle, reading, presenceLabel(reading, hhmm), p.note);
   });
 }
 
@@ -182,6 +226,7 @@ async function districtSummary(
 ): Promise<{
   district: Dashboard['district'];
   categories: Dashboard['categories'];
+  situation: Dashboard['situation'];
   departments: Dashboard['departments'];
 }> {
   const grouped = await loadRecentIncidents(pool, 7, 500);
@@ -197,7 +242,10 @@ async function districtSummary(
   let overdueUnacknowledged = 0;
   let oldestUnassigned: number | null = null;
 
-  const byCategory = new Map<string, number>();
+  const byCategory = new Map<
+    string,
+    { open: number; unacknowledged: number; unassigned: number; lastAt: string | null }
+  >();
   const byDepartment = new Map<string, { open: number; unacknowledged: number }>();
 
   for (const events of grouped) {
@@ -234,7 +282,19 @@ async function districtSummary(
     if (state.severity === null) unassessed += 1;
 
     const category = state.category?.value ?? 'other';
-    byCategory.set(category, (byCategory.get(category) ?? 0) + 1);
+    const bucket = byCategory.get(category) ?? {
+      open: 0,
+      unacknowledged: 0,
+      unassigned: 0,
+      lastAt: null as string | null,
+    };
+    bucket.open += 1;
+    if (state.acknowledgedAt === null) bucket.unacknowledged += 1;
+    if (state.responsibleDepartmentIds.length === 0) bucket.unassigned += 1;
+    if (state.occurredAt !== null && (bucket.lastAt === null || state.occurredAt > bucket.lastAt)) {
+      bucket.lastAt = state.occurredAt;
+    }
+    byCategory.set(category, bucket);
 
     if (state.responsibleDepartmentIds.length === 0) {
       unassigned += 1;
@@ -270,12 +330,66 @@ async function districtSummary(
       oldestUnassignedMinutes: oldestUnassigned,
     },
     categories: [...byCategory.entries()]
-      .map(([category, open]) => ({ category, label: categoryLabel(category), open }))
+      .map(([category, b]) => ({ category, label: categoryLabel(category), open: b.open }))
       .sort((a, b) => b.open - a.open || a.label.localeCompare(b.label)),
+    situation: situationFrom(byCategory),
     departments: [...byDepartment.entries()]
       .map(([name, row]) => ({ name, ...row }))
       .sort((a, b) => b.open - a.open || a.name.localeCompare(b.name)),
   };
+}
+
+/**
+ * Turn the per-category counts into the sentence the prototype's cards carry.
+ *
+ * The wording is chosen so the three states are distinguishable **without the colour** — one
+ * man in twelve cannot separate the red from the green, and this is read by whoever is on
+ * duty (INV-04).
+ *
+ * "Normal" here means *no open emergencies of this kind*, not "nothing to worry about". The
+ * district's categories are listed whether or not anything is open, so an empty board reads
+ * as six calm cards rather than as a blank panel that might mean the page failed to load.
+ */
+const WATCHED: readonly string[] = ['fire', 'flood', 'rta', 'medical', 'security', 'other'];
+
+function situationFrom(
+  byCategory: ReadonlyMap<
+    string,
+    { open: number; unacknowledged: number; unassigned: number; lastAt: string | null }
+  >,
+): Dashboard['situation'] {
+  const keys = [...new Set([...WATCHED, ...byCategory.keys()])];
+
+  return keys
+    .map((category) => {
+      const b = byCategory.get(category) ?? {
+        open: 0,
+        unacknowledged: 0,
+        unassigned: 0,
+        lastAt: null,
+      };
+
+      // Ordered worst first: an unassigned emergency is with nobody at all, which outranks
+      // one that is merely unacknowledged, which outranks one being worked.
+      const [state, status]: ['ok' | 'pending' | 'critical', string] =
+        b.unassigned > 0
+          ? ['critical', 'With nobody']
+          : b.unacknowledged > 0
+            ? ['pending', 'Not acknowledged']
+            : b.open > 0
+              ? ['ok', 'Being handled']
+              : ['ok', 'Normal'];
+
+      return {
+        category,
+        label: categoryLabel(category),
+        state,
+        status,
+        open: b.open,
+        lastAt: b.lastAt,
+      };
+    })
+    .sort((a, b) => b.open - a.open || a.label.localeCompare(b.label));
 }
 
 /**
@@ -386,25 +500,47 @@ export async function buildDashboard(
   viewer: Viewer,
   now = new Date(),
 ): Promise<Dashboard> {
-  const [summary, utilities, presence, weather, published, condition] = await Promise.all([
-    districtSummary(pool, now, viewer.departmentId),
-    listUtilities(pool),
-    // A department sees where its own posts are; the offices see the administration's.
-    listPresence(pool, viewer.departmentId),
-    weatherPanel(pool, now),
-    contacts(pool),
-    /**
-     * Whether the record is backed up, whether there is a standby, whether alerts can leave
-     * the building — the two offices only.
-     *
-     * Not secrecy: it is that these are **theirs to fix**. A department shown three red rows
-     * it can do nothing about learns to ignore red rows, and that habit costs something the
-     * day one of them is about its own work (ADR-0005).
-     */
-    viewer.isAdministration ? districtCondition(pool, now) : Promise.resolve([]),
-  ]);
+  const [summary, utilities, presence, weather, published, facts, alerts, condition] =
+    await Promise.all([
+      districtSummary(pool, now, viewer.departmentId),
+      listUtilities(pool),
+      // A department sees where its own posts are; the offices see the administration's.
+      listPresence(pool, viewer.departmentId),
+      weatherPanel(pool, now),
+      contacts(pool),
+      listFacts(pool),
+      liveAlerts(pool),
+      /**
+       * Whether the record is backed up, whether there is a standby, whether alerts can leave
+       * the building — the two offices only.
+       *
+       * Not secrecy: it is that these are **theirs to fix**. A department shown three red rows
+       * it can do nothing about learns to ignore red rows, and that habit costs something the
+       * day one of them is about its own work (ADR-0005).
+       */
+      viewer.isAdministration ? districtCondition(pool, now) : Promise.resolve([]),
+    ]);
 
-  const utilityPanel = utilityRows(utilities, now);
+  // One table, two panels. The split is data, so the district can add a fifth kind of thing
+  // to watch without a release (migration 0017).
+  const utilityPanel = utilityRows(
+    utilities.filter((u) => u.panel === 'utility'),
+    now,
+  );
+  const servicePanel = utilityRows(
+    utilities.filter((u) => u.panel === 'services'),
+    now,
+  );
+
+  const gapOf = (rows: readonly PanelRow[]): { total: number; answering: number; quiet: number } =>
+    reportingGap(
+      rows.map((r) => ({
+        value: r.status,
+        freshness: r.freshness,
+        asOf: r.asOf,
+        ageMinutes: r.ageMinutes,
+      })),
+    );
 
   /**
    * Which posts appear.
@@ -432,24 +568,19 @@ export async function buildDashboard(
     isAdministration: viewer.isAdministration,
     ...summary,
     utilities: utilityPanel,
+    services: servicePanel,
     presence: presencePanel,
+    facts: facts.map((f) => ({ label: f.label, value: f.value })),
+    alerts: alerts.map((a) => ({
+      tag: a.tag,
+      message: a.message,
+      issuedAt: a.issuedAt,
+      untilAt: a.untilAt,
+    })),
     reporting: {
-      utilities: reportingGap(
-        utilityPanel.map((r) => ({
-          value: r.status,
-          freshness: r.freshness,
-          asOf: r.asOf,
-          ageMinutes: r.ageMinutes,
-        })),
-      ),
-      presence: reportingGap(
-        presencePanel.map((r) => ({
-          value: r.status,
-          freshness: r.freshness,
-          asOf: r.asOf,
-          ageMinutes: r.ageMinutes,
-        })),
-      ),
+      utilities: gapOf(utilityPanel),
+      services: gapOf(servicePanel),
+      presence: gapOf(presencePanel),
     },
     weather,
     contacts: published,

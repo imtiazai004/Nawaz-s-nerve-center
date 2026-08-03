@@ -35,6 +35,38 @@ const migrationsDir = join(here, '..', '..', 'db', 'migrations');
 
 const RUN = randomUUID().slice(0, 8);
 
+/**
+ * Wait for the *record* to say something, by reading the record.
+ *
+ * These two waits used to be `page.waitForFunction(async …)`, and that does not do what it
+ * reads as: Playwright evaluates the callback and tests its result for truthiness, and the
+ * result of an async function is a **Promise**, which is always truthy. So the wait returned
+ * on the first poll, every time, and the assertions after it were racing the work.
+ *
+ * It passed for weeks because the race was usually won. It stopped passing the day the server
+ * had slightly more to do. This is the third place in this suite that pattern has appeared, so
+ * this one does not go through the browser at all — it folds the log, which is the thing the
+ * assertions are actually about.
+ */
+async function untilIncident(
+  pool: Pool,
+  incidentId: string,
+  done: (state: ReturnType<typeof foldIncident>) => boolean,
+  timeoutMs = 15_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+
+  for (;;) {
+    const state = foldIncident(incidentId, await loadIncident(pool, incidentId));
+    if (done(state)) return;
+
+    if (Date.now() > deadline) {
+      throw new Error(`incident ${incidentId} never reached the expected state`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+}
+
 describe.skipIf(dbUrl === undefined)('M1-01: the department workspace', () => {
   let pool: Pool;
   let api: Server;
@@ -240,11 +272,7 @@ describe.skipIf(dbUrl === undefined)('M1-01: the department workspace', () => {
 
     page.once('dialog', (d) => void d.accept('casualty removed to DHQ'));
     await card.getByRole('button', { name: 'Log what happened' }).click();
-    await page.waitForFunction(async (incidentId) => {
-      const res = await fetch(`/incidents/${String(incidentId)}`);
-      const body = (await res.json()) as { state: { actions: unknown[] } };
-      return body.state.actions.length > 0;
-    }, id);
+    await untilIncident(pool, id!, (state) => state.actions.length > 0);
 
     page.once('dialog', (d) => void d.accept('all casualties removed, scene handed over'));
     await page
@@ -252,11 +280,7 @@ describe.skipIf(dbUrl === undefined)('M1-01: the department workspace', () => {
       .getByRole('button', { name: 'Resolve' })
       .click();
 
-    await page.waitForFunction(async (incidentId) => {
-      const res = await fetch(`/incidents/${String(incidentId)}`);
-      const body = (await res.json()) as { state: { status: string } };
-      return body.state.status === 'resolved';
-    }, id);
+    await untilIncident(pool, id!, (state) => state.status === 'resolved');
 
     const state = foldIncident(id!, await loadIncident(pool, id!));
     expect(state.actions[0]?.note).toBe('casualty removed to DHQ');

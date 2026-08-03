@@ -33,17 +33,30 @@ const manifest = {
   description: 'District emergency coordination for Bannu.',
 };
 
-const common = {
-  bundle: true,
-  format: 'iife',
-  platform: 'browser',
-  target: 'chrome110',
-  // Sourcemaps in dev only; a production bundle should not ship internals.
-  sourcemap: process.env.NODE_ENV !== 'production',
-  minify: process.env.NODE_ENV === 'production',
-};
+/**
+ * Read `NODE_ENV` **per build**, not once at import.
+ *
+ * These used to be computed at module load. Nothing noticed until the M1 gate tried to weigh
+ * the shipped bundle by setting `NODE_ENV=production` around a call — and got the development
+ * build back, because the flag had already been read minutes earlier. The gate then measured
+ * an artefact 40% larger than anything the district downloads.
+ */
+function options() {
+  const production = process.env.NODE_ENV === 'production';
+
+  return {
+    bundle: true,
+    format: 'iife',
+    platform: 'browser',
+    target: 'chrome110',
+    // Sourcemaps in dev only; a production bundle should not ship internals.
+    sourcemap: !production,
+    minify: production,
+  };
+}
 
 export async function buildWeb() {
+  const common = options();
   await mkdir(dist, { recursive: true });
 
   await build({

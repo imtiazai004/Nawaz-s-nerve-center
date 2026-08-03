@@ -198,3 +198,27 @@ describe('nothing private reaches the wall (ADR-0013 §1)', () => {
     expect(wallSafetyViolations({ contacts: ['1122', '15', '16'] })).toEqual([]);
   });
 });
+
+describe('a uuid is not a phone number', () => {
+  it('does not flag an id, however unlucky its digits', () => {
+    // This fired in production terms: the dashboard began returning 500 for every caller
+    // because one seeded row drew an id containing a run that reads as a Pakistani number,
+    // and the error named a phone number that was not there.
+    const unlucky = [
+      '0f8a1b2c-0207-4f84-9207-00f846478123',
+      '92345678-1234-4321-8765-092345678901',
+      'a02acee3-97a7-4658-a207-00f84647a54c',
+    ];
+
+    for (const id of unlucky) expect(wallSafetyViolations({ id })).toEqual([]);
+  });
+
+  it('still flags a real number that merely sits beside one', () => {
+    // The exemption is for a string that *is* a uuid, not for anything containing one.
+    const found = wallSafetyViolations({
+      note: 'a02acee3-97a7-4658-a207-00f84647a54c — call 0333-1234567',
+    });
+
+    expect(found).toHaveLength(1);
+  });
+});

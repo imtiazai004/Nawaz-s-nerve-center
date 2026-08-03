@@ -25,7 +25,6 @@
  */
 
 interface PanelRow {
-  id: string;
   name: string;
   status: string | null;
   label: string;
@@ -54,11 +53,22 @@ export interface DashboardFeed {
     oldestUnassignedMinutes: number | null;
   };
   categories: { category: string; label: string; open: number }[];
+  situation: {
+    category: string;
+    label: string;
+    state: 'ok' | 'pending' | 'critical';
+    status: string;
+    open: number;
+    lastAt: string | null;
+  }[];
+  facts: { label: string; value: string | null }[];
+  alerts: { tag: string; message: string; issuedAt: string; untilAt: string }[];
+  services: PanelRow[];
   departments: { name: string; open: number; unacknowledged: number }[];
   condition: { what: string; state: 'ok' | 'pending' | 'critical'; detail: string }[];
   utilities: PanelRow[];
   presence: PanelRow[];
-  reporting: { utilities: Gap; presence: Gap };
+  reporting: { utilities: Gap; services: Gap; presence: Gap };
   weather: {
     reading: {
       temperatureC: number | null;
@@ -245,6 +255,106 @@ function renderStatusList(targetId: string, gapId: string, rows: PanelRow[], qui
   gap.className = quiet === 0 ? 'age' : 'age state-pending';
 }
 
+
+/**
+ * The Emergency Situation cards.
+ *
+ * Every kind the district watches, always present. Six calm cards say "nothing is happening"
+ * in a way an empty panel cannot — an empty panel might mean the page failed to load, and on
+ * a screen nobody is touching there is no way to tell the difference.
+ *
+ * The status word carries the meaning; the colour repeats it. A card reading "With nobody"
+ * says the same thing to somebody who cannot see that it is red (INV-04).
+ */
+function renderSituation(feed: DashboardFeed): void {
+  const target = el('dashSituation');
+  clear(target);
+
+  for (const row of feed.situation) {
+    const card = box(`sit ${row.state}${row.open === 0 ? ' quiet' : ''}`);
+    card.appendChild(box('kind', row.label));
+    card.appendChild(box('state', row.status));
+
+    const meta = box('meta');
+    meta.appendChild(span('', row.open === 0 ? 'none open' : `${String(row.open)} open`));
+    meta.appendChild(
+      span('', row.lastAt === null ? '—' : ago(minutesSince(row.lastAt))),
+    );
+    card.appendChild(meta);
+
+    target.appendChild(card);
+  }
+}
+
+/** Whole minutes since an instant, floored, never negative. */
+function minutesSince(iso: string): number | null {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return null;
+  return Math.max(0, Math.floor((Date.now() - then) / 60_000));
+}
+
+const TAG_WORDS: Record<string, string> = {
+  vip: 'VIP',
+  security: 'SECURITY',
+  road: 'ROAD',
+  weather: 'WEATHER',
+  other: 'NOTICE',
+};
+
+function renderAlerts(feed: DashboardFeed): void {
+  const target = el('dashAlerts');
+  const count = el('dashAlertCount');
+  clear(target);
+
+  if (feed.alerts.length === 0) {
+    target.appendChild(box('empty', 'nothing in force'));
+    count.textContent = '';
+    return;
+  }
+
+  count.textContent = `${String(feed.alerts.length)} in force`;
+  count.className = 'age';
+
+  for (const alert of feed.alerts) {
+    const row = box('alert-row');
+    row.appendChild(span(`atag ${alert.tag}`, TAG_WORDS[alert.tag] ?? 'NOTICE'));
+
+    const body = box('');
+    body.appendChild(span('amsg', alert.message));
+    // Both ends stated. An advisory people cannot tell the age of is one they either act on
+    // too long or stop reading altogether.
+    body.appendChild(
+      span('awhen', `${ago(minutesSince(alert.issuedAt))} · until ${untilWords(alert.untilAt)}`),
+    );
+    row.appendChild(body);
+
+    target.appendChild(row);
+  }
+}
+
+function untilWords(iso: string): string {
+  const ends = new Date(iso);
+  if (Number.isNaN(ends.getTime())) return 'further notice';
+
+  const sameDay = ends.toDateString() === new Date().toDateString();
+  return sameDay
+    ? hhmm(ends)
+    : ends.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+function renderFacts(feed: DashboardFeed): void {
+  const target = el('dashFacts');
+  clear(target);
+
+  for (const fact of feed.facts) {
+    const node = box('fact');
+    node.appendChild(span('k', fact.label));
+    const value = span(fact.value === null ? 'v none' : 'v', fact.value ?? 'not supplied yet');
+    node.appendChild(value);
+    target.appendChild(node);
+  }
+}
+
 function renderCondition(feed: DashboardFeed): void {
   const panel = el('dashConditionPanel');
   panel.hidden = feed.condition.length === 0;
@@ -330,6 +440,50 @@ function panel(name: string, draw: () => void): void {
   }
 }
 
+/**
+ * The ticker line.
+ *
+ * One sentence about the district, refreshed with the rest. It leads with whatever is wrong,
+ * because a scrolling line somebody catches half of should give them the bad news in the half
+ * they caught.
+ */
+function renderTicker(feed: DashboardFeed): void {
+  const bar = el('ticker');
+  const line = el('tickerText');
+  clear(line);
+  bar.hidden = false;
+
+  const d = feed.district;
+  const parts: { text: string; className?: string }[] = [];
+
+  if (d.unassigned > 0) {
+    parts.push({
+      text: `${String(d.unassigned)} emergency with nobody${
+        d.oldestUnassignedMinutes === null ? '' : ` — oldest ${ago(d.oldestUnassignedMinutes)}`
+      }`,
+      className: 'bad',
+    });
+  }
+  if (d.overdueUnacknowledged > 0) {
+    parts.push({ text: `${String(d.overdueUnacknowledged)} not acknowledged`, className: 'bad' });
+  }
+
+  const quiet = feed.reporting.utilities.quiet + feed.reporting.presence.quiet;
+  if (quiet > 0) parts.push({ text: `${String(quiet)} panels not reporting` });
+
+  parts.push({ text: `${String(d.openIncidents)} open`, className: 'b' });
+  parts.push({ text: `${String(d.today)} reported today` });
+  parts.push({ text: feed.scope });
+
+  parts.forEach((part, i) => {
+    if (i > 0) line.appendChild(document.createTextNode('  ·  '));
+    const node = document.createElement(part.className === 'b' ? 'b' : 'span');
+    if (part.className === 'bad') node.className = 'bad';
+    node.textContent = part.text;
+    line.appendChild(node);
+  });
+}
+
 export function paint(feed: DashboardFeed): void {
   el('dashTitle').textContent = feed.scope;
   el('dashAsOf').textContent = `as of ${hhmm(new Date(feed.asOf))}`;
@@ -358,6 +512,18 @@ export function paint(feed: DashboardFeed): void {
       'nothing assigned',
     );
   });
+  panel('situation', () => {
+    renderSituation(feed);
+  });
+  panel('alerts', () => {
+    renderAlerts(feed);
+  });
+  panel('facts', () => {
+    renderFacts(feed);
+  });
+  panel('services', () => {
+    renderStatusList('dashServices', 'dashServiceGap', feed.services, feed.reporting.services.quiet);
+  });
   panel('utilities', () => {
     renderStatusList(
       'dashUtilities',
@@ -383,6 +549,31 @@ export function paint(feed: DashboardFeed): void {
   panel('condition', () => {
     renderCondition(feed);
   });
+  panel('ticker', () => {
+    renderTicker(feed);
+  });
+}
+
+/**
+ * The clock, which is not decoration.
+ *
+ * A dashboard shows numbers that were true at some point. A visibly running clock is the
+ * cheapest proof anybody has that the page itself is alive, and when it stops that is the
+ * first thing somebody notices from across a room.
+ */
+export function startClock(): void {
+  const tick = (): void => {
+    const now = new Date();
+    el('clock').textContent = hhmm(now);
+    el('dateline').textContent = now.toLocaleDateString(undefined, {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'long',
+    });
+  };
+
+  tick();
+  window.setInterval(tick, 1000);
 }
 
 export interface DashboardScreen {
