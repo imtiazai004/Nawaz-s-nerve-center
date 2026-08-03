@@ -1754,3 +1754,45 @@ An officer who dialled a number knows within ten seconds whether it rang.
 The provider machinery — adapters, the channel ladder, the Administration → Alerts tab, the
 Meta template drafts, `channel_ladder`, ADR-0012 — is removed in the next entry. The in-app
 inbox stays: it needs no provider, and it is what INV-03 is measured against.
+
+---
+
+## 2026-08-03 — The provider ladder removed
+
+The other half of the previous entry. ~1,900 lines deleted, and one of the district's
+procurement items closed by not needing it.
+
+### Removed
+
+- **`src/channels/`** — the WhatsApp, voice, SMS and GSM adapters, and their tests.
+- **`src/domain/channels.ts`**, **`src/db/channelStore.ts`**, **`src/jobs/__tests__/ladder.test.ts`**.
+- **`docs/09-notification-templates.md`** — the four message templates drafted for Meta.
+- **The ladder inside `runNotifyPass`.** The in-app inbox above it is untouched.
+- **`GET`/`PUT /admin/ladder`** and the **Administration → Alerts** tab that configured it.
+- **`channel_ladder`** (migration 0018).
+- **Two integrity checks** — `no-way-out-of-the-building` and `ladder-partly-configured`.
+  Both asked whether a provider was configured, and there are no providers.
+- **"Alerts leave the building"** from the dashboard's *This system* panel. The software
+  sends nothing, so there is nothing about sending that can be quietly broken.
+
+### Changed
+
+- **ADR-0012 marked superseded**, with the reasoning and the owner's own words appended
+  rather than the original text being edited. The ADR log is corrected by appending.
+- **R-05 closed as not needed.** It asked the district for a Meta business account with
+  approved templates, an SMS gateway, a telephony provider and a GSM SIM — and it was the
+  longest lead time in the project. It is gone. What matters instead is R-04: the numbers on
+  the roster kept current, because those are what an officer now dials.
+
+### What survives, and why it was the right part all along
+
+**The in-app inbox and the obligation ledger** (M0-32). Every notification a post is owed is
+still written **before** anything is attempted, still appears in that post's "Waiting for you",
+and still counts on the board as unmet until a human collects it. That is INV-03 — *a
+notification failure is never invisible* — and it needs no provider.
+
+The in-app channel was also the only one whose "delivered" ever meant anything: a human
+collected the message, rather than a queue accepted it. Everything removed here could only ever
+report that something had been handed to somebody else.
+
+- **Tests:** 700 → 662. Thirty-eight of them tested machinery that no longer exists.

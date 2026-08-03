@@ -36,8 +36,6 @@ import {
   setTarget,
   slaForConsole,
   integrity,
-  ladderForConsole,
-  reorderLadder,
   type AdminResult,
 } from './admin.js';
 import { districtPerformance } from './performance.js';
@@ -561,24 +559,6 @@ async function handleAdmin(
         return;
       }
       send(await setTarget(pool, identity, input));
-      return;
-    }
-    json(res, 405, { error: 'method not allowed' });
-    return;
-  }
-
-  if (pathname === '/admin/ladder') {
-    if (req.method === 'GET') {
-      send(await ladderForConsole(pool, identity));
-      return;
-    }
-    if (req.method === 'PUT') {
-      const input = await body();
-      if (input === null) {
-        json(res, 400, { error: 'that was not valid json' });
-        return;
-      }
-      send(await reorderLadder(pool, identity, input));
       return;
     }
     json(res, 405, { error: 'method not allowed' });

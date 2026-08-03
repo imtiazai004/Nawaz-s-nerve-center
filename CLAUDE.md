@@ -149,7 +149,7 @@ that blocks release on failure.
 
 - **Milestone:** M4/M5 — **the product now looks and behaves like the district's own
   prototype**, on every size of screen.
-- **Phase:** Implementation. 700 tests pass on every push.
+- **Phase:** Implementation. 662 tests pass on every push.
 - **M0, M1a and M1 are done; M3's notification work and M0's operations work landed with
   them (2026-08-03).** One emergency now goes from a field officer's handset to a
   post-incident report with nothing stubbed — see `src/__tests__/m1gate.e2e.test.ts`, which
@@ -173,7 +173,10 @@ that blocks release on failure.
   the dialler or messages **on that officer's own handset**. No Meta business account, no
   telephony provider, no SMS gateway, no GSM modem. Nothing is recorded when a channel is
   opened; the panel says so rather than implying otherwise. The **in-app inbox stays** — it
-  needs no provider, and it is what INV-03 is measured against.
+  needs no provider, and it is what INV-03 is measured against. **The provider machinery is
+  deleted** (migration 0018): the adapters, the ladder, the Alerts tab, the Meta templates and
+  `channel_ladder`. **R-05 is closed as not needed** — the district no longer has to procure a
+  Meta account, a gateway, a provider or a SIM, which was the longest lead time in the project.
 
 - **The product's shape is settled (ADR-0013, 2026-08-03), and it came from the owner's own
   prototype.** One application, one set of markup, laid out by CSS at three widths: one column
@@ -353,7 +356,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **700 tests passing** across 44 files, including **17 backup/restore tests that run a real
+- **662 tests passing** across 42 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the

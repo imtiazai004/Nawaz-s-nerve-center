@@ -147,11 +147,10 @@ describe.skipIf(dbUrl === undefined)('the dashboard', () => {
     it('gives the two offices the system condition, named in full', async () => {
       const feed = await buildDashboard(pool, DISTRICT);
 
-      expect(feed.condition.map((c) => c.what)).toEqual([
-        'Record backed up',
-        'Second machine',
-        'Alerts leave the building',
-      ]);
+      // Two, not three. "Alerts leave the building" went with the provider ladder — the
+      // software no longer sends anything, so there is nothing about sending that can be
+      // quietly broken (ADR-0012 superseded).
+      expect(feed.condition.map((c) => c.what)).toEqual(['Record backed up', 'Second machine']);
 
       for (const item of feed.condition) expect(item.detail.length).toBeGreaterThan(3);
     });

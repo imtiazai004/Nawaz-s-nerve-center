@@ -1,11 +1,68 @@
 # ADR-0012 — Notifications walk a ladder: WhatsApp, then a phone call
 
-**Status:** Accepted · 2026-08-02
+**Status:** **SUPERSEDED · 2026-08-03** — see the note below. Originally accepted 2026-08-02
 **Resolves:** Q-07. Builds on `M0-32` (the delivery ledger) and `ADR-0005` (silence is a
 signal).
 **Source:** project owner, 2026-08-02.
 
-## Context
+---
+
+## Superseded — 2026-08-03
+
+**This ADR is wrong, and it was wrong from the moment it was written.** It is left in place
+because the ADR log is corrected by appending, not by making the past look like it always
+agreed (ADR-0001's reasoning, applied to this folder).
+
+What it decided: the system would send alerts down a ladder of providers — WhatsApp Business,
+a voice provider, an SMS gateway, and a GSM modem in the DC office — with four message
+templates submitted to Meta for approval.
+
+**None of that was ever asked for.** The owner's answer to Q-07 said WhatsApp was the first
+priority and that a person should be able to route a notification another way. I read that as
+*the software will send WhatsApp messages*. It meant something much simpler. The owner, on
+seeing what had been built:
+
+> es ka ye matlab nhe hai k software call karega, jis k lye tum nai itne saare chez deye hue
+> hain, es ka ye matlab tha k **ju banda alert jare karega ya escalate karega etc etc un ko
+> mutalqa number mil jaye and us pr click kare tou contact karne ka channel selection mai ho**,
+> select kare tou wo us channel par jaega jaha sai wo desired contact kar skega … es mai Meta
+> business account, telephony ya SMS gateway ki koi zarurt nhe hai
+
+## What replaces it
+
+**The software hands an officer the number.** On the incident, on live work, and on the
+console's department cards, a "Reach them" control shows the duty officer's mobile and the
+department's office line, and a click opens WhatsApp, the dialler or messages **on that
+officer's own handset**. A human has the conversation.
+
+- `GET /contacts/department/:id` — the numbers, behind a session.
+- `web/src/contact.ts` — the picker: WhatsApp, Call, SMS, Copy.
+- **Nothing is recorded** when a channel is opened, by the owner's decision. The panel says so
+  rather than implying otherwise: no tick appears, nothing reads "notified".
+
+## Why this is better, and not merely smaller
+
+A chain of providers fails in ways nobody sees. A template goes unapproved, a gateway runs out
+of credit, a modem loses signal — and every one of those is discovered on the night it
+matters, by an emergency that reached nobody. There is no way to test it that does not involve
+sending real messages to real people.
+
+An officer who dialled a number knows within ten seconds whether it rang.
+
+It also removes the longest lead time in the project. R-05 asked the district for a Meta
+business account with approved templates, an SMS gateway, a telephony provider and a GSM SIM.
+None of that is needed now, and the district has fewer things to procure before this system
+is useful than it did yesterday.
+
+## What survives
+
+**The in-app inbox and the obligation ledger** (M0-32). Every notification a post is owed is
+still recorded before anything is attempted, still shown in that post's "Waiting for you", and
+still counted on the board as an unmet obligation until a human collects it. That is INV-03,
+and it needs no provider — which is the part of the original design that was always right.
+
+
+## Context — as written on 2026-08-02
 
 Q-07 asked which notification channels are actually reliable in Bannu. The owner's answer:
 

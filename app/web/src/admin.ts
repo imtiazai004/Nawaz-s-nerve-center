@@ -121,7 +121,6 @@ type Tab =
   | 'departments'
   | 'deadlines'
   | 'roster'
-  | 'alerts'
   | 'backups'
   | 'performance'
   | 'history';
@@ -681,112 +680,6 @@ export function mountAdmin(): AdminConsole {
   }
 
   //--------------------------------------------------------------------------
-  // Alerts — the notification ladder (M3-01, ADR-0012)
-  //--------------------------------------------------------------------------
-
-  interface LadderRung {
-    channel: string;
-    position: number;
-    configured: boolean;
-    why: string | null;
-    survivesOutage: boolean;
-  }
-  interface LadderView {
-    district: LadderRung[];
-    nothingCanBeSent: boolean;
-    channels: string[];
-  }
-
-  const CHANNEL_LABEL: Readonly<Record<string, string>> = {
-    whatsapp: 'WhatsApp',
-    voice: 'a voice call',
-    sms: 'SMS',
-    gsm_sms: 'SMS from the district modem',
-    gsm_voice: 'a call from the district modem',
-  };
-
-  /**
-   * What the district tries, in what order, and what actually works.
-   *
-   * The important thing on this screen is not the ordering control — it is the second column.
-   * A ladder of five neatly ordered rungs that all say "no account yet" is a district that
-   * reaches nobody outside the app, and that has to be readable at a glance rather than
-   * inferred from five greyed rows.
-   */
-  async function renderAlerts(mine: number): Promise<void> {
-    const view = await api<LadderView>('GET', '/admin/ladder');
-    if (view === null) return;
-
-    const wrap = document.createElement('div');
-    wrap.id = 'alertLadder';
-
-    if (view.nothingCanBeSent) {
-      wrap.append(
-        text(
-          'p',
-          'dead',
-          'Nothing can be sent outside the app. Alerts reach the in-app inbox and nowhere ' +
-            'else — an officer who is not looking at the app is not told.',
-        ),
-      );
-    }
-
-    wrap.append(
-      text(
-        'p',
-        'note',
-        'Tried in order, top first, until one works. A rung with no provider behind it is ' +
-          'skipped rather than tried, so the ladder is shorter than it looks. The in-app ' +
-          'inbox is not on this list: it always happens, in parallel, and costs nothing.',
-      ),
-    );
-
-    const order = view.district.map((r) => r.channel);
-
-    const save = (next: string[]): void => {
-      void (async () => {
-        const done = await api('PUT', '/admin/ladder', { channels: next });
-        if (done !== null) await renderAlerts(mine);
-      })();
-    };
-
-    for (const [index, rung] of view.district.entries()) {
-      const row = document.createElement('div');
-      row.className = 'rung';
-      row.dataset['channel'] = rung.channel;
-      row.dataset['ready'] = String(rung.configured);
-
-      row.append(text('span', 'pos', String(rung.position)));
-      row.append(text('span', 'cname', CHANNEL_LABEL[rung.channel] ?? rung.channel));
-      row.append(
-        text('span', 'state', rung.configured ? 'ready' : (rung.why ?? 'no provider')),
-      );
-
-      // The rung that still works when the district's own line is down (ADR-0011). Worth a
-      // badge, because it is the reason the modem is on the shopping list at all.
-      if (rung.survivesOutage) row.append(text('span', 'outage', 'works offline'));
-
-      if (index > 0) {
-        const up = document.createElement('button');
-        up.type = 'button';
-        up.className = 'move';
-        up.dataset['up'] = rung.channel;
-        up.textContent = '↑ earlier';
-        up.addEventListener('click', () => {
-          const next = [...order];
-          [next[index - 1], next[index]] = [next[index]!, next[index - 1]!];
-          save(next);
-        });
-        row.append(up);
-      }
-
-      wrap.append(row);
-    }
-
-    paint(mine, wrap);
-  }
-
-  //--------------------------------------------------------------------------
   // Backups (M0-55, ADR-0011)
   //--------------------------------------------------------------------------
 
@@ -1045,7 +938,6 @@ export function mountAdmin(): AdminConsole {
 
     if (tab === 'departments') await renderDepartments(mine);
     else if (tab === 'roster') await renderRosters(mine);
-    else if (tab === 'alerts') await renderAlerts(mine);
     else if (tab === 'backups') await renderBackups(mine);
     else if (tab === 'deadlines') await renderDeadlines(mine);
     else if (tab === 'performance') await renderPerformance(mine);

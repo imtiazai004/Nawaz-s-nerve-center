@@ -494,7 +494,7 @@ async function contacts(pool: Pool): Promise<Dashboard['contacts']> {
  * repeating them here is that a console is opened on purpose and a wall is read by accident.
  */
 async function districtCondition(pool: Pool, now: Date): Promise<Dashboard['condition']> {
-  const [backup, replication, ladder] = await Promise.all([
+  const [backup, replication] = await Promise.all([
     pool
       .query<{ last: string | null }>(
         `SELECT max(finished_at) AS last FROM backup_run WHERE status = 'succeeded'`,
@@ -502,10 +502,6 @@ async function districtCondition(pool: Pool, now: Date): Promise<Dashboard['cond
       .then((r) => r.rows[0]?.last ?? null)
       .catch(() => null),
     replicationHealthSafe(pool),
-    pool
-      .query<{ n: string }>('SELECT count(*)::text AS n FROM channel_ladder')
-      .then((r) => Number(r.rows[0]?.n ?? '0'))
-      .catch(() => 0),
   ]);
 
   const hours =
@@ -531,16 +527,6 @@ async function districtCondition(pool: Pool, now: Date): Promise<Dashboard['cond
           : replication.role === 'primary'
             ? `${String(replication.connectedStandbys)} standby connected`
             : replication.role,
-    },
-    {
-      what: 'Alerts leave the building',
-      // Rungs configured is the closest honest proxy: with none, every notification stops at
-      // the in-app inbox. It does not prove a provider answers — only that one was chosen.
-      state: ladder > 0 ? 'ok' : 'critical',
-      detail:
-        ladder > 0
-          ? `${String(ladder)} channel${ladder === 1 ? '' : 's'} configured`
-          : 'no — alerts reach the app and nothing else',
     },
   ];
 }

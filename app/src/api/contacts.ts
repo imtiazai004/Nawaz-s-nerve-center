@@ -76,10 +76,13 @@ export async function departmentContacts(
   pool: Pool,
   departmentId: string,
 ): Promise<DepartmentContacts | null> {
-  const found = await pool.query<{ department_id: string; name: string; contact_phone: string | null }>(
-    'SELECT department_id, name, contact_phone FROM department WHERE department_id = $1',
-    [departmentId],
-  );
+  const found = await pool.query<{
+    department_id: string;
+    name: string;
+    contact_phone: string | null;
+  }>('SELECT department_id, name, contact_phone FROM department WHERE department_id = $1', [
+    departmentId,
+  ]);
 
   const department = found.rows[0];
   if (department === undefined) return null;
