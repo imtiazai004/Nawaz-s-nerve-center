@@ -4,6 +4,10 @@ export default defineConfig({
   test: {
     setupFiles: ['./src/testing/loadEnv.ts'],
 
+    // One query, once, to say whether the local test database still looks like a district.
+    // See the file — this failure mode has cost an evening twice.
+    globalSetup: ['./src/testing/globalSetup.ts'],
+
     // Database tests share one cluster; run files serially so they cannot interleave.
     fileParallelism: false,
 

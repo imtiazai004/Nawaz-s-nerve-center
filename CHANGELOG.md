@@ -1512,3 +1512,72 @@ built rather than facts we were missing.
 - **Open:** `R-13` (Rescue's own list of response actions) and `R-14` (the six intake
   categories are **my guess**, and they are the vocabulary every routing signal must match).
 - **Tests:** 552 → 570.
+
+## 2026-08-03 — Alerts that leave the building, and a record that survives it (Block 3, Block 4)
+
+### Notifications (M3-01…04)
+
+- **Added:** migration `0013_channel_ladder.sql`, `domain/channels.ts`, `src/channels/`,
+  `db/channelStore.ts`, an **Alerts** tab on the console, and
+  `docs/09-notification-templates.md`.
+- The ladder is an **order**, held as rows and edited by the two offices: WhatsApp → voice →
+  SMS → the two GSM rungs. A seat's own ladder **replaces** the district default rather than
+  merging, so "stop phoning this post at night" is sayable — the same mistake `targetsFor`
+  shipped with for SLA overrides, avoided this time.
+- **The in-app inbox is deliberately not a rung.** It always happens, in parallel. Putting it
+  in the ladder would let a district configure a seat whose only notification is one nobody
+  looks at.
+- **An unconfigured provider fails; an unconfigured rung is skipped.** Those differ, and the
+  difference is D-07: recording each rung would put five `not_configured` failures on every
+  obligation of every incident, and a board permanently reading "nobody reached" for a reason
+  that is a purchase order is a board people stop reading. The obligation is still visibly
+  unmet, because the in-app attempt stays pending until a human collects it. The district-level
+  fact is said once, in the sweep and on the console.
+- **The ladder does not restart after a success**, and every rung is its own recorded attempt.
+  Without the first, a message delivered by WhatsApp at 02:00 would be followed by a phone
+  call thirty seconds later, aimed at somebody already driving (INV-08).
+- **A `clientSeq` bug fixed on the way:** every notification append took `state.eventCount + 1`,
+  so two obligations produced two events with the same sequence and a five-rung ladder
+  produced ten sharing two. Ordering then fell to a random event id — deterministic, and
+  causally wrong, which is exactly what ADR-0008 exists to prevent.
+
+### Operations (M0-53…55)
+
+- **Added:** `jobs/nightly.ts`, `ops/offsite.ts`, `ops/replication.ts`, `api/backups.ts`,
+  migration `0014_offsite_backup.sql`, and a **Backups** tab.
+- **P-08 finally cashed.** The backup has been built and verified for weeks with nothing
+  scheduling it. It now runs nightly, encrypted with AES-256-GCM before it leaves the
+  district, and **refuses to upload at all without a passphrase** rather than sending every
+  reporter's phone number in Bannu out in the clear.
+- **It polls rather than sleeping until 02:00.** A district server gets rebooted, loses power,
+  and is occasionally a laptop somebody closed; a timer set eight hours out is a timer that
+  never fires, and nobody notices a backup that did not happen.
+- **`/health` reports replication.** A single node says `standalone` and says why. Reported,
+  never enforced — a 503 because a standby is behind would stop the district reporting
+  emergencies, and INV-01 outranks a lagging standby.
+- **The console shows local freshness and off-site freshness as two separate questions.**
+  Collapsing them into one green tick would let somebody believe a fire is survivable when it
+  is not. There is no restore-over-live button, and the screen says why (D-06).
+
+### Two bugs, both caught rather than shipped
+
+- **The nightly job dumped `DATABASE_URL` and verified against the pool** — a different
+  database in this repository. `runBackup`'s event-count check caught it, which is that check
+  earning its keep; the caller now states which database it means.
+- **The server would not start.** `main.ts` passes the backup job as a getter because the job
+  is built after the server, and `createSyncServer` read it eagerly at construction — a
+  temporal dead zone error that took the process down with "Cannot access 'nightly' before
+  initialization". Caught by `deployable.e2e.test.ts`, which exists because `npm start` had
+  once never worked at all while 338 tests passed. It has now caught this class of thing twice.
+
+### Documentation (W-02, W-03)
+
+- **ADR-0004 amended, not rewritten.** Its four-tier ladder is gone; seats and duty
+  assignments are untouched and are what made that a migration rather than a rewrite. The old
+  text stays with an amendment note — the ADR log is corrected by appending.
+- Tier drift also removed from `00-thesis.md` and `03-data-model.md`. The provincial-rung risk
+  in the thesis is marked closed as out of scope (Q-10) while noting the risk itself has not
+  gone away, only our claim to be addressing it.
+- `08-runbook.md` gains the nightly run, the off-site copy, and **how to decrypt a `.sql.enc`
+  file** — a backup nobody can decrypt is not a backup.
+- **Tests:** 570 → 631.

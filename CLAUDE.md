@@ -103,6 +103,12 @@ onboarded — challenge them now, not later.
 | [0011](docs/adr/ADR-0011-deployment-topology.md) | One record on district hardware: DC primary, AC HQ standby, nightly encrypted copy to Google Cloud | Accepted |
 | [0012](docs/adr/ADR-0012-notification-channel-ladder.md) | Notifications walk a ladder — WhatsApp, then a call, then SMS; in-app always | Accepted |
 
+**ADR-0004 was amended on 2026-08-03**, not superseded: its four-tier ladder is gone
+(ADR-0010) and everything else it decided — seats, duty assignments, authority-attaches-to-
+the-post — is exactly what made that a migration rather than a rewrite. The old text is left
+in place with an amendment note, because the ADR log is corrected by appending, not by making
+the past look like it always agreed.
+
 ## 4. Invariants — what must never happen
 
 Full text and test mapping in `docs/01-invariants.md`. Each is a permanent automated test
@@ -123,11 +129,17 @@ that blocks release on failure.
 
 - **Milestone:** M0 — The Spine · **lifecycle closed, invariants tested, restore proven, CI
   running**
-- **Phase:** Implementation. 450 tests pass on every push. **M1a is done; M1 is the work now. Every M0
-  task that is code is done.** What remains open: the restore **drill** (M0-38, needs a
-  second person), backup **scheduling** (M0-53, unblocked now that P-08 is answered),
-  replication to the standby (M0-54), secrets (M0-05), and M0-11 payload versioning, which
-  needs a payload v2 to exist before a v2 reader means anything.
+- **Phase:** Implementation. 631 tests pass on every push.
+- **M0, M1a and M1 are done; M3's notification work and M0's operations work landed with
+  them (2026-08-03).** One emergency now goes from a field officer's handset to a
+  post-incident report with nothing stubbed — see `src/__tests__/m1gate.e2e.test.ts`, which
+  is the M1 gate and also prints what it does **not** prove.
+- **What remains open is almost entirely other people's**, and it is all in
+  [`backlog/for-the-district.md`](backlog/for-the-district.md): accounts (R-05, R-06),
+  hardware (R-07), and two things that need a person for an hour (R-08 the restore drill,
+  R-12 a Rescue operator walking the gate). The only code items left are M0-05 secrets and
+  M0-11 payload versioning, which needs a payload v2 to exist before a v2 reader means
+  anything.
 - **Deployment is settled (ADR-0011, 2026-08-02).** PostgreSQL runs on a machine in the **DC
   office** — the district's record lives on district hardware. The **AC Headquarter office
   runs a warm standby** of the same database: two machines, **one record**. Two independent
@@ -299,7 +311,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **450 tests passing** across 28 files, including **17 backup/restore tests that run a real
+- **631 tests passing** across 39 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -318,6 +330,13 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
   - **`PG_BIN` is set to `/usr/lib/postgresql/17/bin`.** `/usr/bin/pg_dump` on Debian is
     `pg_wrapper`, which picks a version, and it picked 16 against the 17 server. The workflow
     asserts the version rather than printing it.
+- **`cd app && npm run test:reset` when the local run goes red for no reason you changed.**
+  The local test database is never cleaned, so every run leaves its departments and events
+  behind. Twice now it has drifted past 1500 departments — Bannu has 79 — and the console's
+  browser tests began timing out rendering a screen no district will ever produce, taking the
+  backup round trip with them. Four red tests, none of them about the code. The run now warns
+  about this once, before the first file (`src/testing/globalSetup.ts`). CI never sees it: the
+  workflow starts a fresh cluster every time.
 
 - **`app/src/api/board.ts` — the central board (M0-33).** `GET /incidents`, folded on demand
   from the same event log. **There is no board table**, so it cannot fall out of step with
@@ -644,6 +663,9 @@ Build with Claude/
 │       │   ├── authority.ts   ← the policy table as data (ADR-0003)
 │       │   ├── assumptions.ts ← what the system fills in when nobody said
 │       │   ├── routing.ts     ← signals → departments (ADR-0010). Never guesses
+│       │   ├── channels.ts    ← the notification ladder, as rules (ADR-0012)
+│       │   ├── resources.ts   ← what a department can send, and whether it can now
+│       │   ├── report.ts      ← the post-incident report, folded from the log (M1-06)
 │       │   └── sla.ts         ← deadlines and the occurred/recorded split (ADR-0002)
 │       ├── db/                ← pool, migration runner, event store
 │       │   ├── configStore.ts ← departments, signals, SLA targets + the config log (M1a)
@@ -651,7 +673,9 @@ Build with Claude/
 │       ├── auth/              ← scrypt passwords, seat-scoped sessions (M0-19)
 │       ├── jobs/              ← escalation scan, notification pass, scheduler (M0-29, 32)
 │       ├── obs/               ← structured logs + correlation ids (M0-03)
-│       ├── ops/               ← backup, restore (M0-37), department directory (M0-51)
+│       ├── channels/          ← WhatsApp, SMS, voice, GSM modem. Fakes until R-05
+│       ├── ops/               ← backup, restore, off-site upload, replication, evidence,
+│       │                        the configuration sweep, the department directory
 │       ├── main.ts            ← process entry: API + client + escalation loop
 │       ├── api/               ← sync protocol and the node:http server
 │       │   ├── lifecycle.ts   ← commands: intake, triage, route, ack, close (M0-24…31)

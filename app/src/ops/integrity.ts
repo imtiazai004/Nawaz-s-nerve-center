@@ -23,6 +23,7 @@
  */
 
 import type { Pool } from '../db/pool.js';
+import { buildProviders, type ProviderSet } from '../channels/providers.js';
 
 export type FindingSeverity = 'blocking' | 'serious' | 'note';
 
@@ -261,8 +262,55 @@ const CHECKS: readonly Check[] = [
  * looking at it, not a request path, and a burst of eleven scans is a rude thing to do to a
  * single-node district server that is also handling emergencies (ADR-0007).
  */
-export async function sweep(pool: Pool, options: { now?: string } = {}): Promise<IntegrityReport> {
+export async function sweep(
+  pool: Pool,
+  options: { now?: string; providers?: ProviderSet } = {},
+): Promise<IntegrityReport> {
   const findings: Finding[] = [];
+
+  /**
+   * Whether the district can reach anybody outside the app at all.
+   *
+   * Not a query — it is a fact about the server's configuration, and it belongs here rather
+   * than as a failure on every incident. The notification pass **skips** an unconfigured rung
+   * instead of recording it, precisely so the board is not permanently reading "nobody
+   * reached" for a reason that is a purchase order. This is the one place that says it, once,
+   * where somebody can act on it (M3-01, R-05).
+   */
+  const providers = options.providers ?? buildProviders(process.env);
+  if (!providers.anyConfigured) {
+    findings.push({
+      code: 'no-way-out-of-the-building',
+      severity: 'serious',
+      what: 'No notification channel is configured',
+      consequence:
+        'Alerts reach the in-app inbox and nothing else — no WhatsApp, no SMS, no call. An ' +
+        'officer who is not looking at the app is not told. Needs a Meta business account ' +
+        'with approved templates, an SMS gateway, a telephony provider, or a GSM modem in ' +
+        'the DC office (R-05).',
+      count: 1,
+      examples: Object.values(providers.byChannel)
+        .filter((p) => !p.configured)
+        .map((p) => `${p.channel}: ${p.why ?? 'not configured'}`),
+    });
+  } else {
+    // Partially configured is its own finding: a ladder whose top rung works and whose
+    // fallbacks do not looks healthy right up to the night the top rung is down.
+    const missing = Object.values(providers.byChannel).filter((p) => !p.configured);
+    if (missing.length > 0) {
+      findings.push({
+        code: 'ladder-partly-configured',
+        severity: 'note',
+        what: 'Some notification channels have no provider behind them',
+        consequence:
+          'They are skipped rather than tried, so the ladder is shorter than it looks. A ' +
+          'ladder whose fallbacks do not exist looks healthy until the night the first rung ' +
+          'is the one that fails.',
+        count: missing.length,
+        examples: missing.map((p) => `${p.channel}: ${p.why ?? 'not configured'}`),
+      });
+    }
+  }
 
   for (const check of CHECKS) {
     const { rows } = await pool.query<{ label: string | null }>(check.sql);

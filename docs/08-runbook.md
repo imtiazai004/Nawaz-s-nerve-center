@@ -101,6 +101,45 @@ step taken by someone awake.
   and the event count inside the file are all checked, and a dump holding fewer events than
   the live database is recorded as a failure.
 
+### The nightly run
+
+Started with the server (`app/src/jobs/nightly.ts`). It **checks every ten minutes whether
+today's backup has been taken**, rather than sleeping until 02:00 — a district server gets
+rebooted, loses power and is occasionally a laptop somebody closed, and a timer set eight
+hours out is a timer that never fires. A machine that was off at 02:00 and booted at 06:00
+still takes tonight's backup.
+
+### The off-site copy
+
+After a dump verifies, it is **encrypted and sent to Google Cloud Storage** (ADR-0011).
+
+- **AES-256-GCM**, key derived from `BACKUP_PASSPHRASE` by scrypt. GCM authenticates, so a
+  file altered in the bucket refuses to decrypt rather than restoring quietly wrong.
+- **The passphrase is not in the file** and is not in the bucket. Keep it where the district
+  keeps its other credentials — if it is lost, every off-site copy is scrap.
+- **No passphrase, no upload.** The job refuses rather than sending the district's record out
+  in the clear. A dump holds every reporter's number in Bannu.
+- **"Not attempted" is recorded as not attempted.** `backup_run.offsite_at` is null and
+  `offsite_error` says why — a district with no bucket must never see the same green tick as
+  one that has a copy safely out of the building.
+
+#### Restoring from an off-site copy
+
+The file in the bucket ends `.sql.enc` and is not directly usable by `psql`. Decrypt it
+first:
+
+```
+node -e "
+  const { readFileSync, writeFileSync } = require('node:fs');
+  const { decryptDump } = require('./app/dist/ops/offsite.js');
+  writeFileSync('restored.sql', decryptDump(readFileSync(process.argv[1]), process.env.BACKUP_PASSPHRASE));
+" dnc-2026-08-03.sql.enc
+```
+
+Then follow **Restore from backup** above, using `restored.sql`. If decryption throws, the
+file has been altered or the passphrase is wrong — and either way, **do not go looking for a
+way to force it**. That error is the check working.
+
 ### Is the backup working?
 
 ```
@@ -109,6 +148,13 @@ curl http://<host>/health
 
 `degraded: true` with `backup.ok: false` means no successful backup in 24 hours, or a run
 that started and never finished.
+
+`replication` sits beside it. `role: "standalone"` means **the district is running on one
+machine** — a failure of it stops Bannu until somebody repairs it (R-07). `role: "primary"`
+with a `lagSeconds` above 60 means a failover right now would lose that much of the record.
+
+The two administrative offices see all of this on **Administration → Backups**, along with
+the last twenty runs and a "take a backup now" button.
 
 **`/health` returns 200 even when the backup is stale.** That is deliberate: a 503 would
 take the node out of a load balancer and stop the district reporting emergencies because a
@@ -120,8 +166,13 @@ dump was old. INV-01 outranks a stale backup. Monitor `degraded`, not the status
 
 Recorded here rather than discovered at 02:00:
 
-- **Nothing schedules the backup yet.** `runBackup` is written, tested and callable; wiring
-  it to a timer is a deployment decision that waits on P-08 (hosting).
+- ~~**Nothing schedules the backup yet.**~~ **Done, 2026-08-03** (M0-53). It runs nightly and
+  sends an encrypted copy off-site — when there is somewhere to send it (R-06).
+- **No standby exists yet** (R-07). `/health` reports `standalone`, which is honest and is
+  also the single largest gap in ADR-0011's plan: one machine holds the district's record.
+- **Nobody has restored this system by hand.** The path below is executed by the test suite on
+  every push, and that is a different fact from a person having done it under time pressure
+  (M0-38, R-08).
 - **Nothing pages a human.** `degraded` is reported and nobody is watching it. That is M5.
 - **The restore drill has not been performed by a second person.** M0-38, and the last open
   item on the M0 gate.

@@ -450,6 +450,58 @@
       .unit .ready { font-size: 0.8rem; color: var(--ok); font-weight: 600; }
       .unit .crewlist { flex-basis: 100%; font-size: 0.78rem; color: var(--slate); }
 
+      /* ------------------------------------------------------------- backups */
+      #backups .state {
+        margin: 0 0 0.7rem; padding: 0.6rem 0.8rem;
+        border-left: 4px solid var(--ok); background: #dfe9df; color: var(--ok);
+        font-size: 0.88rem; font-weight: 700;
+      }
+      #backups .state[data-ok="false"] {
+        border-left-color: var(--critical); background: #f0dad6; color: var(--critical);
+      }
+      #backups .run {
+        display: grid; grid-template-columns: 11rem 5rem 1fr;
+        gap: 0.3rem 0.8rem; padding: 0.45rem 0.2rem;
+        border-bottom: 1px solid var(--line); font-size: 0.82rem;
+      }
+      #backups .run .when { color: var(--slate); font-variant-numeric: tabular-nums; }
+      #backups .run[data-status="failed"] .status { color: var(--critical); font-weight: 700; }
+      #backups .run .offsite { font-size: 0.78rem; }
+      #backups .run[data-offsite="false"] .offsite { color: var(--pending); }
+      #backups .run[data-offsite="true"] .offsite { color: var(--ok); }
+      @media (max-width: 46rem) { #backups .run { grid-template-columns: 1fr; } }
+
+      /* ------------------------------------------------------- the alert ladder */
+      #alertLadder .rung {
+        display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6rem;
+        padding: 0.55rem 0.7rem; margin-bottom: 0.4rem;
+        background: var(--card); border: 1px solid var(--line); border-radius: 3px;
+      }
+      #alertLadder .rung .pos {
+        font-weight: 800; font-size: 0.72rem; color: var(--slate);
+        min-width: 1.2rem;
+      }
+      #alertLadder .rung .cname { font-weight: 700; font-size: 0.9rem; }
+      /* A rung with no provider behind it is skipped, not tried. Said, not greyed. */
+      #alertLadder .rung[data-ready="false"] .cname { color: var(--slate); }
+      #alertLadder .rung .state { font-size: 0.8rem; }
+      #alertLadder .rung[data-ready="true"] .state { color: var(--ok); font-weight: 600; }
+      #alertLadder .rung[data-ready="false"] .state { color: var(--critical); }
+      #alertLadder .rung .outage {
+        font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+        padding: 0.1rem 0.35rem; border: 1px solid var(--ok); border-radius: 2px; color: var(--ok);
+      }
+      #alertLadder .dead {
+        margin: 0 0 0.9rem; padding: 0.6rem 0.8rem;
+        background: #f0dad6; color: var(--critical);
+        border-left: 4px solid var(--critical);
+        font-size: 0.88rem; font-weight: 700;
+      }
+      #alertLadder .move {
+        margin: 0; padding: 0.2rem 0.5rem; font: inherit; font-size: 0.8rem;
+        background: none; border: 1px solid var(--line); border-radius: 2px; cursor: pointer;
+      }
+
       /* ------------------------------------------------------------- the roster */
       body:has(#mineView:not([hidden])) main { max-width: 52rem; }
 
@@ -777,7 +829,9 @@
           <button type="button" data-tab="departments" aria-current="page">Departments</button>
           <button type="button" data-tab="deadlines">Deadlines</button>
           <button type="button" data-tab="roster">Rosters</button>
+          <button type="button" data-tab="alerts">Alerts</button>
           <button type="button" data-tab="performance">Performance</button>
+          <button type="button" data-tab="backups">Backups</button>
           <button type="button" data-tab="history">History</button>
         </nav>
         <p id="adminError" hidden></p>

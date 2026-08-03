@@ -38,6 +38,17 @@ import {
   type Department,
 } from '../db/configStore.js';
 import type { RoutingSignal, SignalKind } from '../domain/routing.js';
+import {
+  describeLadder,
+  isLadderChannel,
+  ladderFor,
+  ladderIsDead,
+  LADDER_CHANNELS,
+  type LadderChannel,
+  type LadderHealth,
+} from '../domain/channels.js';
+import { loadLadder, setLadder } from '../db/channelStore.js';
+import { buildProviders, type ProviderSet } from '../channels/providers.js';
 import { sweep, type IntegrityReport } from '../ops/integrity.js';
 
 export type AdminResult<T> =
@@ -391,6 +402,68 @@ export async function slaForConsole(
   const denied = requireAdministration<Awaited<ReturnType<typeof loadSlaConfiguration>>>(identity);
   if (denied !== null) return denied;
   return { ok: true, value: await loadSlaConfiguration(pool) };
+}
+
+//------------------------------------------------------------------------------
+// The notification ladder (M3-01, ADR-0012)
+//------------------------------------------------------------------------------
+
+export interface LadderView {
+  /** The district default, and what each rung can actually do right now. */
+  readonly district: readonly LadderHealth[];
+  /**
+   * True when nothing on the ladder has a provider behind it.
+   *
+   * Said out loud rather than left to be worked out from five greyed rows. A district in
+   * this state reaches nobody outside the app, and the fix is a purchase rather than a
+   * setting (R-05).
+   */
+  readonly nothingCanBeSent: boolean;
+  readonly channels: readonly LadderChannel[];
+}
+
+export async function ladderForConsole(
+  pool: Pool,
+  identity: Identity,
+  providers?: ProviderSet,
+): Promise<AdminResult<LadderView>> {
+  const denied = requireAdministration<LadderView>(identity);
+  if (denied !== null) return denied;
+
+  const set = providers ?? buildProviders(process.env);
+  const config = await loadLadder(pool);
+  const rungs = ladderFor(config, null);
+
+  const district = describeLadder(rungs, (channel) => ({
+    ready: set.byChannel[channel].configured,
+    why: set.byChannel[channel].why,
+  }));
+
+  return {
+    ok: true,
+    value: {
+      district,
+      nothingCanBeSent: ladderIsDead(district),
+      channels: LADDER_CHANNELS,
+    },
+  };
+}
+
+export async function reorderLadder(
+  pool: Pool,
+  identity: Identity,
+  input: { readonly channels?: unknown },
+): Promise<AdminResult<{ readonly set: true }>> {
+  const denied = requireAdministration<{ readonly set: true }>(identity);
+  if (denied !== null) return denied;
+
+  const channels = Array.isArray(input.channels) ? input.channels.filter(isLadderChannel) : [];
+  if (Array.isArray(input.channels) && channels.length !== input.channels.length) {
+    return refuse(400, 'that list contains something that is not a notification channel');
+  }
+
+  const result = await setLadder(pool, null, channels, actorOf(identity));
+  return result.ok ? { ok: true, value: { set: true } } : refuse(400, result.why);
 }
 
 //------------------------------------------------------------------------------

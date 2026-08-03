@@ -36,6 +36,8 @@ import {
   setTarget,
   slaForConsole,
   integrity,
+  ladderForConsole,
+  reorderLadder,
   type AdminResult,
 } from './admin.js';
 import { districtPerformance } from './performance.js';
@@ -63,8 +65,11 @@ import {
 } from './resources.js';
 import { download, listEvidence, upload } from './evidenceRoutes.js';
 import { postIncidentReport } from './report.js';
+import { backupNow, backupsForConsole } from './backups.js';
 import { listFor } from '../ops/evidence.js';
 import { backupHealth } from '../ops/backup.js';
+import { replicationHealthSafe } from '../ops/replication.js';
+import type { Nightly } from '../jobs/nightly.js';
 import { correlationIdFrom, log, withContext } from '../obs/log.js';
 
 /**
@@ -96,6 +101,16 @@ export interface ServerOptions {
    * where an uploaded file becomes a URL somebody's browser will open.
    */
   readonly evidenceRoot?: string;
+  /** Where dumps are written, so the console can list what is actually on disk (M0-55). */
+  readonly backupDirectory?: string;
+  /**
+   * The nightly backup job, when this process is running one.
+   *
+   * Passed in rather than constructed here: the server should not decide whether the district
+   * takes backups, and a test server that quietly started a `pg_dump` loop would be a
+   * surprise nobody asked for.
+   */
+  readonly nightly?: Nightly | null;
 }
 
 const MIME: Readonly<Record<string, string>> = {
@@ -454,6 +469,8 @@ async function handleAdmin(
   res: ServerResponse,
   pathname: string,
   identity: Identity,
+  backupDirectory: string,
+  nightly: Nightly | null,
 ): Promise<void> {
   const send = <T>(result: AdminResult<T>): void => {
     if (!result.ok) json(res, result.status, { error: result.error });
@@ -544,6 +561,34 @@ async function handleAdmin(
       return;
     }
     json(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  if (pathname === '/admin/ladder') {
+    if (req.method === 'GET') {
+      send(await ladderForConsole(pool, identity));
+      return;
+    }
+    if (req.method === 'PUT') {
+      const input = await body();
+      if (input === null) {
+        json(res, 400, { error: 'that was not valid json' });
+        return;
+      }
+      send(await reorderLadder(pool, identity, input));
+      return;
+    }
+    json(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/backups') {
+    send(await backupsForConsole(pool, identity, { directory: backupDirectory }));
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/backups/now') {
+    send(await backupNow(identity, nightly));
     return;
   }
 
@@ -1001,6 +1046,20 @@ export function createSyncServer(options: ServerOptions): Server {
   // to a directory **outside** the web root, because a directory the server serves
   // statically is a directory where an uploaded file becomes a URL a browser will open.
   const evidenceRoot = options.evidenceRoot ?? join(process.cwd(), 'var', 'evidence');
+  const backupDirectory = options.backupDirectory ?? join(process.cwd(), 'var', 'backups');
+
+  /**
+   * Read at request time, never at construction.
+   *
+   * `main.ts` builds the server before it builds the backup job, so it passes a getter — and
+   * reading `options.nightly` here would invoke that getter during construction, before the
+   * `const nightly` it closes over exists. That is a temporal dead zone error, and it took
+   * the whole process down at startup with "Cannot access 'nightly' before initialization".
+   *
+   * Found by `deployable.e2e.test.ts`, which exists because `npm start` had once never
+   * worked at all while 338 tests passed. It has now caught the same class of thing twice.
+   */
+  const nightlyNow = (): Nightly | null => options.nightly ?? null;
   const authMode = options.authMode ?? 'stub';
   const nodeEnv = options.nodeEnv ?? process.env['NODE_ENV'] ?? 'development';
 
@@ -1033,7 +1092,24 @@ export function createSyncServer(options: ServerOptions): Server {
             // report has no way to know a backup was the reason. Liveness and the backup
             // obligation are different questions and this answers both separately.
             const backup = await backupHealth(pool);
-            json(res, 200, { ok: true, db: 'up', authMode, degraded: !backup.ok, backup });
+
+            // Replication, for the same reason and with the same argument (M0-54, ADR-0011).
+            // A standby that fell behind three weeks ago and told nobody is not a standby; it
+            // is a comforting fiction, and the district finds out at the moment it is relied
+            // on. `Safe` because `pg_stat_replication` needs `pg_monitor` — a permission on a
+            // diagnostic must not be able to break the endpoint everything else keys off.
+            const replication = await replicationHealthSafe(pool);
+
+            json(res, 200, {
+              ok: true,
+              db: 'up',
+              authMode,
+              // Either one degrades the node. Neither takes it out of service: INV-01
+              // outranks both a stale dump and a lagging standby.
+              degraded: !backup.ok || !replication.ok,
+              backup,
+              replication,
+            });
           } catch {
             // A health check that hides a dead database is worse than none.
             json(res, 503, { ok: false, db: 'down', authMode });
@@ -1129,7 +1205,7 @@ export function createSyncServer(options: ServerOptions): Server {
             return;
           }
 
-          await handleAdmin(pool, req, res, url.pathname, identity);
+          await handleAdmin(pool, req, res, url.pathname, identity, backupDirectory, nightlyNow());
           return;
         }
 

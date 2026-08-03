@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { createSyncServer } from './api/server.js';
 import { createPool, migrate } from './db/pool.js';
 import { createScheduler } from './jobs/scheduler.js';
+import { createNightly } from './jobs/nightly.js';
 import { log } from './obs/log.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,8 @@ async function start(): Promise<void> {
   const applied = await migrate(pool, join(here, '..', 'db', 'migrations'));
   if (applied.length > 0) log('info', 'migrations applied', { applied });
 
+  const backupDirectory = process.env['BACKUP_DIR'] ?? join(here, '..', 'var', 'backups');
+
   const server = createSyncServer({
     pool,
     // `assertAuthUsable` refuses to start outside development with this value, so a
@@ -47,6 +50,12 @@ async function start(): Promise<void> {
     authMode: 'stub',
     nodeEnv,
     webRoot: join(here, '..', 'web', 'dist'),
+    backupDirectory,
+    // Late-bound on purpose: the server is created before the job, and the console's
+    // "back up now" button needs the job rather than a copy of its options.
+    get nightly() {
+      return nightly;
+    },
   });
 
   const scheduler = createScheduler({
@@ -82,8 +91,43 @@ async function start(): Promise<void> {
     onError: (err) => log('error', 'background pass failed', { error: String(err) }),
   });
 
+  /**
+   * The nightly backup (M0-53, ADR-0011).
+   *
+   * P-08 held this up for weeks: the backup was built and verified and nothing scheduled it,
+   * because where the server runs decides how. ADR-0011 answered that, so it runs here — on
+   * the machine in the DC office, at 02:00, with an encrypted copy going out of the district.
+   *
+   * Started even when there is no bucket yet. The local dump still happens and the ledger
+   * still records that the off-site copy did not, which is the fact `/health` and the console
+   * need in order to say the district is only half covered (R-06).
+   */
+  const nightly = createNightly({
+    pool,
+    backup: {
+      directory: backupDirectory,
+      // Stated rather than inherited. `runBackup` would fall back to `DATABASE_URL` anyway
+      // here, and being explicit is what stops the job dumping one database and verifying
+      // against another the day those two stop agreeing.
+      ...(process.env['DATABASE_URL'] === undefined
+        ? {}
+        : { connectionString: process.env['DATABASE_URL'] }),
+      ...(process.env['PG_BIN'] === undefined ? {} : { pgBin: process.env['PG_BIN'] }),
+    },
+    onRun: (o) => {
+      if (!o.ran) return;
+      log(o.backupOk === true && o.offsiteOk === true ? 'info' : 'warn', 'nightly backup', {
+        reason: o.reason,
+        backupOk: o.backupOk ?? false,
+        offsiteOk: o.offsiteOk ?? false,
+        ...(o.offsiteSkipped === undefined ? {} : { offsiteSkipped: o.offsiteSkipped }),
+      });
+    },
+  });
+
   await new Promise<void>((resolve) => server.listen(port, resolve));
   scheduler.start();
+  nightly.start();
   log('info', 'started', { port, nodeEnv });
 
   let shuttingDown = false;
@@ -95,6 +139,7 @@ async function start(): Promise<void> {
     void (async () => {
       // Stop escalating first, then stop accepting requests, then release the pool.
       // Reversing this could leave a pass writing to a closed pool mid-escalation.
+      nightly.stop();
       await scheduler.stop();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await pool.end();

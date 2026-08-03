@@ -1,7 +1,18 @@
 # ADR-0004 — Route to a duty seat, not to a department
 
-**Status:** Accepted
+**Status:** Accepted · **amended 2026-08-03**
 **Date:** 2026-08-01
+
+> **Amendment.** The four-tier hierarchy this ADR described — station → tehsil → district →
+> provincial — no longer exists. **ADR-0010** replaced it with two rungs after the district
+> told us how Bannu is actually organised, and migration 0010 collapsed the column. The rest
+> of this record stands unchanged: seats, duty assignments and authority-attaches-to-the-post
+> are exactly as decided here, and they are what made the tier change a migration rather than
+> a rewrite.
+>
+> Left in place rather than edited into agreement. The four tiers were a real decision, made
+> for stated reasons, and the ADR log is the same kind of record as the event log — you
+> correct it by appending, not by making the past look like it always agreed (ADR-0001).
 **Reversal cost:** High — identity and permission model
 
 ## Context
@@ -25,8 +36,10 @@ Model organisational **seats** as first-class entities, distinct from the people
 occupy them.
 
 - `Seat` — an organisational post (DC Bannu, DPO Bannu, Rescue 1122 Station In-Charge,
-  Health District Duty Officer). Belongs to a department and a tier: station → tehsil →
-  district → provincial.
+  Health District Duty Officer). Belongs to a department and a tier.
+  *(Amended: the tiers are now `department` and `district`, and a seat's tier is **derived
+  from its office** by a database trigger rather than chosen — see ADR-0010 and migration
+  0010. The four-value ladder below was superseded before anything used more than two of it.)*
 - `DutyAssignment` — which person holds which seat, over which time range. Answers "who do
   I notify right now."
 - **Authority attaches to the seat, never to the person.**
@@ -62,7 +75,10 @@ rather than silent.
 - Routing and escalation that survive personnel changes without maintenance.
 - Automatic access revocation on transfer.
 - INV-06 attribution that remains meaningful years later.
-- A natural escalation hierarchy for `ADR-0005` and the provincial ceiling.
+- A natural escalation hierarchy for `ADR-0005`.
+  *(Amended: there is no provincial ceiling. The top of the ladder is the district
+  administration, and an emergency that reaches it unacknowledged is surfaced as* needs a
+  human, urgently *rather than climbing to a rung that does not exist — Q-10, ADR-0010.)*
 
 ### We give up
 - Simplicity. Three entities (person, seat, assignment) where most systems have one user

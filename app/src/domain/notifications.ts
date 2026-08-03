@@ -94,13 +94,50 @@ export function targetKey(target: {
   return target.seatId ?? `department:${String(target.departmentId ?? 'unknown')}`;
 }
 
+/**
+ * Has this exact rung already been tried for this obligation?
+ *
+ * **Per channel**, because the ladder is a sequence: WhatsApp having been tried and failed is
+ * precisely the reason to try a voice call, and a check that ignored the channel would stop
+ * the ladder at its first rung forever.
+ */
 export function alreadyAttempted(
+  attempts: readonly NotificationAttempt[],
+  target: { readonly seatId: Uuid | null; readonly departmentId?: Uuid | null },
+  reason: NotifyReason,
+  channel?: string,
+): boolean {
+  const key = targetKey(target);
+  return attempts.some(
+    (a) =>
+      targetKey(a) === key &&
+      a.reason === reason &&
+      (channel === undefined || a.channel === channel),
+  );
+}
+
+/**
+ * Has anything already reached this person for this obligation?
+ *
+ * The ladder stops at the first success and **must not restart on the next pass**. Without
+ * this, a notification delivered by WhatsApp at 02:00 would be followed by a voice call at
+ * 02:00 and thirty seconds, because `voice` had never been attempted — a notification storm
+ * aimed at somebody who is already awake and driving (INV-08).
+ *
+ * The in-app rung does not count. It settles only when the holder's client collects it, so
+ * "pending in an inbox nobody has opened" is not somebody having been told, and the external
+ * ladder must still run.
+ */
+export function externallyReached(
   attempts: readonly NotificationAttempt[],
   target: { readonly seatId: Uuid | null; readonly departmentId?: Uuid | null },
   reason: NotifyReason,
 ): boolean {
   const key = targetKey(target);
-  return attempts.some((a) => targetKey(a) === key && a.reason === reason);
+  return attempts.some(
+    (a) =>
+      targetKey(a) === key && a.reason === reason && a.channel !== 'web' && a.state === 'delivered',
+  );
 }
 
 export interface UnmetObligation {

@@ -25,7 +25,21 @@ import { randomUUID } from 'node:crypto';
 import { append, loadIncident } from '../db/eventStore.js';
 import type { Pool } from '../db/pool.js';
 import { foldIncident } from '../domain/incident.js';
-import { alreadyAttempted, obligationsFor } from '../domain/notifications.js';
+import { alreadyAttempted, externallyReached, obligationsFor } from '../domain/notifications.js';
+import {
+  canAttempt,
+  ladderForNotification,
+  type LadderChannel,
+  type LadderConfig,
+  type NotifyChannel,
+} from '../domain/channels.js';
+import {
+  buildProviders,
+  renderMessage,
+  templateFor,
+  type ProviderSet,
+} from '../channels/providers.js';
+import { incidentSummary, loadLadder, recipientFor } from '../db/channelStore.js';
 import type { IncidentEvent, NotifyReason, Uuid } from '../domain/events.js';
 
 const LOOKBACK_DAYS = 7;
@@ -150,11 +164,36 @@ export interface NotifyOptions {
   readonly now?: string;
   readonly limit?: number;
   readonly incidentIds?: readonly string[];
+  /** The in-app channel. Overridden by tests; never by configuration. */
   readonly channel?: NotificationChannel;
+  /** WhatsApp, voice, SMS, GSM. Defaults to whatever the environment has configured. */
+  readonly providers?: ProviderSet;
+  readonly ladder?: LadderConfig;
+  /**
+   * Send this one a particular way, instead of walking the configured ladder.
+   *
+   * The owner asked for it directly — *the user should be able to choose to route a
+   * notification to another channel when they need to*. It replaces the ladder rather than
+   * prepending to it: "send this by SMS" means SMS, not SMS after two minutes of WhatsApp.
+   */
+  readonly only?: readonly LadderChannel[];
 }
 
 /**
  * One pass. Safe to call repeatedly and safe to call concurrently (see `scheduler.ts`).
+ *
+ * The shape of one obligation, since M3-01:
+ *
+ *   1. **The in-app inbox, always.** Not a rung — it costs nothing and it is the only channel
+ *      whose "delivered" means a human actually collected the message.
+ *   2. **The ladder, in order**, until one rung succeeds (ADR-0012). Every rung tried is its
+ *      own recorded attempt with its own outcome, because "WhatsApp failed, the call got
+ *      through" and "we notified them" are different facts and only the first one is useful
+ *      at 03:00.
+ *
+ * The ladder does not restart once something has reached them. Without that check a message
+ * delivered by WhatsApp would be followed thirty seconds later by a phone call, because the
+ * voice rung had never been attempted — a storm aimed at somebody already driving (INV-08).
  */
 export async function runNotifyPass(
   pool: Pool,
@@ -162,7 +201,9 @@ export async function runNotifyPass(
 ): Promise<NotifyOutcome> {
   const now = options.now ?? new Date().toISOString();
   const limit = options.limit ?? 500;
-  const channel = options.channel ?? inAppChannel(pool);
+  const inApp = options.channel ?? inAppChannel(pool);
+  const providers = options.providers ?? buildProviders(process.env);
+  const ladder = options.ladder ?? (await loadLadder(pool));
 
   const ids = await candidates(pool, limit, options.incidentIds);
 
@@ -175,6 +216,17 @@ export async function runNotifyPass(
 
     const state = foldIncident(incidentId, events);
 
+    // A running sequence, not `state.eventCount + 1` per append.
+    //
+    // Two obligations on one incident used to produce two events with the same
+    // `clientSeq`, and a ladder of five rungs would produce ten. Ordering then fell to the
+    // event id, which is random — deterministic, and causally wrong, which is the exact
+    // mistake ADR-0008 was written about.
+    let seq = state.eventCount;
+    const nextSeq = (): number => (seq += 1);
+
+    let summary: { departmentName: string | null } | null = null;
+
     for (const target of obligationsFor(state)) {
       const seatId =
         target.seatId ??
@@ -186,79 +238,154 @@ export async function runNotifyPass(
       // This used to `continue` after incrementing a counter, which meant the board showed
       // nothing: an emergency routed to a department with no posts looked notified. INV-03
       // says an unmet obligation surfaces on the board and not as a log line, and a number
-      // in a job's return value is a log line. The console makes this easy to hit — creating
-      // a department gives it zero posts, and a routing signal is the very next click.
+      // in a job's return value is a log line.
       if (seatId === null && target.departmentId === null) continue;
 
-      if (
-        alreadyAttempted(
-          state.notifications,
-          { seatId, departmentId: target.departmentId },
-          target.reason,
-        )
-      ) {
-        continue;
-      }
+      const key = { seatId, departmentId: target.departmentId };
 
-      const attemptId = randomUUID();
-      const base = {
-        incidentId,
-        occurredAt: now,
-        recordedAt: now,
-        actorPersonId: null,
-        actorSeatId: null,
-        sourceChannel: 'system' as const,
-      };
-
-      // Recorded before anything is attempted. See the header.
-      await append(pool, [
-        {
-          ...base,
-          eventId: randomUUID(),
-          type: 'notified',
-          clientSeq: state.eventCount + 1,
-          payload: {
-            attemptId,
-            seatId,
-            ...(target.departmentId === null ? {} : { departmentId: target.departmentId }),
-            channel: channel.name,
-            reason: target.reason,
-          },
-        } as unknown as IncidentEvent,
-      ]);
-      attempted += 1;
-
-      const result =
-        seatId === null
-          ? {
-              ok: false as const,
-              failure:
-                'no_post: this department has no post to notify — nobody can be told until one exists',
-            }
-          : await channel
-              .deliver({ seatId, incidentId, reason: target.reason })
-              .catch((err: unknown) => ({
-                ok: false as const,
-                failure: `channel threw: ${String(err)}`,
-              }));
-
-      if (!result.ok) {
-        failed += 1;
+      const record = async (attemptId: string, channelName: NotifyChannel): Promise<void> => {
+        // Recorded before anything is attempted. A crash between the two leaves a visibly
+        // pending obligation rather than nothing at all — see the header.
         await append(pool, [
           {
-            ...base,
             eventId: randomUUID(),
-            type: 'notification_failed',
-            clientSeq: state.eventCount + 2,
-            payload: { attemptId, seatId, channel: channel.name, failure: result.failure },
+            incidentId,
+            occurredAt: now,
+            recordedAt: now,
+            actorPersonId: null,
+            actorSeatId: null,
+            sourceChannel: 'system' as const,
+            type: 'notified',
+            clientSeq: nextSeq(),
+            payload: {
+              attemptId,
+              seatId,
+              ...(target.departmentId === null ? {} : { departmentId: target.departmentId }),
+              channel: channelName,
+              reason: target.reason,
+            },
           } as unknown as IncidentEvent,
         ]);
+        attempted += 1;
+      };
+
+      const settle = async (
+        attemptId: string,
+        channelName: NotifyChannel,
+        result: { ok: true } | { ok: false; failure: string },
+      ): Promise<void> => {
+        await append(pool, [
+          {
+            eventId: randomUUID(),
+            incidentId,
+            occurredAt: now,
+            recordedAt: now,
+            actorPersonId: null,
+            actorSeatId: null,
+            sourceChannel: 'system' as const,
+            type: result.ok ? 'notification_delivered' : 'notification_failed',
+            clientSeq: nextSeq(),
+            payload: {
+              attemptId,
+              seatId,
+              channel: channelName,
+              ...(result.ok ? {} : { failure: result.failure }),
+            },
+          } as unknown as IncidentEvent,
+        ]);
+        if (!result.ok) failed += 1;
+      };
+
+      //------------------------------------------------------------------
+      // The inbox. Always, and never part of the ladder.
+      //------------------------------------------------------------------
+
+      if (!alreadyAttempted(state.notifications, key, target.reason, 'web')) {
+        const attemptId = randomUUID();
+        await record(attemptId, 'web');
+
+        const result =
+          seatId === null
+            ? {
+                ok: false as const,
+                failure:
+                  'no_post: this department has no post to notify — nobody can be told until one exists',
+              }
+            : await inApp
+                .deliver({ seatId, incidentId, reason: target.reason })
+                .catch((err: unknown) => ({
+                  ok: false as const,
+                  failure: `channel threw: ${String(err)}`,
+                }));
+
+        // On success nothing further is written **here**. The in-app attempt stays
+        // `pending` until the seat holder's client actually collects it, because "we queued
+        // it" is not "somebody knows". `POST /notifications/:attemptId/seen` settles it.
+        if (!result.ok) await settle(attemptId, 'web', result);
       }
 
-      // On success nothing further is written **here**. The attempt stays `pending` until
-      // the seat holder's client actually collects it, because "we queued it" is not
-      // "somebody knows". `POST /notifications/:attemptId/seen` is what settles it, and
-      // until then the board carries it as an unmet obligation.
+      //------------------------------------------------------------------
+      // The ladder (ADR-0012)
+      //------------------------------------------------------------------
+
+      if (seatId === null) continue;
+      if (externallyReached(state.notifications, key, target.reason)) continue;
+
+      const recipient = await recipientFor(pool, seatId);
+      summary ??= await incidentSummary(pool, incidentId);
+
+      const body = renderMessage({
+        incidentId,
+        category: state.category?.value ?? 'emergency',
+        severity: state.severity?.value ?? 'unknown',
+        departmentName: summary.departmentName,
+        reason: target.reason,
+        occurredAt: state.occurredAt,
+      });
+
+      for (const rung of ladderForNotification(ladder, seatId, options.only)) {
+        if (alreadyAttempted(state.notifications, key, target.reason, rung)) continue;
+
+        /**
+         * A rung with no account behind it is **skipped, not failed**.
+         *
+         * This is the one place where "record every failure" is the wrong instinct. Until
+         * R-05 there are no providers, so recording each rung would put five
+         * `not_configured` failures on every obligation of every incident in the district —
+         * a board permanently reading "nobody reached" for a reason that is a purchase order,
+         * not an emergency. The reliable outcome of that is a control room that stops reading
+         * the number.
+         *
+         * INV-03 is still kept, and by the right thing: the in-app attempt above stays
+         * `pending` until a human collects it, so the obligation is visibly unmet on the
+         * board either way. What changes is *where* "the district has no way to phone
+         * anybody" is reported — once, at district level, in the configuration sweep and on
+         * the console, which is where somebody can actually do something about it.
+         */
+        if (!providers.byChannel[rung].configured) continue;
+
+        const attemptId = randomUUID();
+        await record(attemptId, rung);
+
+        // Checked before the provider is called, so the recorded failure names something an
+        // administrator can act on — "this post holds a stand-in number" rather than
+        // whatever a gateway returns when handed nonsense.
+        const verdict = canAttempt(rung, recipient);
+        const result = verdict.canSend
+          ? await providers.byChannel[rung]
+              .send({ recipient, incidentId, body, template: templateFor(target.reason) })
+              .catch((err: unknown) => ({
+                ok: false as const,
+                failure: `provider threw: ${String(err)}`,
+              }))
+          : { ok: false as const, failure: verdict.failure };
+
+        await settle(attemptId, rung, result);
+
+        // First success wins. Trying the rest would be telling somebody the same thing
+        // three ways, which is how a district learns to ignore the second and third.
+        if (result.ok) break;
+      }
     }
   }
 

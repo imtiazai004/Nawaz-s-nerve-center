@@ -16,7 +16,7 @@ against the decisions recorded here.
 | `Report` | A single claim that something happened. Cheap, never rejected, never deleted. | Channel (web / SMS / call / radio / walk-in), reporter contact, raw text, media, location capture, `occurred_at`. |
 | `Incident` | The authoritative thing in the world. One or more reports link to it. | **Has no mutable status column.** Status is folded from its events. |
 | `IncidentEvent` | Append-only. The entire history and the entire audit trail. | Typed — see the event catalog below. |
-| `Seat` | An organisational post that holds authority — not a person. | Belongs to a department and a tier (station / tehsil / district / provincial). |
+| `Seat` | An organisational post that holds authority — not a person. | Belongs to a department. Its tier is **derived from that department** — `district` for the two administrative offices, `department` for everyone else (ADR-0010, migration 0010). It was a four-value ladder until the district explained that there are two rungs. |
 | `DutyAssignment` | Which person holds which seat, over which time range. | Makes "who do I notify right now" answerable; makes handover a logged event. |
 | `Person` | A human with credentials. | Holds seats over time; has no authority of their own. |
 | `Department` | A registry row, not a code module. | Module config, freshness expectation, routing categories, escalation chain. |

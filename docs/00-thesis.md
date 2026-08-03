@@ -103,8 +103,12 @@ transfer frequently; a permission model attached to a person breaks on every pos
 order, while one attached to a seat survives it — and handover becomes a logged action
 instead of an IT ticket.
 
-Escalation is then a walk up the seat hierarchy — station → tehsil → district →
-provincial — not a hardcoded list of phone numbers.
+Escalation is then a walk up the seat hierarchy — not a hardcoded list of phone numbers.
+
+*(Written before the district told us how Bannu is organised. The hierarchy turned out to
+have **two rungs**, not four: a department, then the administration, and nothing above it.
+See ADR-0010. The point of the paragraph is unchanged and the shape of the ladder is
+simpler than it was drawn here.)*
 
 → [`ADR-0004`](adr/ADR-0004-duty-seats.md)
 
@@ -208,6 +212,12 @@ A major flood, a mass-casualty incident, or a multi-tehsil emergency exceeds dis
 authority. The escalation chain needs a defined provincial rung — PDMA and the KP
 government — even if v1 implements it as "notify these seats and mark the incident as
 provincially escalated" rather than a live integration.
+
+*(Closed as out of scope, 2026-08-02 — Q-10, ADR-0010. The owner's answer is that this
+system is for the **district administration**, and there is nothing above the DC and AC
+Headquarter offices in it. An emergency that reaches the top unacknowledged is surfaced as*
+needs a human, urgently, *which is built. Reopen only if the district asks for provincial
+notification — the risk itself has not gone away, only our claim to be solving it.)*
 
 ### The control room is a single point of failure
 

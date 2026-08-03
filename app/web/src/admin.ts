@@ -116,7 +116,14 @@ interface IntegrityReport {
   summary: { blocking: number; serious: number; notes: number };
 }
 
-type Tab = 'departments' | 'deadlines' | 'roster' | 'performance' | 'history';
+type Tab =
+  | 'departments'
+  | 'deadlines'
+  | 'roster'
+  | 'alerts'
+  | 'backups'
+  | 'performance'
+  | 'history';
 
 /** A number, or a dash. Never a zero standing in for "we do not know". */
 function num(v: number | null, suffix = ''): string {
@@ -666,6 +673,238 @@ export function mountAdmin(): AdminConsole {
   }
 
   //--------------------------------------------------------------------------
+  // Alerts — the notification ladder (M3-01, ADR-0012)
+  //--------------------------------------------------------------------------
+
+  interface LadderRung {
+    channel: string;
+    position: number;
+    configured: boolean;
+    why: string | null;
+    survivesOutage: boolean;
+  }
+  interface LadderView {
+    district: LadderRung[];
+    nothingCanBeSent: boolean;
+    channels: string[];
+  }
+
+  const CHANNEL_LABEL: Readonly<Record<string, string>> = {
+    whatsapp: 'WhatsApp',
+    voice: 'a voice call',
+    sms: 'SMS',
+    gsm_sms: 'SMS from the district modem',
+    gsm_voice: 'a call from the district modem',
+  };
+
+  /**
+   * What the district tries, in what order, and what actually works.
+   *
+   * The important thing on this screen is not the ordering control — it is the second column.
+   * A ladder of five neatly ordered rungs that all say "no account yet" is a district that
+   * reaches nobody outside the app, and that has to be readable at a glance rather than
+   * inferred from five greyed rows.
+   */
+  async function renderAlerts(mine: number): Promise<void> {
+    const view = await api<LadderView>('GET', '/admin/ladder');
+    if (view === null) return;
+
+    const wrap = document.createElement('div');
+    wrap.id = 'alertLadder';
+
+    if (view.nothingCanBeSent) {
+      wrap.append(
+        text(
+          'p',
+          'dead',
+          'Nothing can be sent outside the app. Alerts reach the in-app inbox and nowhere ' +
+            'else — an officer who is not looking at the app is not told.',
+        ),
+      );
+    }
+
+    wrap.append(
+      text(
+        'p',
+        'note',
+        'Tried in order, top first, until one works. A rung with no provider behind it is ' +
+          'skipped rather than tried, so the ladder is shorter than it looks. The in-app ' +
+          'inbox is not on this list: it always happens, in parallel, and costs nothing.',
+      ),
+    );
+
+    const order = view.district.map((r) => r.channel);
+
+    const save = (next: string[]): void => {
+      void (async () => {
+        const done = await api('PUT', '/admin/ladder', { channels: next });
+        if (done !== null) await renderAlerts(mine);
+      })();
+    };
+
+    for (const [index, rung] of view.district.entries()) {
+      const row = document.createElement('div');
+      row.className = 'rung';
+      row.dataset['channel'] = rung.channel;
+      row.dataset['ready'] = String(rung.configured);
+
+      row.append(text('span', 'pos', String(rung.position)));
+      row.append(text('span', 'cname', CHANNEL_LABEL[rung.channel] ?? rung.channel));
+      row.append(
+        text('span', 'state', rung.configured ? 'ready' : (rung.why ?? 'no provider')),
+      );
+
+      // The rung that still works when the district's own line is down (ADR-0011). Worth a
+      // badge, because it is the reason the modem is on the shopping list at all.
+      if (rung.survivesOutage) row.append(text('span', 'outage', 'works offline'));
+
+      if (index > 0) {
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.className = 'move';
+        up.dataset['up'] = rung.channel;
+        up.textContent = '↑ earlier';
+        up.addEventListener('click', () => {
+          const next = [...order];
+          [next[index - 1], next[index]] = [next[index]!, next[index - 1]!];
+          save(next);
+        });
+        row.append(up);
+      }
+
+      wrap.append(row);
+    }
+
+    paint(mine, wrap);
+  }
+
+  //--------------------------------------------------------------------------
+  // Backups (M0-55, ADR-0011)
+  //--------------------------------------------------------------------------
+
+  interface BackupRunRow {
+    backupRunId: string;
+    status: string;
+    startedAt: string;
+    bytes: number | null;
+    eventCount: number | null;
+    error: string | null;
+    offsiteAt: string | null;
+    offsiteError: string | null;
+  }
+  interface BackupView {
+    health: {
+      ok: boolean;
+      lastSuccessAt: string | null;
+      ageHours: number | null;
+      stuckRuns: number;
+    };
+    replication: { role: string; lagSeconds: number | null; ok: boolean; why: string | null };
+    offsiteConfigured: boolean;
+    offsiteWhy: string | null;
+    lastOffsiteAt: string | null;
+    recent: BackupRunRow[];
+    files: { name: string; bytes: number }[];
+    restoreNote: string;
+  }
+
+  /**
+   * Is the district's record safe, and where is it?
+   *
+   * Two separate questions, shown separately: a dump on the DC office disk covers a bad
+   * restore, and only the off-site copy covers the building. A screen that collapsed them
+   * into one green tick would let somebody believe a fire is survivable when it is not.
+   */
+  async function renderBackups(mine: number): Promise<void> {
+    const view = await api<BackupView>('GET', '/admin/backups');
+    if (view === null) return;
+
+    const wrap = document.createElement('div');
+    wrap.id = 'backups';
+
+    const stuck =
+      view.health.stuckRuns > 0
+        ? ` ${String(view.health.stuckRuns)} run(s) started and never finished.`
+        : '';
+    const local = text(
+      'p',
+      'state',
+      view.health.lastSuccessAt === null
+        ? 'No backup has ever been taken on this server.'
+        : `Last backup ${String(view.health.ageHours ?? 0)}h ago.${stuck}`,
+    );
+    local.dataset['ok'] = String(view.health.ok);
+    wrap.append(local);
+
+    // The building question, asked separately.
+    const offsite = text(
+      'p',
+      'state',
+      view.lastOffsiteAt !== null
+        ? `A copy left the district at ${view.lastOffsiteAt.replace('T', ' ').slice(0, 16)}.`
+        : view.offsiteConfigured
+          ? 'No backup has ever left the district, although off-site storage is configured.'
+          : `Backups never leave the DC office — ${view.offsiteWhy ?? 'off-site storage is not set up'}.`,
+    );
+    offsite.dataset['ok'] = String(view.lastOffsiteAt !== null);
+    wrap.append(offsite);
+
+    const rep = text(
+      'p',
+      'state',
+      view.replication.ok
+        ? `Standby is keeping up (${String(view.replication.lagSeconds ?? 0)}s behind).`
+        : (view.replication.why ?? 'Replication state unknown.'),
+    );
+    rep.dataset['ok'] = String(view.replication.ok);
+    wrap.append(rep);
+
+    const now = document.createElement('button');
+    now.type = 'button';
+    now.id = 'backupNow';
+    now.className = 'act primary';
+    now.textContent = 'Take a backup now';
+    now.addEventListener('click', () => {
+      now.disabled = true;
+      now.textContent = 'Taking a backup…';
+      void (async () => {
+        const done = await api<{ ran: boolean; reason: string }>('POST', '/admin/backups/now');
+        if (done !== null && !done.ran) fail(`Not taken: ${done.reason}`);
+        await renderBackups(mine);
+      })();
+    });
+    wrap.append(now);
+
+    // Said on the screen rather than left as a missing button. Somebody will look for it.
+    wrap.append(text('p', 'note', view.restoreNote));
+
+    wrap.append(text('h4', 'sectionhead', 'Recent runs'));
+    if (view.recent.length === 0) wrap.append(text('p', 'meta', 'None yet.'));
+
+    for (const run of view.recent) {
+      const row = document.createElement('div');
+      row.className = 'run';
+      row.dataset['status'] = run.status;
+      row.dataset['offsite'] = String(run.offsiteAt !== null);
+
+      row.append(text('span', 'when', run.startedAt.replace('T', ' ').slice(0, 16)));
+      row.append(text('span', 'status', run.status));
+
+      const detail =
+        run.error !== null
+          ? run.error
+          : run.offsiteAt !== null
+            ? `${String(run.eventCount ?? 0)} events · copy sent off-site`
+            : `${String(run.eventCount ?? 0)} events · ${run.offsiteError ?? 'stayed in the DC office'}`;
+      row.append(text('span', 'offsite', detail));
+
+      wrap.append(row);
+    }
+
+    paint(mine, wrap);
+  }
+
+  //--------------------------------------------------------------------------
   // Performance
   //--------------------------------------------------------------------------
 
@@ -798,6 +1037,8 @@ export function mountAdmin(): AdminConsole {
 
     if (tab === 'departments') await renderDepartments(mine);
     else if (tab === 'roster') await renderRosters(mine);
+    else if (tab === 'alerts') await renderAlerts(mine);
+    else if (tab === 'backups') await renderBackups(mine);
     else if (tab === 'deadlines') await renderDeadlines(mine);
     else if (tab === 'performance') await renderPerformance(mine);
     else await renderHistory(mine);
