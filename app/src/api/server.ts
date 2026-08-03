@@ -66,6 +66,8 @@ import {
 import { download, listEvidence, upload } from './evidenceRoutes.js';
 import { postIncidentReport } from './report.js';
 import { backupNow, backupsForConsole } from './backups.js';
+import { handleWall, writeWall } from './wall.js';
+import { handleStatus, writeStatus } from './status.js';
 import { listFor } from '../ops/evidence.js';
 import { backupHealth } from '../ops/backup.js';
 import { replicationHealthSafe } from '../ops/replication.js';
@@ -136,7 +138,19 @@ async function serveStatic(
   res: ServerResponse,
   pathname: string,
 ): Promise<boolean> {
-  const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
+  /**
+   * `/display` is the wall screen's page (M4-05).
+   *
+   * It gets a friendly path rather than `display.html` because the URL is typed by hand,
+   * once, into a television's browser by somebody standing on a chair. `/wall` itself stays
+   * the JSON feed, so the page and the data it reads never collide.
+   */
+  const rel =
+    pathname === '/'
+      ? 'index.html'
+      : pathname === '/display' || pathname === '/display/'
+        ? 'display.html'
+        : pathname.replace(/^\/+/, '');
 
   // Refuse anything that escapes the web root. `..` in a URL is not a mistake to forgive.
   const target = normalize(join(webRoot, rel));
@@ -1191,6 +1205,44 @@ export function createSyncServer(options: ServerOptions): Server {
           }
 
           json(res, 404, { error: 'not found' });
+          return;
+        }
+
+        /**
+         * The wall feed (M4-05, ADR-0013).
+         *
+         * The one route in the system that does **not** require a person. A television signs
+         * in as itself, and what it can reach is this single aggregate — no incident, no
+         * roster, no number. A signed-in person may also read it, to check from their desk
+         * what the screen in the other office is showing.
+         */
+        if (url.pathname === '/wall') {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          writeWall(res, await handleWall(pool, req, url, identity));
+          return;
+        }
+
+        /**
+         * What the district reports about itself (M4-02, M4-03).
+         *
+         * Behind a session. The scoping — a department reports its own, the two offices may
+         * report anyone's — lives inside `api/status.ts`, in one function, for the same
+         * reason the roster's does: one place to audit (INV-05).
+         */
+        if (url.pathname === '/status' || url.pathname.startsWith('/status/')) {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+
+          const body = req.method === 'POST' ? await bodyOf(req) : null;
+
+          writeStatus(res, await handleStatus(pool, req, url.pathname, identity, body));
           return;
         }
 

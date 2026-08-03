@@ -13,7 +13,9 @@
 declare const self: ServiceWorkerGlobalScope;
 
 /** Bump to ship a new shell. Old caches are deleted on activate. */
-const CACHE = 'dnc-shell-v1';
+// v2: the wall screen must not be served this app's shell (M4-05). A browser already holding
+// v1 keeps answering /display from cache until the version changes and the old one is deleted.
+const CACHE = 'dnc-shell-v2';
 
 const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest'];
 
@@ -99,6 +101,20 @@ self.addEventListener('fetch', (event) => {
   // fetch must never be served stale (INV-02), while the same URL as a *navigation* is a
   // person opening the app and must always resolve. The shell it gets is not incident data;
   // it fetches that fresh, or shows that it cannot.
+  /**
+   * The wall screen is not part of this app and must not be answered with its shell.
+   *
+   * `/display` is a different page, served to a television, with its own script and no
+   * offline story at all (ADR-0013). Without this the navigation handler below hands it
+   * `index.html` from the cache — the sign-in screen, on the wall, for as long as anybody
+   * leaves it there. It cost an hour to find the first time because the server was returning
+   * the correct file and the browser never asked.
+   *
+   * Nor does it belong in the cache: a wall screen with no server has nothing to show, and
+   * pretending otherwise would be the stale-panel failure this whole feature exists to avoid.
+   */
+  if (url.pathname === '/display' || url.pathname.startsWith('/display')) return;
+
   if (request.mode === 'navigate') {
     event.respondWith(
       (async () => {

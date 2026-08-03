@@ -40,7 +40,11 @@ export type ConfigSubject =
   | 'person'
   | 'duty'
   | 'resource'
-  | 'channel_ladder';
+  | 'channel_ladder'
+  // Which services the district watches, and which televisions may read the wall feed. Both
+  // are decisions of the two offices, so both are answerable for here (M4, ADR-0013).
+  | 'utility'
+  | 'wall_screen';
 export type ConfigAction = 'created' | 'updated' | 'retired' | 'restored';
 
 export interface ConfigChange {

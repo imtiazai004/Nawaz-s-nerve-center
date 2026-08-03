@@ -43,3 +43,10 @@ web/dist/
 
 # Evidence files. The record of them is in the database; the bytes are not the repo's.
 app/var/
+
+# Cookie jars written by curl while poking at the local server. A live session token is a
+# credential even when it is only good against 127.0.0.1 (M4, 2026-08-03 — one reached a
+# commit and had to be pulled back out before it was pushed).
+app/cook.txt
+*.cookies
+cookies.txt

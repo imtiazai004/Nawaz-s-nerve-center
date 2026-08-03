@@ -1,0 +1,180 @@
+/**
+ * One set of colours and type for the whole district — M4-01.
+ *
+ * Two surfaces share this file and almost nothing else:
+ *
+ *   * the **tool**, read at forty centimetres by somebody holding a phone one-handed, at
+ *     night, possibly in the rain, who is trying to do something
+ *   * the **wall**, read at four metres by somebody who is not touching it and is trying to
+ *     find out whether anything is wrong
+ *
+ * Same colours, same typeface, same meaning for every colour. Completely different geometry.
+ * A wall screen laid out like a phone wastes a television; a phone laid out like a wall is
+ * unusable in a moving vehicle.
+ *
+ * The colours are the ones this project already used, kept deliberately: a warm paper ground
+ * rather than the near-black of most dashboards. Bannu's offices have windows, the sun is
+ * fierce for eight months of the year, and a dark screen in a bright room is a mirror. The
+ * wall variant is dark because a control room can be dimmed and a bright panel on a wall at
+ * night is exhausting — but it is the *same* dark, and the same four status colours mean the
+ * same four things on both.
+ */
+
+:root {
+  /* Ink and paper. */
+  --ink: #14171e;
+  --paper: #f1eee7;
+  --card: #ffffff;
+  --line: #cfc9bb;
+  --slate: #5f6675;
+  --muted: #7b8291;
+
+  /**
+   * The four states, and nothing else is allowed to be a colour.
+   *
+   * `--unknown` is the important one. It is grey, not amber, because "nobody has told us" is
+   * not a mild version of "there is a problem" — it is a different fact with a different fix
+   * (ADR-0009, ADR-0013 §3). A stale panel and a degraded panel must never look alike.
+   */
+  --critical: #8c2f22;
+  --pending: #8a6420;
+  --ok: #2f5d3a;
+  --unknown: #8c8c8c;
+
+  /* Tints, for backgrounds that carry a state without shouting it. */
+  --critical-wash: #f6e4e0;
+  --pending-wash: #f7eeda;
+  --ok-wash: #e3efe6;
+  --unknown-wash: #eceae6;
+
+  --radius: 10px;
+  --gap: 1rem;
+
+  /**
+   * One family, and it is a stack rather than a download.
+   *
+   * A web font is a request that fails on a district line and leaves a screen rendering in
+   * whatever the browser falls back to — which is the moment the layout everybody signed off
+   * on stops existing. The system stack is already installed, renders Urdu-adjacent glyph
+   * ranges correctly on Windows, and costs nothing (ADR-0007, and the offline rule the owner
+   * set: it must keep working for somebody with no internet).
+   */
+  --sans:
+    "Segoe UI", system-ui, -apple-system, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --nums: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+/**
+ * The wall's palette.
+ *
+ * Applied by `data-surface="wall"` on the root rather than by a media query: a television is
+ * not distinguished by its width — a desk monitor is the same size — but by what it is *for*.
+ */
+:root[data-surface='wall'] {
+  --ink: #f2f5fa;
+  --paper: #0d1420;
+  --card: #161f30;
+  --line: #263349;
+  --slate: #93a2ba;
+  --muted: #7c8ba3;
+
+  --critical: #ff5b6e;
+  --pending: #f5b942;
+  --ok: #43d67c;
+  --unknown: #6c7a90;
+
+  --critical-wash: #2c1720;
+  --pending-wash: #2b2415;
+  --ok-wash: #12291d;
+  --unknown-wash: #1a2230;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+}
+
+/**
+ * A number that means something, in the size it deserves.
+ *
+ * `font-variant-numeric: tabular-nums` so a count ticking from 9 to 10 does not shift the
+ * layout under a person's eye. On a wall screen that flicker is the difference between a
+ * panel you can read at a glance and one you have to stop and focus on.
+ */
+.figure {
+  font-family: var(--nums);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/** A label above a value. Small, quiet, uppercase — never competing with the number. */
+.legend {
+  font-size: 0.72em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate);
+  font-weight: 600;
+}
+
+.state-ok {
+  color: var(--ok);
+}
+.state-pending {
+  color: var(--pending);
+}
+.state-critical {
+  color: var(--critical);
+}
+.state-unknown {
+  color: var(--unknown);
+}
+
+/**
+ * Every state also carries a word.
+ *
+ * Not decoration. Roughly one man in twelve cannot separate the red from the green, and this
+ * screen is read by whoever is on duty. A colour that is the *only* carrier of meaning is a
+ * screen that lies to them (INV-04 says the same thing about severity labels).
+ */
+.chip {
+  display: inline-block;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.chip.state-ok {
+  background: var(--ok-wash);
+}
+.chip.state-pending {
+  background: var(--pending-wash);
+}
+.chip.state-critical {
+  background: var(--critical-wash);
+}
+.chip.state-unknown {
+  background: var(--unknown-wash);
+}
+
+/** How old something is. Always present, always smaller than the thing it qualifies. */
+.age {
+  font-size: 0.76em;
+  color: var(--muted);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}

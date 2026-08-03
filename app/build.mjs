@@ -58,7 +58,18 @@ export async function buildWeb() {
     outfile: join(dist, 'sw.js'),
   });
 
+  // The wall screen (M4-05). Its own entry point rather than a route inside the app: it
+  // shares no state with the tool, must not pull in the offline outbox or the service
+  // worker, and is loaded once by a browser nobody will ever touch again.
+  await build({
+    ...common,
+    entryPoints: [join(web, 'src', 'display.ts')],
+    outfile: join(dist, 'display.js'),
+  });
+
   await cp(join(web, 'index.html'), join(dist, 'index.html'));
+  await cp(join(web, 'display.html'), join(dist, 'display.html'));
+  await cp(join(web, 'theme.css'), join(dist, 'theme.css'));
   await writeFile(join(dist, 'manifest.webmanifest'), JSON.stringify(manifest, null, 2));
 
   return dist;

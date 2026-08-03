@@ -14,6 +14,7 @@ import { createSyncServer } from './api/server.js';
 import { createPool, migrate } from './db/pool.js';
 import { createScheduler } from './jobs/scheduler.js';
 import { createNightly } from './jobs/nightly.js';
+import { refreshWeather } from './ops/weather.js';
 import { log } from './obs/log.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -125,6 +126,30 @@ async function start(): Promise<void> {
     },
   });
 
+  /**
+   * The weather, refreshed for every screen at once (M4-04, ADR-0013).
+   *
+   * Fifteen minutes, and the first fetch happens at startup so a freshly installed screen has
+   * something on it inside a minute rather than at the top of the next quarter hour.
+   *
+   * A failure is logged at `warn` and changes nothing else. Weather is the least important
+   * thing on the wall and must never be able to take the process down with it — the previous
+   * reading stays exactly where it was, ageing visibly, which is the honest outcome.
+   */
+  const weatherTimer = setInterval(
+    () => {
+      void refreshWeather(pool).then((r) => {
+        if (!r.ok) log('warn', 'weather refresh failed', { error: r.error ?? 'unknown' });
+      });
+    },
+    15 * 60 * 1000,
+  );
+  weatherTimer.unref();
+
+  void refreshWeather(pool).then((r) => {
+    if (!r.ok) log('warn', 'weather refresh failed', { error: r.error ?? 'unknown' });
+  });
+
   await new Promise<void>((resolve) => server.listen(port, resolve));
   scheduler.start();
   nightly.start();
@@ -140,6 +165,7 @@ async function start(): Promise<void> {
       // Stop escalating first, then stop accepting requests, then release the pool.
       // Reversing this could leave a pass writing to a closed pool mid-escalation.
       nightly.stop();
+      clearInterval(weatherTimer);
       await scheduler.stop();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await pool.end();

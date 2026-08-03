@@ -272,8 +272,16 @@ describe.skipIf(dbUrl === undefined)('M1-01: the department workspace', () => {
 
     // One definition of what an incident looks like, two ways in — rather than a second
     // detail screen that drifts from the first.
+    //
+    // The view is revealed *before* its fetch resolves, on purpose — a screen that stays
+    // blank until data arrives looks broken on a slow line. So waiting for the panel is not
+    // waiting for the content, and asserting straight after it is a race this test lost only
+    // once the server had a little more to do. Wait for the heading to stop saying "Loading".
     await page.waitForSelector('#detailView:not([hidden])');
-    expect(await page.textContent('#detailHead')).toContain(`detail-from-shift-${RUN}`);
+    await page.waitForFunction(
+      (want) => document.getElementById('detailHead')?.textContent?.includes(want) === true,
+      `detail-from-shift-${RUN}`,
+    );
   });
 
   it('12. stops polling the moment the operator leaves it', async () => {

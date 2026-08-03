@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en" data-surface="wall">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>District Nerve Center — Bannu</title>
+    <link rel="stylesheet" href="/theme.css" />
+    <style>
+      /*
+       * The wall screen's geometry — M4-05, ADR-0013.
+       *
+       * Everything here follows from one fact: this is read at four metres by somebody who is
+       * not touching it. So there is no scrolling, no hover, no click target, and no text
+       * smaller than can be read across a room. If a panel does not fit, the panel shows
+       * fewer rows — it never becomes a scrollbar nobody will ever drag.
+       */
+
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+      }
+
+      /*
+       * `hidden` must actually hide.
+       *
+       * The browser's own `[hidden] { display: none }` is a *user-agent* rule, so any
+       * selector in this file that sets `display` — `#boot { display: grid }`,
+       * `.screen { display: grid }` — silently beats it. Both panels then render at once,
+       * one under the other, and the screen looks stuck on "Connecting…" while the real
+       * display sits below the fold with correct data on it.
+       *
+       * This is exactly the class of failure the wall screen cannot afford: it looked broken
+       * while working, on the one surface nobody is standing in front of to notice.
+       */
+      [hidden] {
+        display: none !important;
+      }
+
+      body {
+        /* Scales with the viewport so the same page fills a 24" monitor and a 55" screen. */
+        font-size: clamp(15px, 1.05vw, 26px);
+        cursor: none;
+      }
+
+      .screen {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        height: 100vh;
+      }
+
+      header {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.9rem 1.6rem;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .badge {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .mark {
+        width: 2.6em;
+        height: 2.6em;
+        border-radius: 12px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        display: grid;
+        place-items: center;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+      }
+      .badge .who {
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 1.5em;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-align: center;
+      }
+      header .sub {
+        text-align: center;
+        letter-spacing: 0.18em;
+      }
+
+      .now {
+        text-align: right;
+      }
+      #clock {
+        font-size: 2em;
+        line-height: 1.1;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: 1.05fr 1.15fr 0.95fr;
+        gap: 1rem;
+        padding: 1rem 1.6rem;
+        min-height: 0;
+      }
+      .col {
+        display: grid;
+        gap: 1rem;
+        align-content: start;
+        min-height: 0;
+      }
+
+      section.panel {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 0.85rem 1.05rem;
+        min-height: 0;
+        overflow: hidden;
+      }
+      section.panel > h2 {
+        margin: 0 0 0.6rem;
+        font-size: 0.78em;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--slate);
+        font-weight: 700;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 0.5rem;
+      }
+
+      /* The four numbers somebody crossing the room wants. */
+      .keys {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.7rem;
+      }
+      .key {
+        border-radius: 8px;
+        padding: 0.55rem 0.75rem;
+        background: var(--unknown-wash);
+      }
+      .key .figure {
+        font-size: 2.4em;
+        line-height: 1.05;
+        display: block;
+      }
+      .key.alarm {
+        background: var(--critical-wash);
+      }
+      .key.warn {
+        background: var(--pending-wash);
+      }
+
+      .rows {
+        display: grid;
+        gap: 0.4rem;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: baseline;
+        gap: 0.6rem;
+        padding: 0.32rem 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .row:last-child {
+        border-bottom: none;
+      }
+      .row .name {
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .row .note {
+        grid-column: 1 / -1;
+        margin-top: -0.15rem;
+      }
+
+      .weather-now {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+      }
+      .weather-now .figure {
+        font-size: 3.2em;
+        line-height: 1;
+      }
+      .weather-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+        margin-top: 0.6rem;
+      }
+      .weather-grid .figure {
+        display: block;
+        font-size: 1.15em;
+      }
+
+      .contacts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+      }
+      .contact {
+        background: var(--unknown-wash);
+        border-radius: 8px;
+        padding: 0.4rem 0.6rem;
+      }
+      .contact .figure {
+        font-size: 1.5em;
+        display: block;
+      }
+
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 0.5rem 1.6rem;
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        color: var(--slate);
+        font-size: 0.85em;
+      }
+
+      /*
+       * The screen's own honesty.
+       *
+       * A wall display whose data stopped arriving looks exactly like one whose data has not
+       * changed. This bar is the only thing that can tell them apart, so it is loud, it is
+       * across the top, and it names the time of the last successful update — never a spinner
+       * (ADR-0005: silence is a signal, and it has to be a *visible* one).
+       */
+      #stale {
+        display: none;
+        background: var(--critical);
+        color: #fff;
+        text-align: center;
+        padding: 0.45rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+      body.disconnected #stale {
+        display: block;
+      }
+
+      #boot {
+        display: grid;
+        place-items: center;
+        height: 100vh;
+        text-align: center;
+        padding: 2rem;
+        gap: 0.6rem;
+      }
+      #boot code {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 0.2em 0.5em;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stale"></div>
+
+    <!-- Replaced on the first successful load. Shown if a screen is opened without a token. -->
+    <div id="boot">
+      <div class="legend">District Nerve Center · Bannu</div>
+      <div id="bootMessage">Connecting…</div>
+    </div>
+
+    <div class="screen" id="screen" hidden>
+      <header>
+        <div class="badge">
+          <div class="mark">DC</div>
+          <div>
+            <div class="who">District Administration</div>
+            <div class="legend">Bannu · Khyber Pakhtunkhwa</div>
+          </div>
+        </div>
+        <div>
+          <h1>DISTRICT NERVE CENTER</h1>
+          <div class="legend sub" id="screenName">—</div>
+        </div>
+        <div class="now">
+          <div class="figure" id="clock">--:--</div>
+          <div class="legend" id="dateline">—</div>
+        </div>
+      </header>
+
+      <main>
+        <div class="col">
+          <section class="panel">
+            <h2>District</h2>
+            <div class="keys" id="keys"></div>
+          </section>
+          <section class="panel">
+            <h2><span>Officers</span><span class="age" id="presenceGap"></span></h2>
+            <div class="rows" id="presence"></div>
+          </section>
+        </div>
+
+        <div class="col">
+          <section class="panel">
+            <h2>Live emergencies by kind</h2>
+            <div class="rows" id="categories"></div>
+          </section>
+          <section class="panel">
+            <h2>With which department</h2>
+            <div class="rows" id="departments"></div>
+          </section>
+          <section class="panel">
+            <h2>This system</h2>
+            <div class="rows" id="condition"></div>
+          </section>
+        </div>
+
+        <div class="col">
+          <section class="panel">
+            <h2><span>Weather · Bannu</span><span class="age" id="weatherAge"></span></h2>
+            <div id="weather"></div>
+          </section>
+          <section class="panel">
+            <h2><span>Public utilities</span><span class="age" id="utilityGap"></span></h2>
+            <div class="rows" id="utilities"></div>
+          </section>
+          <section class="panel">
+            <h2>Emergency numbers</h2>
+            <div class="contacts" id="contacts"></div>
+          </section>
+        </div>
+      </main>
+
+      <footer>
+        <span id="foot">District Administration Bannu · live</span>
+        <span class="age" id="asOf">—</span>
+      </footer>
+    </div>
+
+    <script src="/display.js"></script>
+  </body>
+</html>
