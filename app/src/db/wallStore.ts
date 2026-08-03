@@ -1,16 +1,14 @@
 /**
- * Reading and writing what a wall screen shows — M4, ADR-0013.
+ * What the dashboard shows about the district itself — M4.
  *
- * Four separate things live here because they are read by one screen and by nothing else:
- * utility reports, presence reports, the identities televisions sign in as, and the cached
- * weather reading.
+ * Three things live here because they arrived together for the dashboard: utility reports,
+ * presence reports, and the cached weather reading.
  *
  * The shape that repeats: **the latest report, with its own timestamp.** Never a status
- * column. A column answers "what is it now" and destroys "since when, and who says so",
- * which on an unattended screen is the entire question (ADR-0013 §3).
+ * column. A column answers "what is it now" and destroys "since when, and who says so" —
+ * which, on a panel somebody glances at from across a room, is the entire question.
  */
 
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Pool } from 'pg';
 import type { PresenceStatus, UtilityStatus } from '../domain/wall.js';
 
@@ -238,117 +236,6 @@ export async function seatDepartment(pool: Pool, seatId: string): Promise<string
   // `false` for "no such seat" so that a real seat with no department — the two offices'
   // district posts — is not indistinguishable from one that does not exist.
   return row === undefined ? false : row.department_id;
-}
-
-export interface WallScreen {
-  readonly screenId: string;
-  readonly label: string;
-  readonly issuedAt: string;
-  readonly issuedBy: string | null;
-  readonly revokedAt: string | null;
-  readonly lastSeenAt: string | null;
-}
-
-interface ScreenRow {
-  screen_id: string;
-  label: string;
-  issued_at: string;
-  issued_by: string | null;
-  revoked_at: string | null;
-  last_seen_at: string | null;
-}
-
-function hashToken(token: string): string {
-  return createHash('sha256').update(token, 'utf8').digest('hex');
-}
-
-/**
- * Issue a screen its own credential.
- *
- * The token is returned **once**, here, and never again. A console that could redisplay it
- * would be putting it in every nightly dump in readable form, and the dump leaves the
- * district (ADR-0011).
- *
- * A wall token is long and random rather than memorable. Nobody types it: it goes into the
- * television's browser once, on the day it is mounted.
- */
-export async function issueWallScreen(
-  pool: Pool,
-  input: { label: string; issuedBy: string | null },
-): Promise<{ screenId: string; token: string }> {
-  const token = randomBytes(32).toString('base64url');
-
-  const result = await pool.query<{ screen_id: string }>(
-    `INSERT INTO wall_screen (label, token_hash, issued_by)
-     VALUES ($1, $2, $3)
-     RETURNING screen_id`,
-    [input.label, hashToken(token), input.issuedBy],
-  );
-
-  return { screenId: result.rows[0]!.screen_id, token };
-}
-
-export async function listWallScreens(pool: Pool): Promise<WallScreen[]> {
-  const result = await pool.query<ScreenRow>(
-    `SELECT w.screen_id, w.label, w.issued_at, s.title AS issued_by, w.revoked_at, w.last_seen_at
-       FROM wall_screen w
-       LEFT JOIN seat s ON s.seat_id = w.issued_by
-      ORDER BY w.revoked_at NULLS FIRST, w.label`,
-  );
-
-  return result.rows.map((row) => ({
-    screenId: row.screen_id,
-    label: row.label,
-    issuedAt: row.issued_at,
-    issuedBy: row.issued_by,
-    revokedAt: row.revoked_at,
-    lastSeenAt: row.last_seen_at,
-  }));
-}
-
-export async function revokeWallScreen(pool: Pool, screenId: string): Promise<boolean> {
-  const result = await pool.query(
-    'UPDATE wall_screen SET revoked_at = now() WHERE screen_id = $1 AND revoked_at IS NULL',
-    [screenId],
-  );
-
-  return (result.rowCount ?? 0) > 0;
-}
-
-/**
- * Resolve a token presented by a television, and mark the screen as having called home.
- *
- * The comparison is `timingSafeEqual` over the hashes rather than a SQL `=` on the token
- * hash. Both are constant-ish in practice, but this one is constant by construction and the
- * cost is a full-table scan over a table with as many rows as the district has televisions.
- */
-export async function resolveWallToken(
-  pool: Pool,
-  token: string,
-): Promise<{ screenId: string; label: string } | null> {
-  if (token.length === 0) return null;
-
-  const presented = Buffer.from(hashToken(token), 'hex');
-
-  const result = await pool.query<{ screen_id: string; label: string; token_hash: string }>(
-    'SELECT screen_id, label, token_hash FROM wall_screen WHERE revoked_at IS NULL',
-  );
-
-  for (const row of result.rows) {
-    const stored = Buffer.from(row.token_hash, 'hex');
-
-    if (stored.length === presented.length && timingSafeEqual(stored, presented)) {
-      // Best effort. A screen that renders but fails to record the visit is a worse outcome
-      // than a slightly stale `last_seen_at`.
-      await pool
-        .query('UPDATE wall_screen SET last_seen_at = now() WHERE screen_id = $1', [row.screen_id])
-        .catch(() => undefined);
-
-      return { screenId: row.screen_id, label: row.label };
-    }
-  }
-
-  return null;
 }
 
 export interface WeatherReading {

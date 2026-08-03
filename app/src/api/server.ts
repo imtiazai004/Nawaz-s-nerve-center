@@ -66,7 +66,7 @@ import {
 import { download, listEvidence, upload } from './evidenceRoutes.js';
 import { postIncidentReport } from './report.js';
 import { backupNow, backupsForConsole } from './backups.js';
-import { handleWall, writeWall } from './wall.js';
+import { handleDashboard, writeDashboard } from './dashboard.js';
 import { handleStatus, writeStatus } from './status.js';
 import { listFor } from '../ops/evidence.js';
 import { backupHealth } from '../ops/backup.js';
@@ -138,19 +138,7 @@ async function serveStatic(
   res: ServerResponse,
   pathname: string,
 ): Promise<boolean> {
-  /**
-   * `/display` is the wall screen's page (M4-05).
-   *
-   * It gets a friendly path rather than `display.html` because the URL is typed by hand,
-   * once, into a television's browser by somebody standing on a chair. `/wall` itself stays
-   * the JSON feed, so the page and the data it reads never collide.
-   */
-  const rel =
-    pathname === '/'
-      ? 'index.html'
-      : pathname === '/display' || pathname === '/display/'
-        ? 'display.html'
-        : pathname.replace(/^\/+/, '');
+  const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
 
   // Refuse anything that escapes the web root. `..` in a URL is not a mistake to forgive.
   const target = normalize(join(webRoot, rel));
@@ -1209,18 +1197,25 @@ export function createSyncServer(options: ServerOptions): Server {
         }
 
         /**
-         * The wall feed (M4-05, ADR-0013).
+         * The dashboard (M4).
          *
-         * The one route in the system that does **not** require a person. A television signs
-         * in as itself, and what it can reach is this single aggregate — no incident, no
-         * roster, no number. A signed-in person may also read it, to check from their desk
-         * what the screen in the other office is showing.
+         * One feed, for one app, scoped to whoever asked. The DC and AC Headquarter offices
+         * get the district; a department gets its own work, alongside the district-wide facts
+         * everybody needs — the weather, the utilities, the published numbers.
+         *
+         * It is the same endpoint on a phone, a desk PC and a screen on an office wall. What
+         * changes with the device is the *layout*, in the browser, and nothing else.
          */
-        if (url.pathname === '/wall') {
+        if (url.pathname === '/dashboard') {
           const token = readToken(req);
           const identity = token === null ? null : await resolveSession(pool, token);
 
-          writeWall(res, await handleWall(pool, req, url, identity));
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+
+          writeDashboard(res, await handleDashboard(pool, req, identity));
           return;
         }
 

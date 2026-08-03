@@ -1,20 +1,24 @@
 /**
- * The wall screen's feed — M4-05, ADR-0013.
+ * The dashboard — M4.
  *
- * One endpoint, `GET /wall`, read by a television and by nothing else. It returns the state
- * of the district as **numbers about groups**, never a fact about a person.
+ * **One feed for one app.** The same endpoint answers a phone in a moving vehicle, a desk PC
+ * in the AC Headquarter, and a large screen on an office wall. What differs between them is
+ * the layout the browser chooses, and nothing else — no second page, no second codebase, and
+ * no second set of numbers that can drift from the first.
  *
- * The rule and the reason, because this file is where it will be argued with: a wall screen
- * is read by whoever is standing in the room. A visitor, a contractor, the person who cleans
- * it, anybody who walks past an open door. It is photographed. It cannot ask who is looking,
- * so it cannot be trusted with anything that would matter if the wrong person saw it.
+ * It is **scoped to whoever asked**. The two administrative offices get the district; a
+ * department gets its own work. Both get the facts that belong to everybody — the weather,
+ * the utilities, the published emergency numbers — because a department planning around a
+ * power cut needs to know about the power cut.
  *
- * The single most requested feature of a control-room display — "just show me which one is
- * unassigned" — is the one it must not have. That request will come from somebody senior, in
- * a hurry, with a good reason. So the boundary is not a convention here: every response is
- * walked through `wallSafetyViolations` before it is sent, and a violation **fails the
- * request** rather than logging a warning. A screen that goes blank gets fixed. A screen that
- * quietly started printing phone numbers does not.
+ * What it returns is a **summary**: counts, and panels that carry their own age. Rows live on
+ * the board, where the authority model scopes them per incident. A dashboard that started
+ * listing individual emergencies would be a second board, drifting from the first.
+ *
+ * One rule survives from the display design and is worth keeping: **a large screen in an
+ * office is read by whoever is in the room.** So this response carries no reporter, no phone
+ * number, no address and no coordinate, and `wallSafetyViolations` checks that on the way out
+ * rather than trusting it. The check is cheap and the boundary is one careless join away.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -23,13 +27,7 @@ import type { Identity } from '../auth/sessions.js';
 import { loadRecentIncidents } from '../db/eventStore.js';
 import { foldIncident } from '../domain/incident.js';
 import { listDepartments } from '../db/configStore.js';
-import {
-  listPresence,
-  listUtilities,
-  resolveWallToken,
-  type Presence,
-  type Utility,
-} from '../db/wallStore.js';
+import { listPresence, listUtilities, type Presence, type Utility } from '../db/wallStore.js';
 import { weatherPanel, type WeatherPanel } from '../ops/weather.js';
 import { replicationHealthSafe } from '../ops/replication.js';
 import {
@@ -47,7 +45,7 @@ import {
 /** How long a presence report stays believable when it named no end of its own. */
 const PRESENCE_STALE_MINUTES = 720;
 
-export interface WallPanelRow {
+export interface PanelRow {
   readonly id: string;
   readonly name: string;
   readonly status: string | null;
@@ -58,9 +56,11 @@ export interface WallPanelRow {
   readonly note: string | null;
 }
 
-export interface WallFeed {
+export interface Dashboard {
   readonly asOf: string;
-  readonly screen: string;
+  /** Whose dashboard this is — "District", or the department's own name. */
+  readonly scope: string;
+  readonly isAdministration: boolean;
   readonly district: {
     readonly openIncidents: number;
     readonly today: number;
@@ -92,8 +92,8 @@ export interface WallFeed {
     readonly open: number;
     readonly unacknowledged: number;
   }[];
-  readonly utilities: readonly WallPanelRow[];
-  readonly presence: readonly WallPanelRow[];
+  readonly utilities: readonly PanelRow[];
+  readonly presence: readonly PanelRow[];
   readonly reporting: {
     readonly utilities: { total: number; answering: number; quiet: number };
     readonly presence: { total: number; answering: number; quiet: number };
@@ -132,7 +132,7 @@ function panelRow(
   reading: Aged<UtilityStatus | PresenceStatus>,
   label: string,
   note: string | null,
-): WallPanelRow {
+): PanelRow {
   return {
     id,
     name,
@@ -148,7 +148,7 @@ function panelRow(
   };
 }
 
-function utilityRows(utilities: readonly Utility[], now: Date): WallPanelRow[] {
+function utilityRows(utilities: readonly Utility[], now: Date): PanelRow[] {
   return utilities.map((u) => {
     const reading = age(u.status, u.reportedAt, u.staleMinutes, now);
 
@@ -156,7 +156,7 @@ function utilityRows(utilities: readonly Utility[], now: Date): WallPanelRow[] {
   });
 }
 
-function presenceRows(people: readonly Presence[], now: Date): WallPanelRow[] {
+function presenceRows(people: readonly Presence[], now: Date): PanelRow[] {
   return people.map((p) => {
     const reading = presenceAge(p.status, p.reportedAt, p.untilAt, PRESENCE_STALE_MINUTES, now);
 
@@ -178,10 +178,11 @@ function presenceRows(people: readonly Presence[], now: Date): WallPanelRow[] {
 async function districtSummary(
   pool: Pool,
   now: Date,
+  onlyDepartmentId: string | null,
 ): Promise<{
-  district: WallFeed['district'];
-  categories: WallFeed['categories'];
-  departments: WallFeed['departments'];
+  district: Dashboard['district'];
+  categories: Dashboard['categories'];
+  departments: Dashboard['departments'];
 }> {
   const grouped = await loadRecentIncidents(pool, 7, 500);
   const directory = new Map((await listDepartments(pool)).map((d) => [d.departmentId, d.name]));
@@ -204,6 +205,22 @@ async function districtSummary(
     if (first === undefined) continue;
 
     const state = foldIncident(first.incidentId, events);
+
+    /**
+     * A department counts only what is its own.
+     *
+     * Including an unassigned emergency deliberately: it is nobody's, and a department that
+     * cannot see the pile waiting to be assigned cannot offer to take one. The two offices
+     * see everything, which is what `onlyDepartmentId === null` means.
+     */
+    if (
+      onlyDepartmentId !== null &&
+      state.responsibleDepartmentIds.length > 0 &&
+      !state.responsibleDepartmentIds.includes(onlyDepartmentId)
+    ) {
+      continue;
+    }
+
     const live = state.status !== 'resolved' && state.status !== 'closed';
 
     if (state.occurredAt !== null && new Date(state.occurredAt) >= midnight) today += 1;
@@ -271,7 +288,7 @@ async function districtSummary(
  * Read from the departments that have a contact number, so the district edits them where it
  * edits everything else, and never from a list in this file.
  */
-async function contacts(pool: Pool): Promise<WallFeed['contacts']> {
+async function contacts(pool: Pool): Promise<Dashboard['contacts']> {
   const rows = await pool.query<{ name: string; contact_phone: string | null }>(
     `SELECT name, contact_phone
        FROM department
@@ -304,7 +321,7 @@ async function contacts(pool: Pool): Promise<WallFeed['contacts']> {
  * All three are already computed elsewhere and already visible in a console. The point of
  * repeating them here is that a console is opened on purpose and a wall is read by accident.
  */
-async function districtCondition(pool: Pool, now: Date): Promise<WallFeed['condition']> {
+async function districtCondition(pool: Pool, now: Date): Promise<Dashboard['condition']> {
   const [backup, replication, ladder] = await Promise.all([
     pool
       .query<{ last: string | null }>(
@@ -356,41 +373,63 @@ async function districtCondition(pool: Pool, now: Date): Promise<WallFeed['condi
   ];
 }
 
-export async function buildWallFeed(
+export interface Viewer {
+  /** What the heading says this dashboard is: "District" or the department's own name. */
+  readonly scope: string;
+  /** Null for the two administrative offices — meaning the whole district. */
+  readonly departmentId: string | null;
+  readonly isAdministration: boolean;
+}
+
+export async function buildDashboard(
   pool: Pool,
-  screenLabel: string,
+  viewer: Viewer,
   now = new Date(),
-): Promise<WallFeed> {
+): Promise<Dashboard> {
   const [summary, utilities, presence, weather, published, condition] = await Promise.all([
-    districtSummary(pool, now),
+    districtSummary(pool, now, viewer.departmentId),
     listUtilities(pool),
-    listPresence(pool),
+    // A department sees where its own posts are; the offices see the administration's.
+    listPresence(pool, viewer.departmentId),
     weatherPanel(pool, now),
     contacts(pool),
-    districtCondition(pool, now),
+    /**
+     * Whether the record is backed up, whether there is a standby, whether alerts can leave
+     * the building — the two offices only.
+     *
+     * Not secrecy: it is that these are **theirs to fix**. A department shown three red rows
+     * it can do nothing about learns to ignore red rows, and that habit costs something the
+     * day one of them is about its own work (ADR-0005).
+     */
+    viewer.isAdministration ? districtCondition(pool, now) : Promise.resolve([]),
   ]);
 
   const utilityPanel = utilityRows(utilities, now);
 
   /**
-   * Which posts appear on the wall.
+   * Which posts appear.
    *
-   * The administration's own seats — DC, ADCs, ACs, AACs — because those are the officers a
-   * person standing in the DC office is trying to find. Plus any other seat that has actually
-   * reported, so a department choosing to publish its duty officer's whereabouts is not
-   * silently ignored.
+   * For a department: its own, all of them — that is its roster and it is short.
    *
-   * Capped at twelve. A screen listing all 83 posts is a screen nobody reads, and the twelve
-   * that matter would be lost in it.
+   * For the two offices: the administration's seats — DC, ADCs, ACs, AACs — because those are
+   * the officers somebody standing in the DC office is trying to find. Plus any other seat
+   * that has actually reported, so a department publishing its duty officer's whereabouts is
+   * not silently ignored.
+   *
+   * Capped at twelve for the district view. A panel listing all 83 posts is a panel nobody
+   * reads, and the twelve that matter would be lost in it.
    */
-  const presencePanel = presenceRows(
-    presence.filter((p) => p.isAdministration || p.departmentId === null || p.status !== null),
-    now,
-  ).slice(0, 12);
+  const presencePanel = viewer.isAdministration
+    ? presenceRows(
+        presence.filter((p) => p.isAdministration || p.departmentId === null || p.status !== null),
+        now,
+      ).slice(0, 12)
+    : presenceRows(presence, now);
 
   return {
     asOf: now.toISOString(),
-    screen: screenLabel,
+    scope: viewer.scope,
+    isAdministration: viewer.isAdministration,
     ...summary,
     utilities: utilityPanel,
     presence: presencePanel,
@@ -418,74 +457,62 @@ export async function buildWallFeed(
   };
 }
 
-/** Thrown nowhere: violations are returned so the caller can refuse and log deliberately. */
-export interface WallReply {
+export interface DashboardReply {
   readonly status: number;
   readonly body: unknown;
 }
 
 /**
- * Serve the feed, or refuse it.
+ * Who is asking, and therefore what this dashboard is about.
  *
- * A screen may present its token as `Authorization: Bearer …`, as `?token=…` in the URL, or
- * as the `dnc_wall` cookie. The query form exists because a television is configured by
- * typing one URL into a browser that will never be touched again, and requiring a header
- * would mean requiring a person to write JavaScript on a kiosk.
+ * The two administrative offices see the district. Everybody else sees their own department.
+ * A caller holding no department at all — a control-room seat — sees the district too, because
+ * that is what their work is; they simply have no departmental version to fall back to.
  */
-export async function handleWall(
+export function viewerFor(identity: Identity): Viewer {
+  if (identity.isAdministration || identity.departmentId === null) {
+    return { scope: 'District', departmentId: null, isAdministration: identity.isAdministration };
+  }
+
+  return {
+    scope: identity.departmentName ?? 'My department',
+    departmentId: identity.departmentId,
+    isAdministration: false,
+  };
+}
+
+export async function handleDashboard(
   pool: Pool,
   req: IncomingMessage,
-  url: URL,
-  identity: Identity | null,
-): Promise<WallReply> {
+  identity: Identity,
+): Promise<DashboardReply> {
   if (req.method !== 'GET') return { status: 405, body: { error: 'method not allowed' } };
 
-  const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
-  const cookie = /(?:^|;\s*)dnc_wall=([^;]+)/.exec(req.headers.cookie ?? '')?.[1];
-  const token = bearer ?? url.searchParams.get('token') ?? cookie ?? null;
-
-  let label: string | null = null;
-
-  if (token !== null && token !== '') {
-    const screen = await resolveWallToken(pool, decodeURIComponent(token));
-    if (screen !== null) label = screen.label;
-  }
-
-  /**
-   * A signed-in person may also open the wall view.
-   *
-   * Not a convenience: it is how the two offices check what their screens are showing without
-   * walking to the room, and how a new screen is proved to work before its token is issued.
-   * It grants nothing extra — the feed is the same aggregate either way.
-   */
-  if (label === null && identity !== null) label = 'preview';
-
-  if (label === null) {
-    return { status: 401, body: { error: 'this screen is not registered' } };
-  }
-
-  const feed = await buildWallFeed(pool, label);
+  const feed = await buildDashboard(pool, viewerFor(identity));
 
   const violations = wallSafetyViolations(feed);
 
   if (violations.length > 0) {
-    // Refusing outright rather than stripping the offending field. Stripping would let a
-    // change that started leaking private data ship and keep working, minus one field, with
-    // nobody ever finding out. A blank screen in the DC office gets a phone call within the
-    // hour (ADR-0013 §1).
+    /**
+     * Refuse outright rather than strip the offending field.
+     *
+     * Stripping would let a change that started leaking private data ship and keep working,
+     * minus one column, with nobody ever finding out. A dashboard that goes blank in the DC
+     * office gets a phone call within the hour.
+     *
+     * The reason this check exists at all: this same response is what appears on a large
+     * screen in an office, where it is read by whoever happens to be in the room.
+     */
     return {
       status: 500,
-      body: {
-        error: 'refused: this response is not safe to show on a wall',
-        violations,
-      },
+      body: { error: 'refused: this response is not safe to display', violations },
     };
   }
 
   return { status: 200, body: feed };
 }
 
-export function writeWall(res: ServerResponse, reply: WallReply): void {
+export function writeDashboard(res: ServerResponse, reply: DashboardReply): void {
   const text = JSON.stringify(reply.body);
   res.writeHead(reply.status, {
     'content-type': 'application/json; charset=utf-8',

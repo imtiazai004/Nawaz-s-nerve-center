@@ -117,6 +117,20 @@ describe.skipIf(dbUrl === undefined)('M0-33: the central board', () => {
     // Intake is never behind a sign-in — an emergency captured by a signed-out officer is
     // still an emergency (INV-01). The board needs a seat to scope it, so it is.
     expect(await page.isVisible('#nav')).toBe(true);
+
+    /**
+     * This click is the M4 landing rule, and it is worth stating rather than hiding.
+     *
+     * On a screen wide enough for a desk — which is what a headless Chromium is — signing in
+     * now lands on the dashboard, because somebody at a desk opened the app to find out what
+     * is happening. On a phone it still lands on the report form, because that person is
+     * standing at a scene.
+     *
+     * What INV-01 protects is untouched and is asserted where it belongs: signed **out**, the
+     * form is on screen with nothing in front of it. Here the officer is signed in, and the
+     * form being one tab away is the intended behaviour, not a regression.
+     */
+    await page.click('#navReport');
     expect(await page.isVisible('#report')).toBe(true);
   });
 

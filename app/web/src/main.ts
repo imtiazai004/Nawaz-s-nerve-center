@@ -24,6 +24,7 @@ import { buildCapture, describeFix, startLocationWatch, type Fix } from './locat
 import { mountAdmin, type AdminConsole } from './admin.js';
 import { mountRoster, type RosterPanel } from './roster.js';
 import { mountWorkspace, type Workspace } from './workspace.js';
+import { createDashboard } from './dashboard.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -154,6 +155,8 @@ async function boot(): Promise<void> {
     // The shift screen is for somebody who holds a post. A seat with no department has no
     // fleet and no departmental queue, so the board is already their whole view.
     navShift.hidden = !signedIn || identity?.departmentId === null;
+    // Everybody signed in gets a dashboard. What it *contains* is scoped by the server.
+    navDashboard.hidden = !signedIn;
 
     if (!signedIn) {
       if (
@@ -161,7 +164,8 @@ async function boot(): Promise<void> {
         inboxView.hidden === false ||
         adminView.hidden === false ||
         mineView.hidden === false ||
-        shiftView.hidden === false
+        shiftView.hidden === false ||
+        dashboardView.hidden === false
       ) {
         showView('report');
       }
@@ -364,6 +368,13 @@ async function boot(): Promise<void> {
   // The shift screen (M1-01). Opening an incident from it goes through the same detail
   // view the board uses — one definition of what an incident looks like, two ways in.
   const navShift = el<HTMLButtonElement>('navShift');
+  const navDashboard = el<HTMLButtonElement>('navDashboard');
+  const dashboardView = el('dashboardView');
+
+  /**
+   * The dashboard (M4). Refreshes only while it is the screen somebody is looking at.
+   */
+  const dashboard = createDashboard();
   const shiftView = el('shiftView');
   const shift: Workspace = mountWorkspace((incidentId) => {
     void openDetail(incidentId);
@@ -606,8 +617,9 @@ async function boot(): Promise<void> {
   }
 
   function showView(
-    view: 'report' | 'board' | 'detail' | 'inbox' | 'admin' | 'mine' | 'shift',
+    view: 'report' | 'board' | 'detail' | 'inbox' | 'admin' | 'mine' | 'shift' | 'dashboard',
   ): void {
+    dashboardView.hidden = view !== 'dashboard';
     reportView.hidden = view !== 'report';
     boardView.hidden = view !== 'board';
     detailView.hidden = view !== 'detail';
@@ -624,10 +636,13 @@ async function boot(): Promise<void> {
     navAdmin.setAttribute('aria-current', view === 'admin' ? 'page' : 'false');
     navMine.setAttribute('aria-current', view === 'mine' ? 'page' : 'false');
     navShift.setAttribute('aria-current', view === 'shift' ? 'page' : 'false');
+    navDashboard.setAttribute('aria-current', view === 'dashboard' ? 'page' : 'false');
 
     // Polling stops the moment the operator leaves. A background refresh against a screen
     // nobody is looking at is a request the district's one server did not need to serve.
     if (view !== 'shift') shift.stop();
+    if (view !== 'dashboard') dashboard.stop();
+    if (view === 'dashboard') void dashboard.show();
     if (view === 'shift' && identity !== null) {
       void shift.show({
         departmentId: identity.departmentId,
@@ -797,6 +812,7 @@ async function boot(): Promise<void> {
   navAdmin.addEventListener('click', () => showView('admin'));
   navMine.addEventListener('click', () => showView('mine'));
   navShift.addEventListener('click', () => showView('shift'));
+  navDashboard.addEventListener('click', () => showView('dashboard'));
   el('back').addEventListener('click', () => showView('board'));
 
   // ------------------------------------------------------- incident detail (M0-35)
@@ -1140,6 +1156,22 @@ async function boot(): Promise<void> {
       identity = ((await res.json()) as { identity: Identity }).identity;
       loginForm.reset();
       paintIdentity();
+
+      /**
+       * Where somebody lands depends on what they are holding.
+       *
+       * On a phone, the report form — that is the officer standing at a scene, and putting a
+       * summary in front of them first would cost seconds at the only moment seconds matter.
+       *
+       * On a laptop or an office screen, the dashboard — nobody carries one of those to an
+       * incident, and the question they opened it to answer is "what is happening".
+       *
+       * This is the *only* place in the client that reads the viewport, and it chooses a
+       * starting screen rather than a layout. Every layout decision stays in CSS, where it
+       * responds to a resized window and a turned phone without any code being involved.
+       */
+      if (window.matchMedia('(min-width: 56rem)').matches) showView('dashboard');
+
       await trySync();
     } catch {
       loginError.textContent = 'Cannot reach the server. Check your connection and try again.';

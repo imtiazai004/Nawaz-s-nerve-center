@@ -1,11 +1,10 @@
 /**
- * Reporting the district's own condition — M4-02, M4-03, ADR-0013.
+ * Reporting the district's own condition — M4.
  *
- * Two facts the system did not previously hold, and one credential:
+ * Two facts the system did not previously hold:
  *
  *   * **Utilities** — is the power on, the water, the gas, the line?
  *   * **Presence** — is the AAC in his office, in the field, or on leave?
- *   * **Wall screens** — the identity a television signs in as.
  *
  * The scoping follows the rule already established for the roster, and for the same stated
  * reason (owner, 2026-08-02): a department manages **its own** data, and nobody types on its
@@ -13,10 +12,10 @@
  * administrative offices may do either for anyone, because somebody has to be able to correct
  * a department that has gone quiet — but they do it visibly, through the same recorded path.
  *
- * What a department may **not** do is decide which utilities the district watches, or issue a
- * screen a credential. Those are configuration, and configuration belongs to the two offices
- * for the same reason routing signals do (ADR-0010): a department able to remove itself from
- * the list could go quiet without anybody seeing it happen.
+ * What a department may **not** do is decide which utilities the district watches. That is
+ * configuration, and configuration belongs to the two offices for the same reason routing
+ * signals do (ADR-0010): a department able to remove itself from the list could go quiet
+ * without anybody seeing it happen.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -25,14 +24,11 @@ import type { Identity } from '../auth/sessions.js';
 import { inTransaction, recordChange } from '../db/configStore.js';
 import {
   addUtility,
-  issueWallScreen,
   listPresence,
   listUtilities,
-  listWallScreens,
   reportPresence,
   reportUtility,
   retireUtility,
-  revokeWallScreen,
   seatDepartment,
   utilityOwner,
 } from '../db/wallStore.js';
@@ -242,78 +238,6 @@ export async function handleStatus(
       recordChange(tx, {
         subject: 'utility',
         subjectId: utilityId,
-        action: 'retired',
-        before: null,
-        after: null,
-        actor: { seatId: identity.seatId, personId: identity.personId },
-        reason,
-      }),
-    );
-
-    return { status: 200, body: { ok: true } };
-  }
-
-  //--------------------------------------------------------------------------------
-  // The screens themselves
-  //--------------------------------------------------------------------------------
-
-  if (method === 'GET' && path === '/status/screens') {
-    if (!identity.isAdministration) return bad(403, 'only the DC or AC Headquarter office');
-
-    return { status: 200, body: { screens: await listWallScreens(pool) } };
-  }
-
-  if (method === 'POST' && path === '/status/screens') {
-    if (!identity.isAdministration) return bad(403, 'only the DC or AC Headquarter office');
-
-    const label = text(body?.['label'], 60);
-    if (label === null) return bad(400, 'name the room this screen is in');
-
-    const issued = await issueWallScreen(pool, { label, issuedBy: identity.seatId });
-
-    await inTransaction(pool, (tx) =>
-      recordChange(tx, {
-        subject: 'wall_screen',
-        subjectId: issued.screenId,
-        action: 'created',
-        before: null,
-        // The label and nothing else. Logging the token would put it in every nightly dump
-        // in readable form, and the dump leaves the district (ADR-0011).
-        after: { label },
-        actor: { seatId: identity.seatId, personId: identity.personId },
-        reason: text(body?.['reason'], MAX_NOTE) ?? 'a screen was mounted',
-      }),
-    );
-
-    return {
-      status: 201,
-      body: {
-        screenId: issued.screenId,
-        label,
-        token: issued.token,
-        // Said on the screen, not only in a document, because this is the one moment it can
-        // be said to the person who needs to act on it.
-        note: 'This is shown once. It cannot be recovered — issue a new screen if it is lost.',
-      },
-    };
-  }
-
-  if (method === 'POST' && path === '/status/screens/revoke') {
-    if (!identity.isAdministration) return bad(403, 'only the DC or AC Headquarter office');
-
-    const screenId = typeof body?.['screenId'] === 'string' ? body['screenId'] : '';
-    if (!UUID_RE.test(screenId)) return bad(400, 'which screen?');
-
-    const reason = text(body?.['reason'], MAX_NOTE);
-    if (reason === null) return bad(400, 'say why');
-
-    if (!(await revokeWallScreen(pool, screenId)))
-      return bad(404, 'no such screen, or already revoked');
-
-    await inTransaction(pool, (tx) =>
-      recordChange(tx, {
-        subject: 'wall_screen',
-        subjectId: screenId,
         action: 'retired',
         before: null,
         after: null,

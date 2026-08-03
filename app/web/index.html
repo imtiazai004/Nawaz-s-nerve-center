@@ -36,13 +36,179 @@
         gap: 1rem;
       }
       h1 { font-size: 0.95rem; margin: 0; letter-spacing: 0.02em; }
+      /*
+       * The title and the sign-in line sit inside the same shell as everything else, so on a
+       * wide screen they line up with the first panel instead of hugging the glass.
+       */
+      @media (min-width: 56rem) {
+        header { padding-inline: max(var(--pad), calc((100vw - var(--shell)) / 2 + var(--pad))); }
+        h1 { font-size: 1.15rem; }
+        #status { padding-inline: max(var(--pad), calc((100vw - var(--shell)) / 2 + var(--pad))); }
+      }
       #who { font-size: 0.75rem; color: var(--slate); text-align: right; }
       #who button {
         margin: 0; width: auto; padding: 0;
         background: none; border: none; color: var(--slate);
         font-size: 0.75rem; text-decoration: underline; cursor: pointer;
       }
-      main { padding: 0.9rem 1rem 2rem; max-width: 34rem; margin: 0 auto; }
+      /*
+       * ============================================================ one app, three shapes
+       *
+       * The owner's instruction, 2026-08-03:
+       *
+       *   > ye software just mobile ya laptop k lye nhe hai … ye mobile, laptop ya barre
+       *   > screen sub pr fit and zabardast chalega … tum multiple screens bana kr
+       *   > complecated and messy naa banao
+       *
+       * So there is **one** application and one set of markup. What changes with the device is
+       * how much of it stands side by side, and the browser decides that from the width it
+       * already knows. Nobody chooses a mode; there is no desktop version to keep in step
+       * with a mobile one.
+       *
+       * Three widths, and each is a real place rather than a round number:
+       *
+       *   under 56rem — a phone in one hand. One column, thumb-sized targets, the report
+       *                 form above the fold. This is the case that must never regress: it is
+       *                 the officer standing at the scene.
+       *   56rem+      — a laptop or a desk PC in an AAC's office. Two columns; the panels
+       *                 stop being a long scroll.
+       *   90rem+      — a large screen on an office wall, in the DC or AC Headquarter or
+       *                 anywhere else. Three columns, larger type, everything at once,
+       *                 because it is read from across the room and nobody is scrolling it.
+       *
+       * `--pad` and the type scale move with the same breakpoints, so a 55" screen is not
+       * simply a stretched laptop with a lot of white space in it.
+       */
+      :root { --pad: 1rem; --shell: 34rem; }
+
+      @media (min-width: 56rem) {
+        :root { --pad: 1.4rem; --shell: 74rem; }
+      }
+      @media (min-width: 90rem) {
+        :root { --pad: 1.8rem; --shell: 118rem; }
+        body { font-size: 19px; }
+      }
+
+      main {
+        padding: 0.9rem var(--pad) 2rem;
+        max-width: var(--shell);
+        margin: 0 auto;
+      }
+
+      /*
+       * The report form and the sign-in form stay narrow at every width.
+       *
+       * A text field stretched across 1900 pixels is harder to fill in, not easier, and a
+       * six-tile category grid three feet wide is a worse target than one at arm's length.
+       * Width helps a *table*; it does not help a *form*.
+       */
+      #reportView, #loginView { max-width: 34rem; }
+      @media (min-width: 56rem) {
+        #reportView, #loginView { margin-inline: auto; }
+      }
+
+      /* ------------------------------------------------------------------- the dashboard */
+      /*
+       * The panels. One column, then two, then three — the same markup each time.
+       *
+       * `masonry` would be tidier and is not available. `columns` would reflow panels between
+       * columns as data changes, which on a screen somebody glances at is worse than a ragged
+       * bottom edge: the panel you were looking at moves.
+       */
+      .panels { display: grid; gap: 0.9rem; align-content: start; }
+      @media (min-width: 56rem) { .panels { grid-template-columns: 1fr 1fr; gap: 1.1rem; } }
+      @media (min-width: 90rem) { .panels { grid-template-columns: repeat(3, 1fr); } }
+
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0.8rem 1rem 0.9rem;
+      }
+      .panel > h2 {
+        margin: 0 0 0.6rem;
+        font-size: 0.72rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--slate);
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 0.6rem;
+      }
+      /* A panel that is mostly numbers is worth two columns once there is room for it. */
+      @media (min-width: 56rem) { .panel.wide { grid-column: span 2; } }
+
+      .keys { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+      @media (min-width: 56rem) { .keys { grid-template-columns: repeat(4, 1fr); } }
+      .key { border-radius: 4px; padding: 0.55rem 0.7rem; background: #eceae4; }
+      .key .n {
+        display: block;
+        font-size: 2rem;
+        font-weight: 700;
+        line-height: 1.05;
+        /* So a count going 9 → 10 does not shift the label under somebody's eye. */
+        font-variant-numeric: tabular-nums;
+      }
+      .key .k {
+        font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--slate); font-weight: 700;
+      }
+      .key.alarm { background: #f6e4e0; }
+      .key.alarm .n { color: var(--critical); }
+      .key.warn { background: #f7eeda; }
+      .key.warn .n { color: var(--pending); }
+
+      .plist { display: grid; gap: 0.1rem; }
+      .pitem {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: baseline;
+        gap: 0.5rem;
+        padding: 0.4rem 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .pitem:last-child { border-bottom: none; }
+      .pitem .pn { font-weight: 600; }
+      .pitem .pc { font-weight: 700; font-variant-numeric: tabular-nums; }
+      /*
+       * Every row's age sits under it — including the healthy ones.
+       *
+       * A screen that shows an age only when something is wrong teaches people that no age
+       * means fine, and that habit is what makes a frozen panel invisible (ADR-0005).
+       */
+      .pitem .pw { grid-column: 1 / -1; font-size: 0.76rem; color: var(--slate); margin-top: -0.1rem; }
+
+      /* A state is never carried by colour alone — the word is the meaning (INV-04). */
+      .tag {
+        display: inline-block; padding: 0.1em 0.55em; border-radius: 999px;
+        font-size: 0.74rem; font-weight: 700; white-space: nowrap;
+      }
+      .tag.ok       { background: #dfe9df; color: var(--ok); }
+      .tag.pending  { background: #f7eeda; color: var(--pending); }
+      .tag.critical { background: #f6e4e0; color: var(--critical); }
+      .tag.unknown  { background: #e6e3da; color: var(--slate); }
+
+      .wx { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+      .wx .t { font-size: 2.6rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+      .wxgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 0.7rem; }
+      .wxgrid .k {
+        display: block; font-size: 0.66rem; letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--slate); font-weight: 700;
+      }
+      .wxgrid .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+      .nums { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+      .num { background: #eceae4; border-radius: 4px; padding: 0.4rem 0.6rem; }
+      .num .k { font-size: 0.68rem; color: var(--slate); font-weight: 700; }
+      .num .v { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+      .empty { font-size: 0.82rem; color: var(--slate); }
+      /* How old a thing is. Always smaller and quieter than the thing it qualifies. */
+      .age { font-size: 0.74rem; color: var(--slate); font-weight: 600; }
+      .state-ok { color: var(--ok); }
+      .state-pending { color: var(--pending); }
+      .state-critical { color: var(--critical); }
 
       #status {
         display: block;
@@ -175,17 +341,54 @@
       }
       button.plain:disabled { opacity: 0.45; cursor: default; }
       /* ---------------------------------------------------------- central board */
-      #nav { display: flex; gap: 0; border-bottom: 1px solid var(--line); }
+      /*
+       * Seven tabs, and a phone is 390 pixels wide.
+       *
+       * `flex: 1` divided the bar equally, which at this count wrapped "My department" onto
+       * two lines and made the row 70 pixels tall — a fifth of the screen, above the fold,
+       * on the device where the fold matters most.
+       *
+       * So on a phone the bar **scrolls sideways** and each tab keeps its natural width. The
+       * first two are the ones anybody needs in a hurry and are always visible; the rest are
+       * a thumb-flick away. On a laptop or larger everything fits and the bar spreads.
+       */
+      #nav {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid var(--line);
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      #nav::-webkit-scrollbar { display: none; }
       #nav button {
-        flex: 1; min-height: 48px; margin: 0;
+        flex: 0 0 auto;
+        min-height: 48px;
+        margin: 0;
+        padding: 0 0.9rem;
+        white-space: nowrap;
         font: inherit; font-weight: 700; font-size: 0.85rem;
         background: none; border: none; border-bottom: 3px solid transparent;
         color: var(--slate); cursor: pointer;
       }
+      @media (min-width: 56rem) {
+        #nav { max-width: var(--shell); margin: 0 auto; padding-inline: calc(var(--pad) - 0.9rem); }
+        #nav button { flex: 1 1 auto; }
+      }
       #nav button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
 
-      /* The board is a table of live work, so it gets the width the phone form does not. */
-      body:has(#boardView:not([hidden])) main { max-width: 60rem; }
+      /*
+       * The screens that are tables get the shell's full width at every size.
+       *
+       * These used to be capped at 60rem and 64rem, which made sense when the widest thing
+       * anybody would open the app on was a laptop. On an office screen that cap became a
+       * narrow ribbon of content with a metre of empty paper either side of it — the exact
+       * complaint that started this work.
+       */
+      body:has(#boardView:not([hidden])) main,
+      body:has(#adminView:not([hidden])) main,
+      body:has(#shiftView:not([hidden])) main,
+      body:has(#mineView:not([hidden])) main,
+      body:has(#dashboardView:not([hidden])) main { max-width: var(--shell); }
 
       #boardAsOf {
         font-size: 0.78rem; color: var(--slate);
@@ -219,7 +422,7 @@
       .row[data-unassigned="true"] { border-left: 4px solid var(--critical); }
 
       /* ------------------------------------------------ administration console */
-      body:has(#adminView:not([hidden])) main { max-width: 64rem; }
+
 
       #adminTabs { display: flex; gap: 0.2rem; margin-bottom: 0.9rem; flex-wrap: wrap; }
       #adminTabs button {
@@ -374,7 +577,7 @@
       @media (max-width: 46rem) { .change { grid-template-columns: 1fr; } }
 
       /* ------------------------------------------------------- the shift screen */
-      body:has(#shiftView:not([hidden])) main { max-width: 48rem; }
+
 
       #shiftWho { margin: 0 0 0.2rem; font-weight: 700; color: var(--ink); font-size: 0.9rem; }
       #shiftError {
@@ -503,7 +706,7 @@
       }
 
       /* ------------------------------------------------------------- the roster */
-      body:has(#mineView:not([hidden])) main { max-width: 52rem; }
+
 
       #mineError {
         margin: 0 0 0.9rem; padding: 0.6rem 0.8rem;
@@ -677,6 +880,14 @@
     <div id="status" data-state="unknown">Checking connection…</div>
 
     <nav id="nav" hidden>
+      <!--
+        The dashboard (M4). The landing screen for anybody who is not standing at a scene:
+        what the district — or this department — looks like right now, in one glance.
+
+        First in the order deliberately. Report stays one tap away and stays the *default*
+        on a phone, because a phone is what the officer at the scene is holding.
+      -->
+      <button type="button" id="navDashboard" hidden>Dashboard</button>
       <button type="button" id="navReport" aria-current="page">Report</button>
       <button type="button" id="navBoard">Board</button>
       <button type="button" id="navInbox">
@@ -709,6 +920,65 @@
 
     <main>
       <!-- Sign in -->
+      <!--
+        The dashboard (M4).
+
+        Everything the prototype the owner shared was asking for, inside the one application:
+        the district's numbers, the weather, the public utilities, where the officers are, the
+        published emergency numbers — and, for the two offices, whether this system's own
+        machinery is working.
+
+        The markup is identical at every size. On a phone these panels are one column; on a
+        laptop two; on an office screen three, with larger type. No panel is added or removed
+        for a device, because a fact that matters on a wall matters in a pocket.
+      -->
+      <section id="dashboardView" hidden>
+        <div id="dashScope" class="note"></div>
+        <div class="panels">
+          <section class="panel wide">
+            <h2><span id="dashTitle">District</span><span class="age" id="dashAsOf"></span></h2>
+            <div class="keys" id="dashKeys"></div>
+            <p class="note" id="dashLede"></p>
+          </section>
+
+          <section class="panel">
+            <h2>Live emergencies by kind</h2>
+            <div class="plist" id="dashCategories"></div>
+          </section>
+
+          <section class="panel">
+            <h2>With which department</h2>
+            <div class="plist" id="dashDepartments"></div>
+          </section>
+
+          <section class="panel">
+            <h2><span>Weather · Bannu</span><span class="age" id="dashWeatherAge"></span></h2>
+            <div id="dashWeather"></div>
+          </section>
+
+          <section class="panel">
+            <h2><span>Public utilities</span><span class="age" id="dashUtilityGap"></span></h2>
+            <div class="plist" id="dashUtilities"></div>
+          </section>
+
+          <section class="panel">
+            <h2><span>Officers</span><span class="age" id="dashPresenceGap"></span></h2>
+            <div class="plist" id="dashPresence"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Emergency numbers</h2>
+            <div class="nums" id="dashContacts"></div>
+          </section>
+
+          <!-- Shown only to the DC Office and the AC Headquarter: these are theirs to fix. -->
+          <section class="panel" id="dashConditionPanel" hidden>
+            <h2>This system</h2>
+            <div class="plist" id="dashCondition"></div>
+          </section>
+        </div>
+      </section>
+
       <section id="loginView" hidden>
         <form id="login">
           <label class="text" for="phone">Phone number</label>
