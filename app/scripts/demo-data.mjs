@@ -61,6 +61,18 @@ if (clearing) {
   process.exit(0);
 }
 
+/**
+ * Clear anything a previous run left, before writing.
+ *
+ * Found by running it twice: four advisories became eight, and the board read "8 in force"
+ * for a district that had issued four. Seeding that is not idempotent is a seeding script
+ * that lies the second time somebody uses it — and the second time is exactly when they are
+ * showing it to somebody.
+ */
+await pool.query('DELETE FROM district_alert WHERE message LIKE $1', [`%${MARK}`]);
+await pool.query('DELETE FROM utility_report WHERE note LIKE $1', [`%${MARK}`]);
+await pool.query('DELETE FROM presence_report WHERE note LIKE $1', [`%${MARK}`]);
+
 /** A seat to attribute the reports to, so they render with an author like a real one would. */
 const seat = await pool.query(
   `SELECT s.seat_id FROM seat s
