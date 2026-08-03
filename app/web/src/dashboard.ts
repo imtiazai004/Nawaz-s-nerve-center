@@ -86,6 +86,49 @@ export interface DashboardFeed {
   contacts: { title: string; number: string }[];
 }
 
+/**
+ * Where a panel leads.
+ *
+ * The dashboard deliberately grows **no detail view of its own**. Every panel hands off to a
+ * screen that already answers the next question — the board for emergencies, Status for the
+ * things somebody reports, the console for the system's own condition. A second detail view
+ * beside the board's would drift from it, and the two would disagree in front of an operator.
+ */
+export interface DashboardLinks {
+  /** `category` is the stored code the rows carry; `label` is what a person is shown. */
+  onOpenCategory?: (category: string, label: string) => void;
+  onOpenDepartment?: (name: string) => void;
+  onOpenStatus?: () => void;
+  onOpenAdmin?: () => void;
+  canAdmin?: () => boolean;
+}
+
+let links: DashboardLinks = {};
+
+/**
+ * Make a node open something, by mouse **and** by keyboard.
+ *
+ * `role="button"` and `tabindex` rather than a real `<button>`: these rows are grids of
+ * several elements, and wrapping them in a button would flatten the layout and make a screen
+ * reader announce the whole row as one label. What must not be lost is the keyboard — an
+ * officer at a desk drives this with Tab, and a div with only a click handler is a control
+ * that does not exist for them.
+ */
+function leadsTo(node: HTMLElement, label: string, open: () => void): void {
+  node.classList.add('go');
+  node.setAttribute('role', 'button');
+  node.setAttribute('tabindex', '0');
+  node.setAttribute('aria-label', label);
+
+  node.addEventListener('click', open);
+  node.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      open();
+    }
+  });
+}
+
 function el(id: string): HTMLElement {
   const node = document.getElementById(id);
   if (node === null) throw new Error(`missing #${id}`);
@@ -207,7 +250,7 @@ function renderKeys(feed: DashboardFeed): void {
 
 function renderCounts(
   targetId: string,
-  rows: { name: string; count: number; warn?: boolean }[],
+  rows: { name: string; count: number; warn?: boolean; open?: () => void; label?: string }[],
   empty: string,
 ): void {
   const target = el(targetId);
@@ -224,6 +267,9 @@ function renderCounts(
     const count = span('pc', String(row.count));
     if (row.warn === true) count.classList.add('state-pending');
     node.appendChild(count);
+
+    if (row.open !== undefined) leadsTo(node, row.label ?? row.name, row.open);
+
     target.appendChild(node);
   }
 }
@@ -246,6 +292,10 @@ function renderStatusList(targetId: string, gapId: string, rows: PanelRow[], qui
         ? 'nobody has reported this'
         : `${row.note === null ? '' : `${row.note} · `}${ago(row.ageMinutes)}`;
     node.appendChild(box('pw', line));
+
+    if (links.onOpenStatus !== undefined) {
+      leadsTo(node, `Report on ${row.name}`, () => links.onOpenStatus?.());
+    }
 
     target.appendChild(node);
   }
@@ -281,6 +331,14 @@ function renderSituation(feed: DashboardFeed): void {
       span('', row.lastAt === null ? '—' : ago(minutesSince(row.lastAt))),
     );
     card.appendChild(meta);
+
+    if (row.open > 0 && links.onOpenCategory !== undefined) {
+      // Only when there is something to open. A card reading "Normal · none open" that
+      // navigates to an empty board teaches people the panel is broken.
+      leadsTo(card, `Open the board for ${row.label}`, () =>
+        links.onOpenCategory?.(row.category, row.label),
+      );
+    }
 
     target.appendChild(card);
   }
@@ -328,6 +386,14 @@ function renderAlerts(feed: DashboardFeed): void {
     );
     row.appendChild(body);
 
+    // An advisory has no screen of its own — it is two sentences. Rather than invent one,
+    // the row opens Status, where the two offices can withdraw it and everybody else can see
+    // the full list.
+    if (links.onOpenStatus !== undefined) {
+      leadsTo(row, 'Open advisories', () => links.onOpenStatus?.());
+      row.classList.add('pitem');
+    }
+
     target.appendChild(row);
   }
 }
@@ -368,6 +434,11 @@ function renderCondition(feed: DashboardFeed): void {
     node.appendChild(span('pn', item.what));
     node.appendChild(span(`tag ${item.state}`, item.state === 'ok' ? 'Yes' : 'No'));
     node.appendChild(box('pw', item.detail));
+
+    if (links.onOpenAdmin !== undefined && links.canAdmin?.() === true) {
+      leadsTo(node, `Open the console for ${item.what}`, () => links.onOpenAdmin?.());
+    }
+
     target.appendChild(node);
   }
 }
@@ -497,7 +568,14 @@ export function paint(feed: DashboardFeed): void {
   panel('categories', () => {
     renderCounts(
       'dashCategories',
-      feed.categories.map((c) => ({ name: c.label, count: c.open })),
+      feed.categories.map((c) => ({
+        name: c.label,
+        count: c.open,
+        label: `Open the board for ${c.label}`,
+        ...(links.onOpenCategory === undefined
+          ? {}
+          : { open: (): void => links.onOpenCategory?.(c.category, c.label) }),
+      })),
       'nothing open',
     );
   });
@@ -507,7 +585,11 @@ export function paint(feed: DashboardFeed): void {
       feed.departments.map((d) => ({
         name: d.name,
         count: d.open,
+        label: `Open the board for ${d.name}`,
         ...(d.unacknowledged > 0 ? { warn: true } : {}),
+        ...(links.onOpenDepartment === undefined
+          ? {}
+          : { open: (): void => links.onOpenDepartment?.(d.name) }),
       })),
       'nothing assigned',
     );
@@ -588,7 +670,11 @@ export interface DashboardScreen {
  * request finished, so a server that has become slow collects a growing queue of requests
  * from every open screen — the failure mode where the monitoring makes the outage worse.
  */
-export function createDashboard(options: { intervalMs?: number } = {}): DashboardScreen {
+export function createDashboard(
+  options: { intervalMs?: number } & DashboardLinks = {},
+): DashboardScreen {
+  links = options;
+
   const every = options.intervalMs ?? 20_000;
   let timer: number | null = null;
   let open = false;

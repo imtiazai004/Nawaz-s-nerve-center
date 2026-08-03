@@ -380,7 +380,31 @@ async function boot(): Promise<void> {
   /**
    * The dashboard (M4). Refreshes only while it is the screen somebody is looking at.
    */
-  const dashboard = createDashboard();
+  /**
+   * The dashboard, and where its panels lead.
+   *
+   * A summary that cannot be opened is a summary somebody has to act on by memory: they read
+   * "Fire — 2 open", switch to the board, and hunt. Each panel therefore leads to the screen
+   * that already answers the next question, rather than growing a second detail view beside
+   * the one the board already has.
+   */
+  const dashboard = createDashboard({
+    onOpenCategory: (category, label) => {
+      showBoardFiltered('category', category, label);
+    },
+    onOpenDepartment: (name) => {
+      showBoardFiltered('department', name, name);
+    },
+    // Utilities, services and presence are *changed* on the Status screen, so that is where
+    // "tell me more" leads: the row, with its note and its buttons.
+    onOpenStatus: () => {
+      showView('status');
+    },
+    onOpenAdmin: () => {
+      showView('admin');
+    },
+    canAdmin: () => identity?.isAdministration === true,
+  });
 
   /**
    * The Status screen (M4).
@@ -473,6 +497,77 @@ async function boot(): Promise<void> {
     return box;
   }
 
+  /**
+   * A slice of the board, chosen on the dashboard.
+   *
+   * Applied in the browser rather than by asking the server for a narrower board. The board
+   * is already loaded and capped at 500 rows; a second endpoint taking a filter would be a
+   * second definition of what the board contains, and the two would drift.
+   */
+  let boardFilter: {
+    kind: 'category' | 'department';
+    /** What the rows are matched on — the stored code, e.g. `rta`. */
+    value: string;
+    /** What the operator is told, e.g. "Road accident". Never the code. */
+    label: string;
+  } | null = null;
+
+  function applyBoardFilter(): void {
+    const bar = el('boardFilter');
+    const rows = Array.from(boardRows.querySelectorAll<HTMLElement>('.row'));
+
+    if (boardFilter === null) {
+      bar.hidden = true;
+      for (const row of rows) row.hidden = false;
+      return;
+    }
+
+    bar.hidden = false;
+    el('boardFilterText').textContent =
+      boardFilter.kind === 'category'
+        ? `Showing only: ${boardFilter.label}`
+        : `Showing only what is with: ${boardFilter.label}`;
+
+    let shown = 0;
+    for (const row of rows) {
+      const match =
+        boardFilter.kind === 'category'
+          ? row.dataset['category'] === boardFilter.value
+          : (row.dataset['departments'] ?? '').split('').includes(boardFilter.value);
+
+      row.hidden = !match;
+      if (match) shown += 1;
+    }
+
+    /**
+     * "Nothing matches" is only said once there is a board to match against.
+     *
+     * Arriving from the dashboard, this runs before the board's own fetch has returned, so
+     * there are no rows yet — and saying "nothing matches Fire" at that moment is a false
+     * statement shown at the exact instant somebody is looking for a fire. It resolves a
+     * second later, which is worse than useless: it teaches people to distrust the message
+     * when it is true.
+     *
+     * A filter that genuinely hides everything still has to say so, because that looks
+     * identical to a quiet district (ADR-0005).
+     */
+    if (shown === 0 && rows.length > 0) {
+      el('boardFilterText').textContent =
+        `Nothing on the board matches ${boardFilter.label} — it may already be resolved.`;
+    }
+  }
+
+  /** Open the board narrowed to one slice. Called from the dashboard. */
+  function showBoardFiltered(
+    kind: 'category' | 'department',
+    value: string,
+    label: string,
+  ): void {
+    boardFilter = { kind, value, label };
+    showView('board');
+    applyBoardFilter();
+  }
+
   function renderBoard(data: BoardData): void {
     const at = Date.parse(data.asOf);
 
@@ -506,6 +601,8 @@ async function boot(): Promise<void> {
         'goes straight through.';
     }
 
+    // Applied again at the end of this function: the board polls every ten seconds, and a
+    // repaint that forgot the filter would silently widen the view under somebody's eye.
     boardRows.replaceChildren(
       ...data.incidents.map((row) => {
         const div = document.createElement('div');
@@ -513,6 +610,9 @@ async function boot(): Promise<void> {
         div.dataset['overdue'] = String(row.overdue);
         div.dataset['unassigned'] = String(row.unassigned);
         div.dataset['incident'] = row.incidentId;
+        // What the dashboard filters on when somebody arrives from one of its panels.
+        div.dataset['category'] = row.category;
+        div.dataset['departments'] = row.responsibleDepartments.join('');
 
         const sev = document.createElement('span');
         sev.className = 'sev';
@@ -574,6 +674,10 @@ async function boot(): Promise<void> {
     boardEmpty.hidden = data.incidents.length > 0;
     boardFetchedAt = Date.now();
     paintBoardAge(data);
+
+    // The board polls every ten seconds. A repaint that forgot the filter would silently
+    // widen the view under somebody's eye, mid-read.
+    applyBoardFilter();
   }
 
   let lastBoard: BoardData | null = null;
@@ -829,13 +933,24 @@ async function boot(): Promise<void> {
 
   // Registered here rather than beside `showView`, because these consts are declared above
   // and referencing them earlier would be a temporal-dead-zone error at boot.
-  navBoard.addEventListener('click', () => showView('board'));
+  navBoard.addEventListener('click', () => {
+    // Clicking "Board" means the board. A filter left over from a dashboard panel would make
+    // the tab show a slice with no explanation of why.
+    boardFilter = null;
+    showView('board');
+    applyBoardFilter();
+  });
   navReport.addEventListener('click', () => showView('report'));
   navInbox.addEventListener('click', () => showView('inbox'));
   navAdmin.addEventListener('click', () => showView('admin'));
   navMine.addEventListener('click', () => showView('mine'));
   navShift.addEventListener('click', () => showView('shift'));
   navDashboard.addEventListener('click', () => showView('dashboard'));
+
+  el('boardFilterClear').addEventListener('click', () => {
+    boardFilter = null;
+    applyBoardFilter();
+  });
   navStatus.addEventListener('click', () => showView('status'));
   el('back').addEventListener('click', () => showView('board'));
 

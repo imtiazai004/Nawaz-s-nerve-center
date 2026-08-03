@@ -454,6 +454,37 @@
       }
       button.plain.small:hover { color: var(--critical); border-color: var(--critical); }
 
+      #boardFilter {
+        display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap;
+        margin: 0 0 0.6rem; padding: 0.45rem 0.7rem;
+        background: var(--card2); border-left: 3px solid var(--primary); border-radius: 4px;
+        font-size: 0.85rem; font-weight: 600;
+      }
+      #boardFilterClear {
+        font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer;
+        background: none; border: 1px solid var(--line); border-radius: 4px;
+        color: var(--primary); padding: 0.15rem 0.7rem; min-height: 32px;
+      }
+
+      /*
+       * A panel row that leads somewhere says so before it is clicked.
+       *
+       * Not by colour — by the cursor, a hover, and a keyboard focus ring, because a row that
+       * only reveals itself on hover is invisible to somebody using a keyboard and to anybody
+       * on a touchscreen, which is most of this district.
+       */
+      .pitem.go, .sit.go {
+        cursor: pointer;
+        border-radius: 4px;
+        transition: background 120ms;
+      }
+      .pitem.go:hover, .sit.go:hover,
+      .pitem.go:focus-visible, .sit.go:focus-visible {
+        background: var(--card2);
+        outline: 2px solid var(--primary);
+        outline-offset: -2px;
+      }
+
       .empty { font-size: 0.82rem; color: var(--slate); }
       /* How old a thing is. Always smaller and quieter than the thing it qualifies. */
       .age { font-size: 0.74rem; color: var(--slate); font-weight: 600; }
@@ -1227,6 +1258,20 @@
           </section>
 
           <!--
+            Weather, high on the right — where the prototype puts it, and for a reason.
+
+            In Bannu the weather *is* an emergency input: the flood season and the heat that
+            fills the DHQ hospital both start here. Somebody glancing at this screen should
+            see it in the same sweep as the counters, not after scrolling past nine panels.
+
+            The district counters span two columns, so this lands beside them.
+          -->
+          <section class="panel">
+            <h2><span>Weather · Bannu</span><span class="age" id="dashWeatherAge"></span></h2>
+            <div id="dashWeather"></div>
+          </section>
+
+          <!--
             Emergency Situation — the prototype's centre panel.
 
             One card per kind of emergency the district watches, whether or not anything is
@@ -1261,11 +1306,6 @@
           <section class="panel">
             <h2>With which department</h2>
             <div class="plist" id="dashDepartments"></div>
-          </section>
-
-          <section class="panel">
-            <h2><span>Weather · Bannu</span><span class="age" id="dashWeatherAge"></span></h2>
-            <div id="dashWeather"></div>
           </section>
 
           <section class="panel">
@@ -1390,6 +1430,18 @@
           anybody, and it is also a signal somebody forgot to configure. Quiet is not an
           option here (ADR-0005).
         -->
+        <!--
+          What the board is showing, when it is showing a slice of it.
+
+          Arriving from a dashboard panel silently filtered would be worse than not filtering
+          at all: an operator would read four rows as "four emergencies in the district".
+          This line says what was narrowed and gives one click back to everything.
+        -->
+        <p id="boardFilter" hidden>
+          <span id="boardFilterText"></span>
+          <button type="button" id="boardFilterClear">Show all</button>
+        </p>
+
         <p id="boardUnassigned" hidden></p>
         <div id="boardSummary"></div>
         <div id="boardRows"></div>
