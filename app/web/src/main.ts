@@ -21,11 +21,13 @@ import { IndexedDbOutboxStore, requestPersistence } from '../../src/outbox/adapt
 import { HttpTransport } from '../../src/outbox/adapters/httpTransport.js';
 import type { IncidentEvent } from '../../src/domain/events.js';
 import { buildCapture, describeFix, startLocationWatch, type Fix } from './location.js';
-import { mountAdmin, type AdminConsole } from './admin.js';
-import { mountRoster, type RosterPanel } from './roster.js';
+// Types only — erased at build time, so naming them here does not pull the office screens
+// into the shell. The values arrive from `/office.js` when somebody opens one.
+import type { AdminConsole } from './admin.js';
+import type { RosterHost, RosterPanel } from './roster.js';
+import type { StatusPanel } from './status.js';
 import { mountWorkspace, type Workspace } from './workspace.js';
 import { createDashboard, startClock } from './dashboard.js';
-import { mountStatus } from './status.js';
 import { ago, incidentRow } from './incidentRow.js';
 import { reachButton } from './contact.js';
 
@@ -367,7 +369,33 @@ async function boot(): Promise<void> {
   // rest of the app, on the screen whose whole job is to be trusted.
   const navAdmin = el<HTMLButtonElement>('navAdmin');
   const adminView = el('adminView');
-  const admin: AdminConsole = mountAdmin();
+  /**
+   * The office screens, fetched together on first use — see `web/src/office.ts`.
+   *
+   * The console, the roster and the Status screen are one bundle because `admin.ts` already
+   * imports `roster.ts` (the console reaches every department's roster, and "My department" is
+   * the same component through its other door). Splitting them would put a second copy of the
+   * roster in one of the two files, and the point of this is fewer bytes.
+   *
+   * None of the three is any use at a scene, and none works without a connection.
+   */
+  interface Office {
+    mountAdmin: () => AdminConsole;
+    mountRoster: (host: RosterHost) => RosterPanel;
+    mountStatus: (options: { onChanged?: () => void }) => StatusPanel;
+  }
+
+  let office: Office | null = null;
+
+  async function loadOffice(): Promise<Office | null> {
+    if (office !== null) return office;
+    if (!(await loadScreen('office', false))) return null;
+
+    office = (window as unknown as { DncOffice?: Office }).DncOffice ?? null;
+    return office;
+  }
+
+  let admin: AdminConsole | null = null;
 
   // A department's own roster (M1a-10) — the other door onto the same component the console
   // uses. The server resolves "my department" from the caller's seat, so a department
@@ -415,7 +443,7 @@ async function boot(): Promise<void> {
    * `onChanged` refreshes the dashboard's numbers the next time it is opened, so an officer
    * who reports a power cut and switches tabs does not see their own report missing.
    */
-  const statusPanel = mountStatus({ onChanged: () => void dashboard.show() });
+  let statusPanel: StatusPanel | null = null;
 
   // Runs from load, on every screen, signed in or out. See `startClock`.
   startClock();
@@ -429,17 +457,51 @@ async function boot(): Promise<void> {
   const searchView = el('searchView');
   const piReportView = el('piReportView');
   const mineError = el('mineError');
-  const mine: RosterPanel = mountRoster({
-    container: el('mineBody'),
-    fail(message) {
-      mineError.textContent = message;
-      mineError.hidden = false;
-    },
-    clearError() {
-      mineError.hidden = true;
-      mineError.textContent = '';
-    },
-  });
+  let mine: RosterPanel | null = null;
+
+  /**
+   * Open one of the office screens, fetching the bundle if this is the first.
+   *
+   * A failure to arrive is said in words on the screen the operator asked for, rather than
+   * left as a tab that does nothing — the same rule every other screen here follows when it
+   * cannot reach the server.
+   */
+  async function openOfficeScreen(which: 'admin' | 'mine' | 'status'): Promise<void> {
+    const loaded = await loadOffice();
+
+    if (loaded === null) {
+      const error = which === 'mine' ? mineError : which === 'admin' ? el('adminError') : el('statusNote');
+      error.hidden = false;
+      error.textContent =
+        'Could not load this screen. It is fetched when first needed, so it needs a connection.';
+      return;
+    }
+
+    if (which === 'admin') {
+      admin ??= loaded.mountAdmin();
+      admin.show();
+      return;
+    }
+
+    if (which === 'status') {
+      statusPanel ??= loaded.mountStatus({ onChanged: () => void dashboard.show() });
+      await statusPanel.show();
+      return;
+    }
+
+    mine ??= loaded.mountRoster({
+      container: el('mineBody'),
+      fail(message) {
+        mineError.textContent = message;
+        mineError.hidden = false;
+      },
+      clearError() {
+        mineError.hidden = true;
+        mineError.textContent = '';
+      },
+    });
+    await mine.show(null);
+  }
 
   interface BoardRow {
     incidentId: string;
@@ -715,7 +777,7 @@ async function boot(): Promise<void> {
       el('ticker').hidden = true;
     }
     if (view === 'dashboard') void dashboard.show();
-    if (view === 'status') void statusPanel.show();
+    if (view === 'status') void openOfficeScreen('status');
     if (view === 'search') void openSearchScreen();
     if (view !== 'search') searchPanel?.reset();
     if (view === 'shift' && identity !== null) {
@@ -726,8 +788,8 @@ async function boot(): Promise<void> {
       });
     }
 
-    if (view === 'admin') admin.show();
-    if (view === 'mine') void mine.show(null);
+    if (view === 'admin') void openOfficeScreen('admin');
+    if (view === 'mine') void openOfficeScreen('mine');
 
     if (view === 'inbox') void refreshInbox();
 

@@ -2452,3 +2452,48 @@ tidier build config is not worth trading a known offline boot for.
 
 - **Tests:** 730 → 738, 48 files. Shell 159 KB / 160 KB. Rapid intake 1.9s / 15s. `npm run
   check` green.
+
+---
+
+## 2026-08-04 — The office moves out of the field officer's bundle
+
+The follow-up the last entry called "more than one session's work", done the same day. The
+shell — what a field officer downloads at a scene — goes from **159 KB to 131 KB** against a
+160 KB budget, with four more screens in the product than two days ago.
+
+### Changed
+
+- **`web/src/office.ts`** — a barrel re-exporting `mountAdmin`, `mountRoster` and `mountStatus`,
+  built as one `office.js` and fetched the first time somebody opens one of the three.
+- **One bundle rather than three**, because `admin.ts` already imports `roster.ts`: the console
+  reaches every department's roster and "My department" is the same component through its
+  other door (M1a-10). Three entry points would have put a **second copy of the roster** in one
+  of them, and the point of this is fewer bytes rather than tidier filenames.
+- The shell now imports those three **as types only**, which esbuild erases — so the type
+  safety is unchanged and the code is not there.
+- A screen that fails to arrive says so **on the screen the operator asked for**, rather than
+  leaving a tab that does nothing. Same rule every other screen here follows when it cannot
+  reach the server.
+
+### Decided — `dashboard.ts` stays in the shell
+
+It is the **landing** screen: the client reads the viewport in exactly one place and sends
+anybody not holding a phone straight to it (ADR-0013). Making it lazy would put a fetch in
+front of the first screen every office user sees, on every sign-in, to reclaim 10 KB of a
+budget that now has 29 KB spare.
+
+**Lazy-loading is for screens somebody chooses to open, not the one they land on.** Recorded
+because the mechanical version of this exercise would have taken it too, and the numbers alone
+would have said yes.
+
+### Open
+
+- One flaky run appeared during this work: `Cannot use a pool after calling end on the pool`,
+  from a `/dashboard` poll firing after a browser test closed its pool. It is a **teardown
+  ordering** issue in the test, not in the product — the page keeps polling until the browser
+  closes, and the pool closes first. Two consecutive clean runs afterwards. Noted rather than
+  chased, because an error in a log that everybody learns to ignore is exactly what this
+  project keeps arguing against, and this one deserves a proper fix rather than a retry.
+
+- **Tests:** 738, 48 files, unchanged — this moved code between files rather than adding
+  behaviour. Shell **131 KB / 160 KB**. Rapid intake 2.2s / 15s. `npm run check` green.

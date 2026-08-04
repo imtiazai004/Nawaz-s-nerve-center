@@ -92,6 +92,21 @@ export async function buildWeb() {
     globalName: 'DncReport',
   });
 
+  /**
+   * The office screens — console, roster, Status — in one file.
+   *
+   * One bundle rather than three because `admin.ts` already imports `roster.ts`: the console
+   * reaches every department's roster, and "My department" is the same component through its
+   * other door (M1a-10). Three entry points would put a second copy of the roster in one of
+   * them, and the point of this is fewer bytes rather than tidier filenames.
+   */
+  await build({
+    ...common,
+    entryPoints: [join(web, 'src', 'office.ts')],
+    outfile: join(dist, 'office.js'),
+    globalName: 'DncOffice',
+  });
+
   /** Search, on the same terms as the report: office work, and useless without a connection. */
   await build({
     ...common,

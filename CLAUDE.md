@@ -762,9 +762,17 @@ The reasoning below is why, and it is the part to read before changing any const
   two more screens in the product than before. **Not `splitting: true`**: that needs ESM output
   and hashed chunk names, and the service worker names the shell's files explicitly so the app
   opens with no network. A tidier build config is not worth trading a known offline boot for.
-  **The next 40 KB is sitting in `admin.ts`, `dashboard.ts`, `status.ts` and `roster.ts`** —
-  all office screens, all still in the shell. That is the follow-up, and it is bigger than one
-  night's work.
+  **The follow-up landed the same day: the console, the roster and the Status screen are now
+  one lazy `office.js`** — one bundle rather than three, because `admin.ts` already imports
+  `roster.ts` and splitting them would put a second copy of the roster in one of the files.
+  **The shell is 131 KB against 160**, from 159 before any of this, with four more screens in
+  the product.
+- **`dashboard.ts` stays in the shell, deliberately.** It is the *landing* screen on a laptop
+  or an office display — the client reads the viewport in exactly one place and sends anybody
+  not holding a phone straight to it (ADR-0013). Making it lazy would put a fetch in front of
+  the first screen every office user sees, on every sign-in, to reclaim 10 KB of a budget that
+  now has 29 KB spare. **Lazy-loading is for screens somebody chooses to open, not the one
+  they land on.**
 - **Both got a screen the next day, and shipping without one was the mistake.** `/search` and
   `/export/incidents.csv` existed for a day with **nothing in the client calling either** —
   fully tested, CI green, and unreachable by any officer. **An endpoint with no door is not a
@@ -861,15 +869,16 @@ Build with Claude/
 │   │   └── src/sw.ts          ← service worker. NEVER cache /sync, /dashboard, /status
 │   │   └── src/main.ts        ← boot; connectivity from sync outcomes, not navigator.onLine
 │   │   └── src/dashboard.ts   ← the dashboard (M4). Every panel leads to an existing screen
-│   │   └── src/status.ts      ← where the district states its own condition (M4)
+│   │   └── src/status.ts      ← where the district states its own condition (M4). LAZY
 │   │   └── src/contact.ts     ← "Reach them" (M5). Opens WhatsApp/dialler/SMS. Sends nothing
 │   │   └── src/words.ts       ← category names and durations, in one place
 │   │   └── src/incidentRow.ts ← ONE row renderer. Board and search, never two
 │   │   └── src/search.ts      ← the search screen. LAZY — not in the shell
 │   │   └── src/report.ts      ← the post-incident report + the PDF. LAZY, with report.css
 │   │   └── src/workspace.ts   ← the shift screen (M1-01)
-│   │   └── src/admin.ts       ← the administration console (M1a). No authority lives here
-│   │   └── src/roster.ts      ← the roster (M1a-10). One component, two doors
+│   │   └── src/office.ts      ← barrel: admin + roster + status, ONE lazy bundle
+│   │   └── src/admin.ts       ← the administration console (M1a). LAZY, via office.js
+│   │   └── src/roster.ts      ← the roster (M1a-10). One component, two doors. LAZY
 │   └── src/
 │       ├── domain/            ← pure logic, no database, no framework
 │       │   ├── events.ts      ← the event catalog (ADR-0001)
