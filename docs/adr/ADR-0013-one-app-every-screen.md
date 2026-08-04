@@ -1,6 +1,6 @@
 # ADR-0013 — One application, on every size of screen
 
-**Status:** Accepted · 2026-08-03 · **corrected the same day, see the amendment below**
+**Status:** Accepted · 2026-08-03 · **corrected the same day; see both amendments below**
 **Source:** project owner, 2026-08-03, supplying a working HTML prototype of a control-room
 display, then correcting what I built from it.
 **Builds on:** ADR-0001 (the log is the record), ADR-0005 (silence is a signal), ADR-0009
@@ -39,6 +39,25 @@ What survives, because it was right for reasons that had nothing to do with the 
 **§1** (nothing private on a screen read by a room), **§3** (every value carries its own age),
 and the two facts the district now reports about itself — utility status and officer presence.
 Those are in §§1 and 3 below and still stand.
+
+---
+
+## Amendment — 2026-08-03, a cross-reference corrected
+
+**No decision changed. One number did.** The Consequences section below cites **R-13** for the
+question *which point should the weather be taken at* — but `R-13` was already taken, by
+Rescue 1122's own list of response actions, raised a few hours earlier in the M1 gate entry.
+One id, two questions.
+
+**The weather question is now `R-16`.** The older row keeps the number it was given first,
+which is the only rule that works on an append-only list: the alternative renumbers a row the
+owner may already have written down.
+
+The citation in **Consequences** is left reading `R-13` with this note above it rather than
+silently edited, for the same reason the reversal above is left in place — *the ADR log is
+corrected by appending, not by making the past look like it always agreed.* `R-15` (the
+district's own facts — tehsils, union councils, population, area) was raised in the same
+entry and had never been added to `backlog/for-the-district.md` at all; both are on it now.
 
 ---
 

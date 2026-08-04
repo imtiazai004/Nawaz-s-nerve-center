@@ -534,9 +534,19 @@ async function districtCondition(pool: Pool, now: Date): Promise<Dashboard['cond
 export interface Viewer {
   /** What the heading says this dashboard is: "District" or the department's own name. */
   readonly scope: string;
-  /** Null for the two administrative offices — meaning the whole district. */
+  /**
+   * Null means **the whole district**, and it is only ever reached by a district-tier seat.
+   * It must never be reached by a caller who simply has no department, which is what a
+   * person holding no post looks like — see `viewerFor`.
+   */
   readonly departmentId: string | null;
   readonly isAdministration: boolean;
+  /**
+   * False only for a caller holding no post. Nothing may be built from such a viewer; it
+   * exists so that a missing seat is a value this module can refuse rather than a null that
+   * reads, one branch later, as "the district".
+   */
+  readonly seated: boolean;
 }
 
 /**
@@ -713,18 +723,44 @@ export interface DashboardReply {
  * Who is asking, and therefore what this dashboard is about.
  *
  * The two administrative offices see the district. Everybody else sees their own department.
- * A caller holding no department at all — a control-room seat — sees the district too, because
- * that is what their work is; they simply have no departmental version to fall back to.
+ * A **seat** holding no department at all — a control-room seat — sees the district too,
+ * because that is what its work is; it simply has no departmental version to fall back to.
+ *
+ * **This used to key on `departmentId === null`, and that was a cross-department read leak.**
+ * Two entirely different callers have a null department: a control-room seat, which should
+ * see the district, and a person holding **no seat at all** — relieved of their post, or
+ * granted a login and never given one — who should see nothing. The test that was supposed to
+ * cover this hand-built its `Identity` and defaulted it to `seatId: null, departmentId: null,
+ * tier: 'district'`, so it asserted the district view for precisely the shape that had to be
+ * refused. Losing your post *widened* your view, which is the opposite of what re-resolving
+ * the seat on every request is for.
+ *
+ * Two changes close it. Callers without a seat are refused before they reach here (see
+ * `requireSeat` in `server.ts`), and the decision below keys on **tier**, which a database
+ * trigger derives from the seat's office (migration 0010) and no caller can assert. Tier says
+ * what the null department only implied.
  */
 export function viewerFor(identity: Identity): Viewer {
-  if (identity.isAdministration || identity.departmentId === null) {
-    return { scope: 'District', departmentId: null, isAdministration: identity.isAdministration };
+  // Defence in depth. The router refuses these, and this is not the place to decide what a
+  // caller with no post may see — it is the place to be sure we never guess "the district".
+  if (identity.seatId === null || identity.tier === null) {
+    return { scope: 'None', departmentId: null, isAdministration: false, seated: false };
+  }
+
+  if (identity.tier === 'district') {
+    return {
+      scope: 'District',
+      departmentId: null,
+      isAdministration: identity.isAdministration,
+      seated: true,
+    };
   }
 
   return {
     scope: identity.departmentName ?? 'My department',
     departmentId: identity.departmentId,
     isAdministration: false,
+    seated: true,
   };
 }
 

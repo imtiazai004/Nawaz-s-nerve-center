@@ -12,7 +12,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -275,6 +275,38 @@ describe.skipIf(dbUrl === undefined)('evidence (integration)', () => {
     const id = await incident();
     const uploaded = (await (await put(id, rescueToken, PNG)).json()) as { evidenceId: string };
     expect((await fetch(`${base}/evidence/${uploaded.evidenceId}`)).status).toBe(401);
+  });
+
+  /**
+   * Authority is decided before anything is read off disk.
+   *
+   * `download` used to fetch the file and hash it *first*, then ask whether the caller could
+   * read the incident — up to 20 MB of disk read and a SHA-256 over it for a request about to
+   * be refused, on the single machine that is also taking emergency reports. `upload` had
+   * always stated the opposite rule for itself; the download path had simply missed it.
+   *
+   * Pinned without mocking, by deleting the file and reading which refusal comes back. An
+   * outsider must be told "no such evidence" — the authority answer. If the bytes were read
+   * first, the missing file would answer instead, and the message says which happened.
+   */
+  it('decides authority before touching the disk', async () => {
+    const id = await incident();
+    const uploaded = (await (await put(id, rescueToken, PNG)).json()) as { evidenceId: string };
+
+    const { rows } = await pool.query<{ stored_path: string }>(
+      'SELECT stored_path FROM evidence WHERE evidence_id = $1',
+      [uploaded.evidenceId],
+    );
+    await rm(resolve(root, rows[0]!.stored_path));
+
+    const res = await fetch(`${base}/evidence/${uploaded.evidenceId}`, {
+      headers: { authorization: `Bearer ${outsiderToken}` },
+    });
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: string };
+    // The authority refusal, not the disk one — which is the whole assertion.
+    expect(body.error).not.toMatch(/missing from disk/);
   });
 
   //----------------------------------------------------------------------------

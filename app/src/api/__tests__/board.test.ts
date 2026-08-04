@@ -144,6 +144,36 @@ describe.skipIf(dbUrl === undefined)('the central board (integration)', () => {
       expect(rowFor(view.body, a)).toBeDefined();
       expect(rowFor(view.body, b)).toBeDefined();
     });
+
+    /**
+     * The export is the board, so its scoping has to be the board's — capability 9.
+     *
+     * Written here rather than beside the CSV unit tests on purpose: the risk is not that the
+     * formatting is wrong, it is that a *file departments email to each other* is built from a
+     * different query than the screen and quietly answers a wider question. Same `buildBoard`,
+     * same seat, therefore the same answer — asserted rather than assumed.
+     */
+    it('scopes the spreadsheet export exactly as it scopes the board', async () => {
+      const mine = await incident(rescueDept, 'high');
+      const theirs = await incident(policeDept, 'high');
+
+      const res = await fetch(`${base}/export/incidents.csv?days=7`, {
+        headers: { authorization: `Bearer ${rescueToken}` },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toMatch(/text\/csv/);
+      expect(res.headers.get('content-disposition')).toMatch(/attachment; filename="incidents-/);
+
+      const csv = await res.text();
+      expect(csv).toContain(mine);
+      // Never sent, exactly as on the board.
+      expect(csv).not.toContain(theirs);
+    });
+
+    it('refuses the export without a session', async () => {
+      expect((await fetch(`${base}/export/incidents.csv`)).status).toBe(401);
+    });
   });
 
   describe('an unassessed report is never dressed as a level (ADR-0009, INV-04)', () => {

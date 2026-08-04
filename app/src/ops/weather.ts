@@ -27,8 +27,11 @@ import { latestWeather, pruneWeather, storeWeather } from '../db/wallStore.js';
  *
  * These are the published coordinates for Bannu city, and they are a **default, not a
  * finding**: the district may want the reading taken somewhere else entirely — the DC office,
- * or a tehsil that floods first. `WEATHER_LAT` / `WEATHER_LON` override them, and R-13 asks
+ * or a tehsil that floods first. `WEATHER_LAT` / `WEATHER_LON` override them, and R-16 asks
  * the district to confirm the point they actually want watched.
+ *
+ * (This asked for "R-13" until 2026-08-03. That number was already Rescue 1122's list of
+ * response actions, so the weather question was renumbered rather than the older row.)
  */
 const DEFAULT_LAT = 32.9889;
 const DEFAULT_LON = 70.6056;

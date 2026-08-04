@@ -149,7 +149,24 @@ that blocks release on failure.
 
 - **Milestone:** M4/M5 — **the product now looks and behaves like the district's own
   prototype**, on every size of screen.
-- **Phase:** Implementation. 662 tests pass on every push.
+- **Phase:** Implementation. 698 tests pass on every push.
+- **A cross-department read leak was found and closed by the M5 security review
+  (2026-08-04).** `/dashboard` and `/status` decided their scope from `departmentId === null`,
+  which is true both of a control-room seat *and* of somebody holding **no post at all** — so
+  a relieved officer was handed the district view instead of nothing. **Losing a post widened
+  what its former holder could see**, inverting the reason the seat is re-resolved on every
+  request. Both routes now go through `requireSeat`, and `viewerFor` keys on **tier**, which a
+  database trigger derives and no caller can assert. See the note in §7.
+- **The evidence download decided authority after reading the file** (same review). Up to
+  20 MB off disk plus a SHA-256, then the refusal — on the one machine that is also taking
+  emergency reports. `upload` had always stated the opposite rule for itself. Fixed by looking
+  up the row first, authorising, and only then touching the disk.
+- **There is no rate limiting anywhere, and `/auth/login` runs scrypt unauthenticated**
+  (same review, **open**). `passwords.ts` sets a deliberately low 10-character minimum and
+  justifies it by saying *"real protection here comes from rate limiting"* — which does not
+  exist. The sharper risk is not guessing but **CPU**: every login attempt costs a scrypt
+  derivation, including for numbers that do not exist (deliberate, to avoid a timing oracle).
+  **Do not answer this with an account lockout** — see §7.
 - **M0, M1a and M1 are done; M3's notification work and M0's operations work landed with
   them (2026-08-03).** One emergency now goes from a field officer's handset to a
   post-incident report with nothing stubbed — see `src/__tests__/m1gate.e2e.test.ts`, which
@@ -234,7 +251,7 @@ that blocks release on failure.
 - **Repository:** `github.com/imtiazai004/Nawaz-s-nerve-center`, private, branch `main`.
   **This says nothing about where the application runs** — P-08 is still open, and
   on-premise remains a live option for a district whose internet is the unreliable part.
-- **Last updated:** 2026-08-02
+- **Last updated:** 2026-08-03
 
 **The M0 gate is green.** `src/__tests__/spine.e2e.test.ts` proves the central claim of
 this project, end to end, with nothing stubbed: a critical emergency reported on a handset
@@ -268,7 +285,8 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 **What exists**
 - Planning and architecture documents in `docs/` (thesis, invariants, connectivity
   ladder, data model, authority model, stack, open questions, capabilities).
-- Seven ADRs recording the load-bearing decisions.
+- Thirteen ADRs recording the load-bearing decisions — one superseded (0012), two amended
+  (0004, 0013). The log is corrected by appending, never by editing the past.
 - Milestone plan and an M0 task decomposition in `backlog/`.
 - The plain-language capability list in `docs/07-capabilities.md` — the scope document.
   If something is not there or in `backlog/milestones.md`, it is not in scope.
@@ -356,7 +374,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **662 tests passing** across 42 files, including **17 backup/restore tests that run a real
+- **698 tests passing** across 44 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -512,32 +530,61 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
     "The tab was open" is not "somebody knows" (INV-03).
 
 **What does not exist yet**
-- **A verified department structure.** 79 offices loaded flat, every seat defaulted to
-  `district` tier. **The escalation ladder walks tiers, so it cannot work correctly on this
-  data yet** (Q-18). This is the most consequential open gap in the registry.
-- **A schedule for the backup.** `runBackup` is written, tested and callable; wiring it to a
-  timer is a deployment decision that waits on P-08 (hosting).
-- **A performed restore drill (M0-38).** Now a scheduling problem, not an engineering one.
-- **The department board (M0-34) as a screen.** Already served — `buildBoard` scopes by the
-  caller's seat and the tests prove a station seat is never *sent* its neighbours' rows.
-  What is missing is a department-framed screen, not a second query. Do not write one.
-- **A department registry.** There is no `department` table — `seat.department_id` is a bare
-  uuid, so departments render as raw ids on every screen. Fine while one department exists;
-  it is the first thing M2's gate ("adding a fifth department is a configuration exercise")
-  will need.
-- No map, no officer directory, no reports, no alerts.
-- **A notification that reaches someone who is not looking at the app.** See above: the gap
-  is the *channel*, not the ledger. M3, blocked on Q-07.
-- **Any backup at all (M0-37), and therefore the restore drill (M0-38).** M0-38 is often
-  described as "needs a person, not code" — that is only half true. There is no scheduled
-  backup to restore *from* yet. M0-37 is code, and it comes first.
-- **CI (M0-04).** `npm run check` is green only because someone remembers to run it.
-- Correlation ids and request logging (M0-03). `/health` and structured process logs exist;
-  request correlation does not.
-- Verified domain research (department structures, contacts, seat hierarchies) —
-  see `docs/06-open-questions.md`. Everything domain-specific in these documents is
-  currently **assumption, not verified fact**.
-- The Place gazetteer for Bannu.
+
+> This list was rewritten on 2026-08-03. It had drifted badly — it still claimed CI, the
+> department registry, correlation ids and backups did not exist, when all four were built
+> and named as done elsewhere in this same file. **A gap list that names solved problems is
+> worse than none**, because the next session works from it and rebuilds what is there.
+
+**The one functional gap in the software**
+- **No department has a routing signal (R-04).** The matcher, the storage, the console screen
+  and the empty-`routed` event all exist and are tested — what does not exist is a single
+  configured signal. Until the district writes one, **every emergency lands unassigned** on
+  both administrative dashboards. That is the designed behaviour, not a bug, and it is loud
+  on purpose (ADR-0005). It is still the difference between a system that routes and one
+  that does not.
+
+**Real values, where a visible placeholder stands today** — all in §5b, none blocking
+- Rescue 1122's number (R-01), the 38 vacant posts (R-02), real acknowledgement deadlines
+  (R-03), and the six intake categories (R-14), which are **my guess** and are the vocabulary
+  every routing signal must match.
+
+**Built, and waiting on something that is not code**
+- **Off-site backup never leaves the building (R-06).** Nightly verified dumps have run since
+  2026-08-03 and the encrypt-and-upload path is tested; it **refuses to run without a bucket
+  and refuses to send anything unencrypted**. No copy has ever left the district, and
+  Administration → Backups says exactly that.
+- **One node, no standby (R-07, M0-54).** `/health` reports `role: "standalone"` and says
+  why. This is the largest remaining gap in ADR-0011: one machine holds Bannu's record.
+- **Nobody in Bannu has performed a restore (R-08, M0-38).** Different fact from "restore
+  works" — the round trip runs against a real cluster on every push. It needs a second
+  person, an hour and a stopwatch.
+- **The M1 gate's operator half (R-12).** I can prove it works; I cannot prove it is usable.
+
+**The one code item left**
+- **M0-11 payload versioning.** `payload_version` is on every row; there is no v2 reader,
+  and there is nothing for one to read until a payload v2 exists. Do not write it early.
+- ~~M0-05 secrets~~ — **done 2026-08-04.** The secret store is `app/.env` on the district's
+  own machine, **by decision rather than by default** (ADR-0007, ADR-0011): one server in the
+  DC office, operable by one person at 02:00. A secrets manager would add a network
+  dependency, an account and a renewal nobody watches, to protect a file on the same disk as
+  the database it unlocks. What that file needed was to be out of git, `chmod 600`, and
+  **checked at boot** — `src/config.ts`, whose rule is that a refusal is reserved for a
+  configuration that is broken or unsafe, and everything that merely leaves the district less
+  protected warns and keeps running. A process that will not start is a district that cannot
+  report an emergency.
+
+**Not gaps — decided against, do not "fix" these**
+- **The software sends no messages, ever** (ADR-0012 superseded, owner, 2026-08-03). An
+  officer not looking at the app is reached by a human who dials the number the app hands
+  them. **Q-07 is moot**: no channel is procured, so none can be missing. The in-app inbox
+  and the obligation ledger stay, and INV-03 is measured against them.
+- **No map and no Place gazetteer** (P-06, owner: *do not go to that depth*). Layered
+  location capture already works without one (M0-48).
+- **No second screen for large displays** (ADR-0013). One app, laid out by CSS. There was
+  one for half a day; reversing it is in the ADR.
+- **Language is English (R-09).** Urdu/Pashto is an open decision, not an omission — but it
+  decides whether right-to-left layout is needed, and that is much cheaper now than later.
 
 **Do not fake the database.** Tests run against real PostgreSQL, never a stub. The
 properties under test are durability and genuine immutability, and an in-memory fake
@@ -615,6 +662,47 @@ M0-19, both found by tests:
   `timingSafeEqual(empty, empty)` is `true`. A single corrupted hash row would have
   accepted **any password for that account**.
 
+**A null is not a scope. Never let "no department" mean "the district."** Found by the M5
+security review, 2026-08-04, and it is the third time this project has been bitten by an
+absent value being read as a permissive one — after the four-value `Tier` that defaulted every
+loaded post to `district`, and `navigator.onLine`.
+
+- `viewerFor` decided scope with `identity.isAdministration || identity.departmentId === null`.
+  **Two completely different callers satisfy that null**: a control-room seat, which should see
+  the district, and a person holding **no seat at all** — relieved of their post, or granted a
+  login and never given one. The second got the first's answer.
+- The blast radius was `GET /dashboard` (district counters, every department's performance row,
+  live emergencies) and `GET /status`, whose `listPresence(pool, null)` returns **every seat in
+  every department**. `/sync`, `/incidents`, `/admin`, `/roster`, `/notifications` and `/fleet`
+  had always refused a seatless caller; the two that had not were the two that leaked.
+- **Reachable by an ordinary act.** A handover relieves the outgoing holder, whose session is
+  deliberately not revoked because the seat is re-resolved per request (ADR-0004). That design
+  is meant to *narrow* authority the instant a post changes hands. Here it widened it.
+- **The test encoded the bug.** `dashboard.test.ts`'s own `officer()` helper defaulted to
+  `seatId: null, departmentId: null, tier: 'district'` — an identity the database cannot
+  produce — so every scoping assertion in the file was made against the exact shape that had
+  to be refused. Same failure as the old `Outbox.sync()` test. **A fixture that drifts from
+  the schema proves nothing**; derive it the way the database does, or seed a real row.
+- **The fix has two halves, and the second is the one that lasts:** `requireSeat` refuses a
+  seatless caller at the router, and `viewerFor` now keys on **tier**, which migration 0010's
+  trigger derives from the seat's office and no caller can assert. Tier says what the null
+  department only implied.
+
+**Rate limiting is still missing, and an account lockout is the wrong answer to it.** Open
+after the 2026-08-04 review, recorded here because the obvious fix is the harmful one.
+
+- **A lockout is a denial of service an attacker can aim at a named officer.** The district's
+  numbers are semi-public and the roster says who holds which post. Ten wrong passwords against
+  the Rescue duty officer's number at 01:50 would lock out exactly the person the system exists
+  to reach. **INV-01 outranks a failed-login counter**, the same way it outranks a stale backup.
+- **The real exposure is CPU, not guessing.** `/auth/login` is unauthenticated and performs a
+  scrypt derivation on every attempt — including for numbers with no account, deliberately, so
+  the response time reveals nothing. On one machine in the DC office that is also accepting
+  emergency reports, that is a cheap way to make the district stop answering.
+- The shape that fits this system: **progressive delay** per number and per source, a **cap on
+  concurrent scrypt work** so login can never starve intake, and attempts recorded where the
+  console can show them — **never** a state that stops a duty officer signing in.
+
 **Settled — do not reopen without the owner**
 - **No integration with government-issued systems.** The district runs this platform
   independently, by decision of the owner (2026-08-01). Q-01 and Q-02 are resolved. Do not
@@ -623,30 +711,39 @@ M0-19, both found by tests:
 - The live consequence: departments already using other systems face **double entry**.
   That is now the top adoption risk. It makes the 15-second rapid-intake budget a hard
   requirement rather than an aspiration, and makes bypass rate the metric that matters most.
+- **The export that decision promised now exists (2026-08-04).** `GET /export/incidents.csv`
+  returns every incident the caller may see, as a spreadsheet. **It is the board** — same
+  `buildBoard`, same seat, same authority — because a second query would eventually disagree
+  with the screen about a district's own emergencies, and then two documents would disagree.
+  It **refuses rather than truncating**: a short file is worse than no file, because nobody
+  counts rows before submitting a report upward. It carries **no citizen contact detail**
+  (capability 12) — true by construction, since `BoardRow` has never held one, and pinned by
+  a test so that adding one to the board cannot quietly add it to a file departments email
+  around. Every text field is neutralised against formula injection, because a department
+  name is operator-typed text and a spreadsheet executes a leading `=`.
+- **What that export still does not solve is R-17**: the actual forms departments submit
+  upward. A generic file leaves somebody retyping, which is the risk above in a smaller form.
 
 **Immediate next actions**
-1. **Q-18 — tiers, before anything else is built on this roster.** Every seat loaded from the
-   district's list is `district` tier because the source has no tier column, and the
-   escalation ladder walks tiers. **Escalation cannot work correctly on real data until this
-   is answered**, and the same gap makes `dutySeatFor` pick a department's duty seat
-   arbitrarily when it holds several posts. Needs the district, not code.
-2. **Rescue 1122's contact number.** The post is loaded vacant. M1 is entirely about Rescue
-   1122 and notifications reach a seat through its holder (Q-19).
-3. **M0-38 — the restore drill, by a second person.** No longer blocked on code: the runbook
-   is written for someone who did not build this, and every step in it has been executed by
-   the test suite against a real cluster. It needs an hour and a stopwatch.
-4. **Q-06 — real SLA targets, agreed with each department.** More urgent than it was: the
-   board renders "past deadline" from `PLACEHOLDER_SLA`, and the notification deadline now
-   sits under it too, so a guess has become something an operator reads as fact.
-5. **Q-07 — which notification channels actually work in Bannu.** Was an M3 question; it has
-   moved up, because in-app delivery does not reach an officer who is not looking at the app
-   and the ledger that would make SMS trustworthy is now built and waiting.
-6. **P-08 — hosting.** Now blocking something concrete rather than theoretical: the backup
-   exists and nothing schedules it, because where it runs decides how it is scheduled.
-7. Q-08 — the Place gazetteer for Bannu. M1 needs it, and it may already exist somewhere
-   (revenue records, PDMA mapping) — weeks of work versus a phone call.
-8. Q-04 (legal basis for citizen data) remains blocking **for the pilot**, not for the
-   build. Nothing before M4 touches real citizen data.
+
+Rewritten 2026-08-03. The previous list led with **Q-18** (answered by ADR-0010), **P-08**
+(answered, ADR-0011), **Q-07** (moot — the software sends nothing) and **Q-08** (dropped by
+the owner). All four were resolved and the list had not caught up. Kept short deliberately:
+the detail lives in §5b and **must not be copied here**.
+
+1. **R-04 — routing signals.** The single highest-value thing anyone can do, and it needs no
+   code. One signal on one department turns "every emergency is unassigned" into a system
+   that routes. Do **R-14** (confirm the six categories) in the same conversation — a signal
+   written against a category the district does not use is written against the wrong word.
+2. **Everything else waiting on the district is in
+   [`backlog/for-the-district.md`](backlog/for-the-district.md).** Work down it in any order.
+   The two with the longest tail are **R-06** (a bucket, so backups leave the building) and
+   **R-07** (the standby machine); the two needing only an hour of a person's time are
+   **R-08** (restore drill) and **R-12** (a Rescue operator walking the M1 gate).
+3. **In code, there are two items and neither is urgent:** M0-05 secrets, which the
+   deployment decides, and M0-11 payload versioning, which needs a payload v2 to exist first.
+4. **Q-04** (legal basis for citizen data) is answered for the build and remains a **pilot**
+   question: retention limits and read-access rules are still ours to design (R-11).
 
 ## 5b. What is waiting on the district
 
@@ -656,6 +753,14 @@ district's behalf that they may reverse.
 
 **Do not duplicate that list here.** Two copies of it would disagree within a week, which is
 the failure this whole project is built to avoid.
+
+**Two bookkeeping faults in that file were found and fixed on 2026-08-03.** `R-13` had named
+two different things, and `R-15` had been raised and never added. **The rule applied — and the
+one to apply again — is that the row given a number first keeps it**, because renumbering the
+older row invalidates whatever the owner has already written down. So `R-13` stays Rescue
+1122's response actions, the weather-point question became **`R-16`**, and `R-15` (tehsils,
+union councils, population, area) is on the list. The list now runs **R-01…R-16** with no
+gaps and no repeats; `ADR-0013` carries an amendment noting the renumber.
 
 **The standing rule, from the owner (2026-08-02):** *do not wait for any of it.* Build the
 place the answer goes, put a **visibly** fake placeholder in it, add a row to that file, and
@@ -683,8 +788,9 @@ Build with Claude/
 │   ├── 08-runbook.md          ← restore procedure, for whoever is on the phone at 02:00
 │   └── adr/                   ← architecture decision records
 │       ├── README.md          ← index and template
-│       └── ADR-0001..0012
+│       └── ADR-0001..0013     ← 0012 superseded; 0004 and 0013 amended in place
 ├── .github/workflows/ci.yml   ← CI (M0-04). Real Postgres 17, real Chromium, `npm run check`
+├── Department Contact Number.docx ← the district's list. Gitignored by `*.docx`. NEVER commit
 ├── app/                       ← the application
 │   ├── package.json           ← `npm run check` = typecheck + lint + format + test
 │   ├── tsconfig.json          ← strict; checks src, web/src and build.mjs
@@ -694,7 +800,11 @@ Build with Claude/
 │   ├── .prettierrc.json
 │   ├── .env.example           ← copy to .env; .env is gitignored, never commit it
 │   ├── build.mjs              ← esbuild for the web client → web/dist (gitignored)
-│   ├── db/migrations/         ← forward-only SQL. Correct a mistake by writing the next one
+│   ├── scripts/               ← these live under app/, not the top-level scripts/
+│   │   ├── reset-test-db.mjs  ← `npm run test:reset`. The local test DB drifts; this clears it
+│   │   ├── sweep.mjs          ← `npm run sweep` — the configuration sweep
+│   │   └── demo-data.mjs      ← `npm run demo` / `demo:clear`. All of it says "(demo)"
+│   ├── db/migrations/         ← forward-only SQL, 0001–0018. Correct a mistake by adding one
 │   ├── web/                   ← the PWA. ONE app: phone, laptop and office screen (ADR-0013)
 │   │   ├── index.html         ← app shell + all CSS. The palette is one block at the top
 │   │   ├── theme.css          ← shared tokens
@@ -714,19 +824,23 @@ Build with Claude/
 │       │   ├── authority.ts   ← the policy table as data (ADR-0003)
 │       │   ├── assumptions.ts ← what the system fills in when nobody said
 │       │   ├── routing.ts     ← signals → departments (ADR-0010). Never guesses
-│       │   ├── channels.ts    ← the notification ladder, as rules (ADR-0012)
+│       │   ├── notifications.ts ← obligations derived from state (M0-32, INV-03)
+│       │   ├── wall.ts        ← `wallSafetyViolations`. A violation FAILS the request
 │       │   ├── resources.ts   ← what a department can send, and whether it can now
 │       │   ├── report.ts      ← the post-incident report, folded from the log (M1-06)
 │       │   └── sla.ts         ← deadlines and the occurred/recorded split (ADR-0002)
 │       ├── db/                ← pool, migration runner, event store
+│       │   ├── eventStore.ts  ← append, load, cursor. NO update method, NO delete method
 │       │   ├── configStore.ts ← departments, signals, SLA targets + the config log (M1a)
+│       │   ├── resourceStore.ts ← vehicles, teams, equipment (M1-02). No status column
+│       │   ├── wallStore.ts   ← what the district says about its own condition
 │       │   └── rosterStore.ts ← who holds which post, and how to reach them (M1a-10)
 │       ├── auth/              ← scrypt passwords, seat-scoped sessions (M0-19)
-│       ├── jobs/              ← escalation scan, notification pass, scheduler (M0-29, 32)
+│       ├── jobs/              ← escalation.ts, notify.ts, scheduler.ts, nightly.ts
 │       ├── obs/               ← structured logs + correlation ids (M0-03)
-│       ├── channels/          ← WhatsApp, SMS, voice, GSM modem. Fakes until R-05
-│       ├── ops/               ← backup, restore, off-site upload, replication, evidence,
-│       │                        the configuration sweep, the department directory
+│       ├── ops/               ← backup, restore, offsite, replication, evidence,
+│       │                        integrity, weather, the department directory
+│       ├── config.ts         ← the boot configuration check (M0-05). Warns ≫ refuses
 │       ├── main.ts            ← process entry: API + client + escalation loop
 │       ├── api/               ← sync protocol and the node:http server
 │       │   ├── lifecycle.ts   ← commands: intake, triage, route, ack, close (M0-24…31)
@@ -737,18 +851,22 @@ Build with Claude/
 │       │   ├── dashboard.ts   ← the dashboard feed (M4). Scoped to whoever asked
 │       │   ├── status.ts      ← where the district states its own condition (M4)
 │       │   ├── contacts.ts    ← the numbers, so a human can ring them (M5). Sends nothing
+│       │   ├── exportCsv.ts   ← incidents out, as a spreadsheet. The board, not a 2nd query
+│       │   ├── report.ts      ← the post-incident report endpoint (M1-06)
+│       │   ├── resources.ts   ← dispatch and stand-down (M1-03)
+│       │   ├── evidenceRoutes.ts ← photographs and files (M1-05). Bytes on disk, hash in DB
+│       │   ├── backups.ts     ← Administration → Backups (M0-55). No restore-over-live
 │       │   └── notifications.ts ← the seat's inbox (M0-32). No inbox table either
-│       ├── ops/               ← backup, restore, off-site, replication, weather, integrity
 │       ├── outbox/            ← the offline substrate (ADR-0002)
 │       │   └── adapters/      ← IndexedDB store, HTTP transport, browser harness
-│       ├── __tests__/         ← spine.e2e.test.ts — THE M0 GATE
+│       ├── __tests__/         ← spine.e2e.test.ts — THE M0 GATE; m1gate.e2e.test.ts — M1's
 │       └── testing/           ← test setup, browser global types
 ├── scripts/
-│   ├── dev-db.ps1             ← start/stop the local Postgres
-│   ├── reset-test-db.mjs      ← `npm run test:reset` — the local test DB drifts; this clears it
-│   └── demo-data.mjs          ← `npm run demo` / `demo:clear`. Everything it writes says "(demo)"
+│   └── dev-db.ps1             ← start/stop the local Postgres
 ├── backlog/
 │   ├── milestones.md          ← M0–M5 with pass/fail gates
+│   ├── for-the-district.md    ← THE ONE LIST of what waits on the district. Never duplicate
+│   ├── week-of-2026-08-02.md  ← a week's working notes
 │   └── todos.md               ← live task list
 └── .claude/
     ├── settings.json          ← Stop hook wiring

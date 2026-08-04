@@ -24,6 +24,7 @@ import {
   type CommandKind,
 } from './lifecycle.js';
 import { buildBoard } from './board.js';
+import { buildExport, EXPORT_LIMIT } from './exportCsv.js';
 import { inbox, markSeen } from './notifications.js';
 import {
   addDepartment,
@@ -191,6 +192,30 @@ function json(res: ServerResponse, status: number, body: unknown): void {
     'cache-control': 'no-store',
   });
   res.end(text);
+}
+
+/**
+ * Authenticated, but holding no post: they may look at nothing and do nothing.
+ *
+ * Authority comes from the seat, never from the person (ADR-0004), and the seat is
+ * re-resolved from the roster on every request so that relieving somebody takes effect
+ * immediately. **The gap this closes is that "no seat" and "a seat with no department" both
+ * arrive here as a null department**, and the dashboard treated the pair as one thing — so a
+ * relieved officer was handed the district view instead of nothing. Losing a post widened
+ * what its former holder could see.
+ *
+ * One helper rather than the same four lines at each route, because the endpoints that were
+ * leaking are exactly the ones where somebody had not written those lines. Returns false
+ * having already answered the request.
+ */
+function requireSeat(res: ServerResponse, identity: Identity): boolean {
+  if (identity.seatId === null) {
+    json(res, 403, {
+      error: 'no current duty assignment; you hold no seat and cannot act',
+    });
+    return false;
+  }
+  return true;
 }
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -1210,6 +1235,62 @@ export function createSyncServer(options: ServerOptions): Server {
           return;
         }
 
+        /**
+         * Incidents out, as a spreadsheet (capability 9).
+         *
+         * The mitigation for the double entry that Q-01/Q-02 chose when the district decided
+         * to integrate with nothing. Same seat, same `buildBoard`, same authority — a second
+         * query would eventually disagree with the board about a district's own emergencies.
+         */
+        if (url.pathname === '/export/incidents.csv') {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+          if (!requireSeat(res, identity)) return;
+          if (req.method !== 'GET') {
+            json(res, 405, { error: 'method not allowed' });
+            return;
+          }
+
+          const seat = seatOf(identity);
+          if (seat === null) {
+            json(res, 403, { error: 'no current duty assignment; you hold no seat' });
+            return;
+          }
+
+          // Bounded rather than free: a range nobody chose is a range that grows until the
+          // export starts refusing, and 366 keeps a full year reachable.
+          const requested = Number(url.searchParams.get('days') ?? 30);
+          const days = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 366) : 30;
+
+          const board = await buildBoard(pool, seat, {
+            days,
+            // One more than the cap, so hitting it is detectable rather than assumed.
+            limit: EXPORT_LIMIT + 1,
+            includeClosed: true,
+          });
+
+          const reply = buildExport(board, days, board.incidents.length > EXPORT_LIMIT);
+
+          if (reply.status !== 200) {
+            json(res, reply.status, { error: reply.error });
+            return;
+          }
+
+          res.writeHead(200, {
+            'content-type': reply.contentType,
+            'content-length': Buffer.byteLength(reply.body),
+            'content-disposition': `attachment; filename="${reply.filename ?? 'incidents.csv'}"`,
+            'cache-control': 'no-store',
+          });
+          res.end(reply.body);
+          return;
+        }
+
         if (url.pathname === '/dashboard') {
           const token = readToken(req);
           const identity = token === null ? null : await resolveSession(pool, token);
@@ -1218,6 +1299,8 @@ export function createSyncServer(options: ServerOptions): Server {
             json(res, 401, { error: 'authentication required' });
             return;
           }
+
+          if (!requireSeat(res, identity)) return;
 
           writeDashboard(res, await handleDashboard(pool, req, identity));
           return;
@@ -1238,6 +1321,8 @@ export function createSyncServer(options: ServerOptions): Server {
             json(res, 401, { error: 'authentication required' });
             return;
           }
+
+          if (!requireSeat(res, identity)) return;
 
           const body = req.method === 'POST' ? await bodyOf(req) : null;
 
@@ -1323,14 +1408,7 @@ export function createSyncServer(options: ServerOptions): Server {
             return;
           }
 
-          // Authenticated but holding no seat: they may look at nothing and do nothing.
-          // Authority comes from the seat, never from the person (ADR-0004).
-          if (identity.seatId === null) {
-            json(res, 403, {
-              error: 'no current duty assignment; you hold no seat and cannot act',
-            });
-            return;
-          }
+          if (!requireSeat(res, identity)) return;
 
           await handleIncidents(
             pool,

@@ -316,6 +316,56 @@ describe.skipIf(dbUrl === undefined)('authentication (integration)', () => {
       expect(res.status).toBe(403);
     });
 
+    /**
+     * The same rule, on the two screens that were not applying it.
+     *
+     * `/sync` and `/incidents` had always refused a seatless caller. `/dashboard` and
+     * `/status` had not, and both decided their scope from `departmentId === null` — which is
+     * true of a control-room seat *and* of somebody holding no post at all. The second was
+     * therefore handed the first's answer: the whole district. Relieving an officer widened
+     * what they could see, which inverts the reason the seat is re-resolved every request.
+     *
+     * Asserted by direct HTTP, never through the UI (INV-05).
+     */
+    it('refuses a seatless caller the dashboard, rather than showing them the district', async () => {
+      const token = await tokenFor(seatlessPhone);
+
+      const res = await fetch(`${base}/dashboard`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toMatch(/no current duty assignment/);
+    });
+
+    it('refuses a seatless caller the status screen, which lists every seat on duty', async () => {
+      const token = await tokenFor(seatlessPhone);
+
+      const res = await fetch(`${base}/status`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('still serves the dashboard to a seat that holds no department', async () => {
+      // The case the leak was hiding behind, and it must keep working: a control-room post
+      // belongs to no department and the district *is* its work. What separates it from the
+      // caller above is that it holds a seat at all.
+      const phone = `+92300777${randomUUID().slice(0, 6)}`;
+      const personId = await makePerson('Control Room Officer', phone);
+      await assign(dcSeat, personId);
+
+      const res = await fetch(`${base}/dashboard`, {
+        headers: { authorization: `Bearer ${await tokenFor(phone)}` },
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { scope: string };
+      expect(body.scope).toBe('District');
+    });
+
     it('losing the duty assignment removes authority on the very next request', async () => {
       const phone = `+92300555${randomUUID().slice(0, 6)}`;
       const personId = await makePerson('Relieved Officer', phone);
