@@ -2383,3 +2383,72 @@ minutes at 02:00 has been locked out in every sense that matters.
   suite runs in 111s rather than 205s as a result — the drift had been quietly doubling it.
 
 - **Tests:** 715 → 730, 47 files. `npm run check` green.
+
+---
+
+## 2026-08-04 — Summaries, the report on paper, and the budget that caught it
+
+Three of the four things left on the list, and one finding that mattered more than any of them.
+
+### Added — "how did we do in July"
+
+- **`GET /summary?from=&to=`** and `src/api/summary.ts`. The console's performance table is a
+  rolling window of recent arrivals for the two offices; nobody could ask about a *period*.
+- It reuses all three moving parts rather than growing its own: **`loadIncidentsMatching`** for
+  the occurred-at window (a summary of July means emergencies that *happened* in July —
+  counting by arrival would move the district's worst nights into whichever month the network
+  came back), **`performanceOver`** for the medians, and **`evaluateRead`** per incident for the
+  scoping. `computePerformance` was split into selection and calculation to allow that — the
+  third time in this codebase, after `projectIncidents` and `incidentRow`, and the same reason
+  each time: **two ways of selecting is fine, two ways of calculating is not.**
+- **Scoped before anything is counted**, not filtered afterwards — a total built from the
+  district's numbers and then narrowed leaks through any aggregate somebody forgot (INV-05).
+- 5 tests. A first version asserted district totals were zero and found **199 incidents left
+  by other suites**: the local database is shared and never cleaned, so the assertions now sit
+  on freshly-created departments, whose rows contain only what these tests put in them.
+
+### Added — the post-incident report, on a screen and on paper
+
+- **`web/src/report.ts`.** M1-06 built the report and served it; **nothing in the client ever
+  called it** — the third endpoint this week with no door. Reached from the incident it is
+  about rather than from a tab, because nobody wants "a report", they want the report for the
+  emergency in front of them.
+- **The PDF is the browser's own print dialogue**, driven by `report.css`. ADR-0007 asks of
+  every dependency *who restarts this when it fails* — a PDF library is a rendering engine, a
+  font stack and a layout implementation that drifts from what the operator saw. A stylesheet
+  has none of those, works offline, and prints by construction the document that was on screen.
+- Printed white-on-black-text regardless of the control-room palette, headings kept with their
+  sections, entries kept off page breaks, and the navigation marked `noPrint` — a filed report
+  carrying a tab bar is one somebody has to explain.
+
+### The finding: the shell had one kilobyte of headroom and nothing had said so
+
+The M1 gate holds the shell — `app.js` + `index.html`, the artefact a field officer downloads
+at a scene — to **160 KB**, from `docs/00-thesis.md`. Adding the report screen took it to
+**167 KB** and the gate failed.
+
+Checking why showed the more useful fact: **it was already at 159 KB.** The search and export
+screens shipped the day before had quietly eaten almost all of it.
+
+**The answer was not a bigger budget.** CLAUDE.md already warns that a budget failing on
+something nobody downloads teaches everybody to raise it — but this one was measuring exactly
+the right thing, and it was right. An officer at a road accident has no use for a post-incident
+report or for full-history search, and **both need a connection to do anything at all**.
+
+So both became **their own entry points with their own stylesheets**, fetched on first use.
+The shell is back to **159 KB with two more screens in the product than before**.
+
+Deliberately **not** `splitting: true`: that needs ESM output and hashed chunk names, and the
+service worker names the shell's files explicitly so the app opens with no network (INV-01). A
+tidier build config is not worth trading a known offline boot for.
+
+- **The next 40 KB is `admin.ts`, `dashboard.ts`, `status.ts` and `roster.ts`** — every one an
+  office screen, every one still in the shell. That is the follow-up, and it is more than one
+  session's work.
+
+### Housekeeping
+
+- **The local test database was reset** — it had drifted to 333 departments against Bannu's 79.
+
+- **Tests:** 730 → 738, 48 files. Shell 159 KB / 160 KB. Rapid intake 1.9s / 15s. `npm run
+  check` green.

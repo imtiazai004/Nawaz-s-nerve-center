@@ -182,6 +182,70 @@ describe.skipIf(dbUrl === undefined)('searching the record, on a screen', () => 
     await page.waitForSelector('#detailView:not([hidden])');
   });
 
+  /**
+   * The post-incident report, and the PDF the scope list asks for.
+   *
+   * M1-06 built the report and served it at `GET /incidents/:id/report`. Like search and
+   * export, **nothing in the client ever called it** — an operator asked for a report had no
+   * way to get one. It is reached from the incident it is about rather than from a tab,
+   * because nobody wants "a report": they want the report for the emergency in front of them.
+   *
+   * The PDF is the browser's own print dialogue driven by a print stylesheet, so there is
+   * nothing to assert about the file itself — only that the document exists, says the true
+   * things, and that the navigation is marked not to print.
+   */
+  describe('the post-incident report', () => {
+    async function openReportFor(marker: string): Promise<string> {
+      const id = await seedIncident(marker);
+
+      await openSearch();
+      await page.fill('#searchText', marker);
+      await page.click('#searchForm button[type="submit"]');
+      await page.click(`#searchRows .row[data-incident="${id}"]`);
+      await page.waitForSelector('#detailView:not([hidden])');
+
+      await page.click('#detailReport');
+      await page.waitForSelector('#piReportView:not([hidden])');
+      await page.waitForFunction(() =>
+        (document.getElementById('piReportBody')?.textContent ?? '').includes('Incident'),
+      );
+
+      return id;
+    }
+
+    it('is reached from the incident, and folds without anything being typed', async () => {
+      const id = await openReportFor(`report-screen-${Date.now()}`);
+
+      const text = (await page.locator('#piReportBody').textContent()) ?? '';
+      expect(text).toContain(id);
+      expect(text).toMatch(/Post-incident report/);
+    });
+
+    /**
+     * The section a hand-written report always omits, and the one a review most needs.
+     *
+     * Printed always — including when there is nothing missing, because "we checked and found
+     * no gaps" and "nobody looked" must not read identically (ADR-0005).
+     */
+    it('always states what the record does not contain', async () => {
+      await openReportFor(`report-gaps-${Date.now()}`);
+
+      expect(await page.locator('#piReportBody').textContent()).toMatch(
+        /What this record does not contain/,
+      );
+    });
+
+    it('keeps the navigation off the printed page', async () => {
+      // The PDF is the browser's print of this screen. A printed page has no tab bar, and a
+      // report carrying one is a report somebody has to explain when they file it.
+      const marked = await page.evaluate(
+        () => document.getElementById('piReportActions')?.classList.contains('noPrint') ?? false,
+      );
+
+      expect(marked).toBe(true);
+    });
+  });
+
   describe('taking the record out', () => {
     it('offers the export from the board, as a real download link', async () => {
       await page.click('#navBoard');

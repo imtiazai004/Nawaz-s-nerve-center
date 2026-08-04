@@ -27,7 +27,6 @@ import { mountWorkspace, type Workspace } from './workspace.js';
 import { createDashboard, startClock } from './dashboard.js';
 import { mountStatus } from './status.js';
 import { ago, incidentRow } from './incidentRow.js';
-import { mountSearch } from './search.js';
 import { reachButton } from './contact.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -428,6 +427,7 @@ async function boot(): Promise<void> {
   const navMine = el<HTMLButtonElement>('navMine');
   const mineView = el('mineView');
   const searchView = el('searchView');
+  const piReportView = el('piReportView');
   const mineError = el('mineError');
   const mine: RosterPanel = mountRoster({
     container: el('mineBody'),
@@ -680,7 +680,8 @@ async function boot(): Promise<void> {
       | 'shift'
       | 'dashboard'
       | 'status'
-      | 'search',
+      | 'search'
+      | 'piReport',
   ): void {
     dashboardView.hidden = view !== 'dashboard';
     statusView.hidden = view !== 'status';
@@ -692,6 +693,7 @@ async function boot(): Promise<void> {
     mineView.hidden = view !== 'mine';
     shiftView.hidden = view !== 'shift';
     searchView.hidden = view !== 'search';
+    piReportView.hidden = view !== 'piReport';
 
     // Detail is reached from the board or the inbox, so whichever tab you came from stays
     // current while reading one.
@@ -714,8 +716,8 @@ async function boot(): Promise<void> {
     }
     if (view === 'dashboard') void dashboard.show();
     if (view === 'status') void statusPanel.show();
-    if (view === 'search') searchPanel.show();
-    if (view !== 'search') searchPanel.reset();
+    if (view === 'search') void openSearchScreen();
+    if (view !== 'search') searchPanel?.reset();
     if (view === 'shift' && identity !== null) {
       void shift.show({
         departmentId: identity.departmentId,
@@ -897,7 +899,134 @@ async function boot(): Promise<void> {
     boardFilter = null;
     applyBoardFilter();
   });
-  const searchPanel = mountSearch({ onOpen: (id) => void openDetail(id) });
+  /**
+   * Search, fetched on first use — the same reasoning as the report screen below.
+   *
+   * An officer standing at a scene is reporting an emergency, not looking one up. Search needs
+   * a connection to be of any use at all, so nothing is lost by fetching it when somebody
+   * actually opens it, and the shell stays small enough to arrive on a weak one.
+   */
+  let searchPanel: { show(): void; reset(): void } | null = null;
+
+  async function openSearchScreen(): Promise<void> {
+    if (searchPanel === null) {
+      const ok = await loadScreen('search', true);
+      const factory = (
+        window as unknown as {
+          DncSearch?: {
+            mountSearch: (o: { onOpen: (id: string) => void }) => {
+              show(): void;
+              reset(): void;
+            };
+          };
+        }
+      ).DncSearch;
+
+      if (!ok || factory === undefined) {
+        const error = el('searchError');
+        error.hidden = false;
+        error.textContent =
+          'Could not load the search screen. It is fetched when first needed, so it needs a ' +
+          'connection — as does searching the record.';
+        return;
+      }
+      searchPanel = factory.mountSearch({ onOpen: (id) => void openDetail(id) });
+    }
+    searchPanel.show();
+  }
+
+  /**
+   * Which incident the detail screen is showing.
+   *
+   * The screen had never needed this: it renders what it fetched and nothing asked it
+   * afterwards. The post-incident report does — it is reached *from* an incident, and it
+   * has to know which one to fold and which one Back returns to.
+   */
+  let openIncidentId: string | null = null;
+
+  /**
+   * The report screen, fetched the first time somebody asks for one.
+   *
+   * **Not imported.** It is built as its own file (see `build.mjs`) and kept out of the shell,
+   * because the shell is what a field officer downloads at a scene and an officer at a scene
+   * has no use for a post-incident report. The shell stood at **159 KB against a 160 KB
+   * budget** when this screen was written — the budget existed to make that visible and did,
+   * and the answer to it is not a bigger number.
+   *
+   * A failure to load is said plainly rather than left as a dead button. This screen needs a
+   * connection, and so does the report it folds.
+   */
+  let piReport: { show(incidentId: string): Promise<void> } | null = null;
+
+  /**
+   * Fetch a screen that is not part of the shell.
+   *
+   * Each of these is office work that always has a connection, so nothing is lost by fetching
+   * it on first use — and the shell stays the thing a field officer can download at a scene.
+   *
+   * Returns false rather than throwing. A screen that failed to arrive is a message, not a
+   * dead button: the caller says so in words, which is the same rule every other screen here
+   * follows when it cannot reach the server.
+   */
+  async function loadScreen(name: string, withCss: boolean): Promise<boolean> {
+    if (withCss && document.getElementById(`${name}Css`) === null) {
+      const css = document.createElement('link');
+      css.id = `${name}Css`;
+      css.rel = 'stylesheet';
+      css.href = `/${name}.css`;
+      document.head.append(css);
+    }
+
+    return new Promise<boolean>((resolve) => {
+      const tag = document.createElement('script');
+      tag.src = `/${name}.js`;
+      tag.onload = () => resolve(true);
+      tag.onerror = () => resolve(false);
+      document.head.append(tag);
+    });
+  }
+
+  async function loadReportScreen(): Promise<boolean> {
+    if (piReport !== null) return true;
+    if (!(await loadScreen('report', true))) return false;
+
+    const factory = (
+      window as unknown as {
+        DncReport?: { mountReport: () => { show(incidentId: string): Promise<void> } };
+      }
+    ).DncReport;
+
+    piReport = factory?.mountReport() ?? null;
+    return piReport !== null;
+  }
+
+  /** The incident whose report is on screen, so Back knows where to return. */
+  let piReportFor: string | null = null;
+
+  el('detailReport').addEventListener('click', () => {
+    if (openIncidentId === null) return;
+    const forIncident = openIncidentId;
+    piReportFor = forIncident;
+    showView('piReport');
+
+    void (async () => {
+      const ready = await loadReportScreen();
+      const error = el('piReportError');
+      if (!ready || piReport === null) {
+        error.hidden = false;
+        error.textContent =
+          'Could not load the report screen. It is fetched when first needed, so it needs a ' +
+          'connection — as does the report it folds.';
+        return;
+      }
+      await piReport.show(forIncident);
+    })();
+  });
+  el('piReportPrint').addEventListener('click', () => window.print());
+  el('piReportBack').addEventListener('click', () => {
+    if (piReportFor !== null) void openDetail(piReportFor);
+    else showView('board');
+  });
 
   navSearch.addEventListener('click', () => showView('search'));
   navStatus.addEventListener('click', () => showView('status'));
@@ -1207,6 +1336,7 @@ async function boot(): Promise<void> {
   }
 
   async function openDetail(incidentId: string): Promise<void> {
+    openIncidentId = incidentId;
     showView('detail');
     detailHead.textContent = 'Loading…';
     try {

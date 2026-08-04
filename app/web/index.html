@@ -462,26 +462,6 @@
         font-size: 0.85rem; font-weight: 600;
       }
 
-      /* Searching the record, and taking it out (capability 9). */
-      #searchForm {
-        display: flex; flex-direction: column; gap: 0.7rem;
-        margin: 0 0 1rem; padding: 0.9rem;
-        background: var(--card2); border-radius: 6px;
-      }
-      #searchForm label {
-        display: block; margin-bottom: 0.25rem;
-        font-size: 0.78rem; font-weight: 600; letter-spacing: 0.02em;
-        text-transform: uppercase; opacity: 0.75;
-      }
-      .searchRange { display: flex; gap: 0.7rem; flex-wrap: wrap; }
-      .searchRange > span { flex: 1 1 9rem; }
-      #searchForm input, #searchForm select { width: 100%; }
-      #searchForm button { align-self: flex-start; }
-      /* Its own line, never left for a full page of results to imply. */
-      #searchNote {
-        padding: 0.45rem 0.7rem; border-left: 3px solid var(--pending);
-        background: var(--card2); border-radius: 4px; font-size: 0.85rem;
-      }
       #boardExport {
         display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap;
         margin-top: 1rem; padding-top: 0.8rem; border-top: 1px solid var(--line);
@@ -1719,6 +1699,24 @@
       </section>
 
       <!--
+        The post-incident report (M1-06), and the PDF the scope list asks for.
+
+        The PDF is the browser's own Print → Save as PDF, driven by the print stylesheet.
+        A PDF library would be a rendering engine, a font stack and a layout implementation
+        that drifts from the screen — and ADR-0007 asks of every dependency who restarts it at
+        02:00. A stylesheet has no such question, works offline, and produces by construction
+        the same document the operator was just reading.
+      -->
+      <section id="piReportView" hidden>
+        <p id="piReportActions" class="noPrint">
+          <button type="button" id="piReportPrint">Print or save as PDF</button>
+          <button type="button" id="piReportBack">Back to the incident</button>
+        </p>
+        <p id="piReportError" hidden></p>
+        <article id="piReportBody"></article>
+      </section>
+
+      <!--
         Searching the record (capability 9).
 
         Rows here are built by the same renderer the board uses, so an emergency found in
@@ -1836,6 +1834,14 @@
       -->
       <section id="detailView" hidden>
         <button type="button" id="back">← Back to the board</button>
+        <!--
+          The post-incident report (M1-06), reached from the incident it is about.
+
+          Here rather than on its own tab because nobody wants "a report" — they want the
+          report for the emergency they are looking at, and a tab would ask them to find it
+          again by id, which is the gap search was built to close.
+        -->
+        <button type="button" id="detailReport">Post-incident report</button>
         <div id="detailHead"></div>
         <div id="detailValues" class="values"></div>
         <section id="timeline">

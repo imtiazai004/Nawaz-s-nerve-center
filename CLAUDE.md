@@ -149,7 +149,7 @@ that blocks release on failure.
 
 - **Milestone:** M4/M5 — **the product now looks and behaves like the district's own
   prototype**, on every size of screen.
-- **Phase:** Implementation. 730 tests pass on every push.
+- **Phase:** Implementation. 738 tests pass on every push.
 - **A cross-department read leak was found and closed by the M5 security review
   (2026-08-04).** `/dashboard` and `/status` decided their scope from `departmentId === null`,
   which is true both of a control-room seat *and* of somebody holding **no post at all** — so
@@ -376,7 +376,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **730 tests passing** across 47 files, including **17 backup/restore tests that run a real
+- **738 tests passing** across 48 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -750,6 +750,21 @@ The reasoning below is why, and it is the part to read before changing any const
   0019 indexes it. Board, export and search now share **one** projection (`projectIncidents`)
   and differ only in which incidents they select, so no two of them can describe the same
   emergency differently.
+- **The shell is now the binding constraint on the client, and office screens no longer ship
+  in it (2026-08-04).** The M1 gate holds the shell to 160 KB from `docs/00-thesis.md` — what a
+  field officer downloads at a scene on a weak connection. Adding the report screen pushed it
+  to 167 KB, and the gate caught it. **The budget was already at 159/160 before that**: one
+  kilobyte of headroom, which nothing had said out loud.
+  **The answer was not a bigger number.** An officer standing at a road accident has no use
+  for a post-incident report or for search, and both need a connection anyway — so both are
+  built as **their own entry points with their own stylesheets** (`report.js`/`report.css`,
+  `search.js`/`search.css`) and fetched on first use. The shell went back to **159 KB** with
+  two more screens in the product than before. **Not `splitting: true`**: that needs ESM output
+  and hashed chunk names, and the service worker names the shell's files explicitly so the app
+  opens with no network. A tidier build config is not worth trading a known offline boot for.
+  **The next 40 KB is sitting in `admin.ts`, `dashboard.ts`, `status.ts` and `roster.ts`** —
+  all office screens, all still in the shell. That is the follow-up, and it is bigger than one
+  night's work.
 - **Both got a screen the next day, and shipping without one was the mistake.** `/search` and
   `/export/incidents.csv` existed for a day with **nothing in the client calling either** —
   fully tested, CI green, and unreachable by any officer. **An endpoint with no door is not a
@@ -850,7 +865,8 @@ Build with Claude/
 │   │   └── src/contact.ts     ← "Reach them" (M5). Opens WhatsApp/dialler/SMS. Sends nothing
 │   │   └── src/words.ts       ← category names and durations, in one place
 │   │   └── src/incidentRow.ts ← ONE row renderer. Board and search, never two
-│   │   └── src/search.ts      ← the search screen. Always says what window it looked at
+│   │   └── src/search.ts      ← the search screen. LAZY — not in the shell
+│   │   └── src/report.ts      ← the post-incident report + the PDF. LAZY, with report.css
 │   │   └── src/workspace.ts   ← the shift screen (M1-01)
 │   │   └── src/admin.ts       ← the administration console (M1a). No authority lives here
 │   │   └── src/roster.ts      ← the roster (M1a-10). One component, two doors
@@ -890,6 +906,7 @@ Build with Claude/
 │       │   ├── status.ts      ← where the district states its own condition (M4)
 │       │   ├── contacts.ts    ← the numbers, so a human can ring them (M5). Sends nothing
 │       │   ├── exportCsv.ts   ← incidents out, as a spreadsheet. The board, not a 2nd query
+│       │   ├── summary.ts     ← what happened over a chosen period. Same medians as console
 │       │   ├── search.ts      ← full-history search. Ranges on occurred_at, never arrival
 │       │   ├── report.ts      ← the post-incident report endpoint (M1-06)
 │       │   ├── resources.ts   ← dispatch and stand-down (M1-03)

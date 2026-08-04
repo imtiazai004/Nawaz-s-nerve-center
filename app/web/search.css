@@ -1,0 +1,30 @@
+/*
+  The search screen's styling.
+
+  Out of index.html for the same reason search.js is out of app.js: the shell is what a field
+  officer downloads at a scene, and an officer at a scene is reporting an emergency, not
+  looking one up. Fetched when somebody opens the tab.
+
+  The export link's styling stays in the shell — it lives on the board, which is not lazy.
+*/
+
+/* Searching the record, and taking it out (capability 9). */
+#searchForm {
+  display: flex; flex-direction: column; gap: 0.7rem;
+  margin: 0 0 1rem; padding: 0.9rem;
+  background: var(--card2); border-radius: 6px;
+}
+#searchForm label {
+  display: block; margin-bottom: 0.25rem;
+  font-size: 0.78rem; font-weight: 600; letter-spacing: 0.02em;
+  text-transform: uppercase; opacity: 0.75;
+}
+.searchRange { display: flex; gap: 0.7rem; flex-wrap: wrap; }
+.searchRange > span { flex: 1 1 9rem; }
+#searchForm input, #searchForm select { width: 100%; }
+#searchForm button { align-self: flex-start; }
+/* Its own line, never left for a full page of results to imply. */
+#searchNote {
+  padding: 0.45rem 0.7rem; border-left: 3px solid var(--pending);
+  background: var(--card2); border-radius: 4px; font-size: 0.85rem;
+}

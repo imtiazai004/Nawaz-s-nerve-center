@@ -26,6 +26,7 @@ import {
 import { buildBoard } from './board.js';
 import { buildExport, EXPORT_LIMIT } from './exportCsv.js';
 import { search } from './search.js';
+import { districtSummaryFor } from './summary.js';
 import { LoginThrottle, sleep, withScryptSlot } from '../auth/throttle.js';
 import { inbox, markSeen } from './notifications.js';
 import {
@@ -1281,6 +1282,44 @@ export function createSyncServer(options: ServerOptions): Server {
           }
 
           writeContacts(res, await handleContacts(pool, req, url.pathname, identity));
+          return;
+        }
+
+        /**
+         * What happened over a chosen period (capability 9).
+         *
+         * The console's performance table is a rolling window of recent arrivals, for the two
+         * offices. This answers "how did we do in July", for whoever asks, scoped to what
+         * their seat may see — same medians, same authority, a window they choose.
+         */
+        if (url.pathname === '/summary') {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+          if (!requireSeat(res, identity)) return;
+          if (req.method !== 'GET') {
+            json(res, 405, { error: 'method not allowed' });
+            return;
+          }
+
+          const seat = seatOf(identity);
+          if (seat === null) {
+            json(res, 403, { error: 'no current duty assignment; you hold no seat' });
+            return;
+          }
+
+          json(
+            res,
+            200,
+            await districtSummaryFor(pool, seat, {
+              from: url.searchParams.get('from') ?? undefined,
+              to: url.searchParams.get('to') ?? undefined,
+            }),
+          );
           return;
         }
 
