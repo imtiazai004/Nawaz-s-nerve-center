@@ -2321,3 +2321,65 @@ declaring capability 9 answered rather than after.
   people will use it, and the honest way to settle them is to watch somebody try.
 
 - **Tests:** 708 → 715, 46 files. `npm run check` green.
+
+---
+
+## 2026-08-04 — Guessing is slowed. Nobody is ever locked out.
+
+The gap the security review left open, and the one where the obvious answer is the harmful one.
+
+`passwords.ts` sets a deliberately low ten-character minimum and justifies it by saying *"real
+protection here comes from rate limiting and instant revocation"*. Revocation existed. Rate
+limiting did not.
+
+### Decided — what this deliberately is not
+
+**An account lockout.** The district's numbers are semi-public and the roster says who holds
+which post. A lockout is a denial of service an attacker can aim at a **named officer**: ten
+wrong passwords against the Rescue duty officer's number at 01:50 would lock out precisely the
+person the system exists to reach, and they would find out at the moment it mattered. **INV-01
+outranks a failed-login counter**, exactly as it outranks a stale backup on `/health`.
+
+So nothing added here ever refuses. It delays, and the delay is **capped at five seconds** —
+because an uncapped backoff is a lockout wearing a different name. An officer facing four
+minutes at 02:00 has been locked out in every sense that matters.
+
+### Added
+
+- **`src/auth/throttle.ts`.** Four attempts free, then each costs more, to a hard ceiling.
+- **Two keys, because there are two attacks.** Per number catches somebody working on one
+  officer; per source catches one password sprayed across all 79 offices, where no single
+  number ever accumulates enough failures to be noticed. **A success clears the number and
+  deliberately not the source** — an attacker who finally guesses one weak password must not
+  have the evidence of the spray erased by the attack working.
+- **A cap on concurrent scrypt work.** The real exposure was never guessing, it was CPU:
+  `/auth/login` is unauthenticated and burns a deliberately-expensive derivation per request,
+  *including for numbers with no account* — which is on purpose, so response time reveals
+  nothing. On one machine in the DC office that is also accepting emergency reports, that is a
+  cheap way to make the district stop answering. Login can now queue for the CPU; intake never
+  waits behind it (INV-01). Saturation answers 503 with `Retry-After` — transient, about the
+  server, never a state attached to anybody's account.
+- 15 tests. The ones that matter assert **bounds**, not speed: the throttle never refuses
+  however many failures pile up, the delay is capped, an honest fumble is not slowed at all,
+  and — over real HTTP — **the real officer still signs in after a sustained run of wrong
+  passwords**, in under eight seconds, asserted where somebody changing a constant will see it.
+
+### Two things that would have quietly broken it
+
+- **The source is taken from the socket, never from `X-Forwarded-For`.** That header is written
+  by whoever is asking, so trusting it would let an attacker send a different value on every
+  request and never accumulate a single failure. **A rate limiter an attacker can opt out of is
+  worse than none, because it is believed.** If a reverse proxy is ever put in front of this,
+  that is the line to change, deliberately, with the proxy's address pinned.
+- **`withScryptSlot` returns a discriminated result, not `T | null`.** `login` already returns
+  null for a wrong password, so collapsing the two would make "the server is busy" and "that
+  password is wrong" the same value — and the caller would have to guess, which ends with a
+  failed sign-in counted as an attack or an attack counted as a typo. Caught while wiring it,
+  after a first version that used a `null` sentinel and a load heuristic to tell them apart.
+
+### Housekeeping
+
+- **The local test database was reset.** It had drifted to 333 departments; Bannu has 79. The
+  suite runs in 111s rather than 205s as a result — the drift had been quietly doubling it.
+
+- **Tests:** 715 → 730, 47 files. `npm run check` green.

@@ -302,6 +302,64 @@ describe.skipIf(dbUrl === undefined)('authentication (integration)', () => {
     });
   });
 
+  /**
+   * The guarantee the throttle exists to keep, asserted over real HTTP.
+   *
+   * `throttle.test.ts` proves the arithmetic. This proves the thing that matters at 02:00:
+   * after a sustained run of wrong passwords against a named officer's number, **that officer
+   * can still sign in.** If this ever fails, somebody has turned the delay into a lockout, and
+   * the district's semi-public numbers have become a way to take duty officers offline one at
+   * a time.
+   */
+  describe('guessing is slowed, never blocked', () => {
+    it('lets the real officer in after a sustained run of wrong passwords', async () => {
+      // Ten, not a hundred. Each further failure costs more, so a longer run in a test
+      // measures the delay curve rather than the property under test — and the property is
+      // binary: does the officer still get in.
+      for (let i = 0; i < 10; i += 1) {
+        const wrong = await fetch(`${base}/auth/login`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ phone: rescuePhone, password: `wrong-${String(i)}` }),
+        });
+        expect(wrong.status).toBe(401);
+      }
+
+      const started = Date.now();
+      const real = await fetch(`${base}/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ phone: rescuePhone, password: PASSWORD }),
+      });
+      const waited = Date.now() - started;
+
+      expect(real.status).toBe(200);
+      expect(((await real.json()) as { token: string }).token.length).toBeGreaterThan(0);
+
+      /**
+       * "Not a lockout", stated as a number.
+       *
+       * A delay with no ceiling is a lockout wearing a different name — an officer facing four
+       * minutes at 02:00 has been locked out in every sense that matters. This is the ceiling,
+       * asserted where somebody changing the constants will see it fail.
+       */
+      expect(waited).toBeLessThan(8_000);
+    }, 60_000);
+
+    it('still says nothing about which numbers are real', async () => {
+      // The delay attaches to the attempt, never to whether the account exists — so a
+      // throttled unknown number and a throttled real one answer identically.
+      const unknown = await fetch(`${base}/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ phone: '+920000000000', password: 'nope' }),
+      });
+
+      expect(unknown.status).toBe(401);
+      expect((await unknown.json()) as { error: string }).toEqual({ error: 'invalid credentials' });
+    });
+  });
+
   describe('authority comes from the seat, not the person (ADR-0004)', () => {
     it('an authenticated person holding no seat may sign in but not act', async () => {
       const token = await tokenFor(seatlessPhone);

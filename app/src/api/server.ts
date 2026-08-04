@@ -26,6 +26,7 @@ import {
 import { buildBoard } from './board.js';
 import { buildExport, EXPORT_LIMIT } from './exportCsv.js';
 import { search } from './search.js';
+import { LoginThrottle, sleep, withScryptSlot } from '../auth/throttle.js';
 import { inbox, markSeen } from './notifications.js';
 import {
   addDepartment,
@@ -1061,6 +1062,17 @@ export function createSyncServer(options: ServerOptions): Server {
   const backupDirectory = options.backupDirectory ?? join(process.cwd(), 'var', 'backups');
 
   /**
+   * Per server, not per module.
+   *
+   * A module-level singleton would be shared by every server a test file starts, so one
+   * suite's failed sign-ins would slow another's — and a test that mysteriously got slower
+   * depending on what ran before it is a test people delete.
+   */
+  const throttle = new LoginThrottle();
+  const throttleSweep = setInterval(() => throttle.sweep(), 5 * 60 * 1000);
+  throttleSweep.unref();
+
+  /**
    * Read at request time, never at construction.
    *
    * `main.ts` builds the server before it builds the backup job, so it passes a getter — and
@@ -1143,13 +1155,49 @@ export function createSyncServer(options: ServerOptions): Server {
             return;
           }
 
-          const result = await login(pool, body.phone, body.password);
+          /**
+           * The source, taken from the socket and **never from a header**.
+           *
+           * `X-Forwarded-For` is written by whoever is asking. Trusting it here would let an
+           * attacker send a different value on every request and never accumulate a single
+           * failure — a rate limiter that an attacker can opt out of is worse than none,
+           * because it is believed. ADR-0011 puts this on one machine in the DC office; if a
+           * reverse proxy is ever put in front of it, this is the line that has to change,
+           * deliberately and with the proxy's own address pinned.
+           */
+          const source = req.socket.remoteAddress ?? 'unknown';
+
+          // Read *before* the password is checked, so the delay attaches to the attempt and
+          // cannot depend on whether the account exists. A delay that appeared only for real
+          // numbers would be exactly the timing oracle `login` avoids by always hashing.
+          const { delayMs } = throttle.decide(body.phone, source);
+          await sleep(delayMs);
+
+          // Bounded scrypt work. An emergency report must never queue behind a flood of
+          // sign-in attempts on the district's one machine (INV-01).
+          const phone = body.phone;
+          const password = body.password;
+          const slot = await withScryptSlot(() => login(pool, phone, password));
+
+          if (!slot.ran) {
+            // Transient, and about the server rather than about anybody's account. Never a
+            // state that follows an officer around — that is the lockout this design refuses.
+            res.setHeader('retry-after', '5');
+            json(res, 503, { error: 'too many sign-in attempts at once — try again in a moment' });
+            return;
+          }
+
+          const result = slot.value;
+
           if (result === null) {
+            throttle.fail(phone, source);
             // One message for every failure. Distinguishing "no such number" from "wrong
             // password" hands an attacker the list of real officers.
             json(res, 401, { error: 'invalid credentials' });
             return;
           }
+
+          throttle.succeed(phone);
 
           res.setHeader(
             'set-cookie',

@@ -149,7 +149,7 @@ that blocks release on failure.
 
 - **Milestone:** M4/M5 — **the product now looks and behaves like the district's own
   prototype**, on every size of screen.
-- **Phase:** Implementation. 715 tests pass on every push.
+- **Phase:** Implementation. 730 tests pass on every push.
 - **A cross-department read leak was found and closed by the M5 security review
   (2026-08-04).** `/dashboard` and `/status` decided their scope from `departmentId === null`,
   which is true both of a control-room seat *and* of somebody holding **no post at all** — so
@@ -161,12 +161,14 @@ that blocks release on failure.
   20 MB off disk plus a SHA-256, then the refusal — on the one machine that is also taking
   emergency reports. `upload` had always stated the opposite rule for itself. Fixed by looking
   up the row first, authorising, and only then touching the disk.
-- **There is no rate limiting anywhere, and `/auth/login` runs scrypt unauthenticated**
-  (same review, **open**). `passwords.ts` sets a deliberately low 10-character minimum and
-  justifies it by saying *"real protection here comes from rate limiting"* — which does not
-  exist. The sharper risk is not guessing but **CPU**: every login attempt costs a scrypt
-  derivation, including for numbers that do not exist (deliberate, to avoid a timing oracle).
-  **Do not answer this with an account lockout** — see §7.
+- **Rate limiting existed nowhere, and now does** (`auth/throttle.ts`, closed 2026-08-04).
+  `passwords.ts` had set a deliberately low 10-character minimum and justified it by saying
+  *"real protection here comes from rate limiting and instant revocation"* — revocation
+  existed, the other half did not. The sharper risk was never guessing but **CPU**: every
+  attempt costs a scrypt derivation, including for numbers with no account (deliberate, to
+  avoid a timing oracle), on the one machine also accepting emergency reports. **It is a
+  delay and never a lockout, and the reasoning in §7 is the part to read before changing any
+  constant in that file.**
 - **M0, M1a and M1 are done; M3's notification work and M0's operations work landed with
   them (2026-08-03).** One emergency now goes from a field officer's handset to a
   post-incident report with nothing stubbed — see `src/__tests__/m1gate.e2e.test.ts`, which
@@ -374,7 +376,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **715 tests passing** across 46 files, including **17 backup/restore tests that run a real
+- **730 tests passing** across 47 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -688,8 +690,8 @@ loaded post to `district`, and `navigator.onLine`.
   trigger derives from the seat's office and no caller can assert. Tier says what the null
   department only implied.
 
-**Rate limiting is still missing, and an account lockout is the wrong answer to it.** Open
-after the 2026-08-04 review, recorded here because the obvious fix is the harmful one.
+**Rate limiting exists now (2026-08-04), and it is a delay — never a lockout.** `auth/throttle.ts`.
+The reasoning below is why, and it is the part to read before changing any constant in that file.
 
 - **A lockout is a denial of service an attacker can aim at a named officer.** The district's
   numbers are semi-public and the roster says who holds which post. Ten wrong passwords against
@@ -699,9 +701,24 @@ after the 2026-08-04 review, recorded here because the obvious fix is the harmfu
   scrypt derivation on every attempt — including for numbers with no account, deliberately, so
   the response time reveals nothing. On one machine in the DC office that is also accepting
   emergency reports, that is a cheap way to make the district stop answering.
-- The shape that fits this system: **progressive delay** per number and per source, a **cap on
-  concurrent scrypt work** so login can never starve intake, and attempts recorded where the
-  console can show them — **never** a state that stops a duty officer signing in.
+- The shape that fits this system, and the shape that was built: **progressive delay** per
+  number *and* per source, a **cap on concurrent scrypt work** so login can never starve
+  intake, and counters that name nobody — **never** a state that stops a duty officer signing
+  in. Four attempts are free; past that each costs more, to a **hard ceiling of five seconds**,
+  because an uncapped backoff is a lockout wearing a different name.
+- **Two keys, because there are two attacks.** Per number catches somebody working on one
+  officer; per source catches one password sprayed across all 79 offices, where no single
+  number ever accumulates enough failures to be noticed. A success clears the **number** and
+  deliberately not the source: an attacker who finally guesses one weak password must not have
+  the evidence of the spray erased by the attack working.
+- **The source comes from the socket, never from `X-Forwarded-For`.** That header is written by
+  whoever is asking, so trusting it would let an attacker send a different value every request
+  and never accumulate a failure. **A rate limiter an attacker can opt out of is worse than
+  none, because it is believed.** If a reverse proxy is ever put in front of this, that is the
+  line to change, deliberately, with the proxy's own address pinned.
+- **In memory, per server.** ADR-0011 deploys one node; a table would mean a write per failed
+  attempt, adding load exactly when under load. A restart clears the counters and costs an
+  attacker one restart's worth of delay, which is not the difference between safe and unsafe.
 
 **Settled — do not reopen without the owner**
 - **No integration with government-issued systems.** The district runs this platform
@@ -856,6 +873,7 @@ Build with Claude/
 │       │   ├── wallStore.ts   ← what the district says about its own condition
 │       │   └── rosterStore.ts ← who holds which post, and how to reach them (M1a-10)
 │       ├── auth/              ← scrypt passwords, seat-scoped sessions (M0-19)
+│       │   └── throttle.ts    ← login delay + scrypt cap. A delay, NEVER a lockout
 │       ├── jobs/              ← escalation.ts, notify.ts, scheduler.ts, nightly.ts
 │       ├── obs/               ← structured logs + correlation ids (M0-03)
 │       ├── ops/               ← backup, restore, offsite, replication, evidence,
