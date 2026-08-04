@@ -2273,3 +2273,51 @@ An over-wide range is **clamped, not refused** — somebody asking for ten years
 there is, and an error teaches them to stop using search rather than to pick a better date.
 
 - **Tests:** 698 → 708, 45 files. `npm run check` green.
+
+---
+
+## 2026-08-04 — Two capabilities that no officer could reach
+
+`/search` and `/export/incidents.csv` had shipped the day before: written, tested, CI green —
+and with **nothing in the client calling either of them.** No tab, no button, no link. Every
+test passed and no officer in Bannu could do either thing.
+
+**An endpoint with no door is not a capability.** It is the shape that lets a scope list look
+complete while the district still cannot do the work, and it was mine to notice before
+declaring capability 9 answered rather than after.
+
+### Added
+
+- **A Search tab**, with the words box, a happened-after/happened-before range and a status
+  filter. The dates say *happened*, not *recorded*, on the label as well as in the query.
+- **An export link on the board** — a plain `<a download>`, because the browser already knows
+  how to download a file and a fetch-and-blob would only take that away from it. It says what
+  it is next to it: opens in Excel, carries no reporter's name, number or location.
+- **`web/src/incidentRow.ts` — one row renderer**, moved out of `main.ts` and now used by the
+  board and by search. The same reason `projectIncidents` was split out of `buildBoard`: one
+  projection on the server deserves one renderer on the client. Two would drift within a month
+  and then an emergency would read `unassessed` on one screen and something else on the other
+  (INV-04), or show its unmet notification on the board and silently not in the search result
+  somebody found it through (INV-03). A browser test asserts the two rows are **byte-identical**.
+- **7 browser tests**, in real Chromium. The one that matters most is that a search finding
+  nothing **says what window it looked at** — "nothing matched" and "nothing matched in the
+  fortnight you happened to pick" are different statements about the district, and an operator
+  reading the first when the truth is the second concludes an emergency never happened.
+  ADR-0005, applied to a query.
+
+### Changed
+
+- **`/search` and `/export` added to the service worker's `NEVER_CACHE`** — from the day they
+  shipped, unlike `/dashboard` and `/status`, which had to be added after the fact. A cached
+  search is a cached board arriving by a route that looks harmless, and it is often the *last*
+  look somebody takes before writing a post-incident report, so a stale one becomes a stale
+  document. A cached CSV is worse: it leaves the building, gets emailed on, and is read months
+  later by somebody with no way to know when it was true.
+
+### Open
+
+- The Search tab is offered to everybody signed in and scoped server-side, like the board. It
+  has no results-per-page control and no sort — deliberate for now; both are guesses about how
+  people will use it, and the honest way to settle them is to watch somebody try.
+
+- **Tests:** 708 → 715, 46 files. `npm run check` green.

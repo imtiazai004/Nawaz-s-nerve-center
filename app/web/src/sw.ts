@@ -65,6 +65,20 @@ const NEVER_CACHE = [
   '/dashboard',
   '/status',
   '/contacts',
+  /**
+   * `/search` and `/export` — here from the day they shipped, unlike the two above.
+   *
+   * A cached search is the same failure as a cached board, arriving by a route that looks
+   * harmless: somebody searches for an incident, gets last week's answer, and reads it as the
+   * state of the district today. Worse, a search is often the *last* look somebody takes
+   * before writing a post-incident report, so a stale one becomes a stale document.
+   *
+   * The export is the same argument with a longer life. A cached CSV is a stale file that
+   * leaves the building, gets emailed on, and is read months later by somebody with no way to
+   * know when it was actually true.
+   */
+  '/search',
+  '/export',
 ];
 
 function isNeverCache(url: URL): boolean {

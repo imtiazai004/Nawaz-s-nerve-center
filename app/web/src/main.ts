@@ -26,7 +26,8 @@ import { mountRoster, type RosterPanel } from './roster.js';
 import { mountWorkspace, type Workspace } from './workspace.js';
 import { createDashboard, startClock } from './dashboard.js';
 import { mountStatus } from './status.js';
-import { categoryWords, duration } from './words.js';
+import { ago, incidentRow } from './incidentRow.js';
+import { mountSearch } from './search.js';
 import { reachButton } from './contact.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -351,6 +352,7 @@ async function boot(): Promise<void> {
   const nav = el('nav');
   const navReport = el<HTMLButtonElement>('navReport');
   const navBoard = el<HTMLButtonElement>('navBoard');
+  const navSearch = el<HTMLButtonElement>('navSearch');
   const reportView = el('reportView');
   const boardView = el('boardView');
   const boardAsOfText = el('boardAsOfText');
@@ -425,6 +427,7 @@ async function boot(): Promise<void> {
 
   const navMine = el<HTMLButtonElement>('navMine');
   const mineView = el('mineView');
+  const searchView = el('searchView');
   const mineError = el('mineError');
   const mine: RosterPanel = mountRoster({
     container: el('mineBody'),
@@ -480,14 +483,7 @@ async function boot(): Promise<void> {
   /** Beyond this the board is openly called stale rather than shown as if it were live. */
   const BOARD_STALE_MS = 30_000;
 
-  function ago(iso: string | null, from: number): string {
-    if (iso === null) return '—';
-    const mins = Math.floor((from - Date.parse(iso)) / 60_000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    return hours < 24 ? `${hours}h ${mins % 60}m ago` : `${Math.floor(hours / 24)}d ago`;
-  }
+
 
   function tally(kind: string, label: string, value: string): HTMLElement {
     const box = document.createElement('div');
@@ -605,73 +601,7 @@ async function boot(): Promise<void> {
 
     // Applied again at the end of this function: the board polls every ten seconds, and a
     // repaint that forgot the filter would silently widen the view under somebody's eye.
-    boardRows.replaceChildren(
-      ...data.incidents.map((row) => {
-        const div = document.createElement('div');
-        div.className = 'row';
-        div.dataset['overdue'] = String(row.overdue);
-        div.dataset['unassigned'] = String(row.unassigned);
-        div.dataset['incident'] = row.incidentId;
-        // What the dashboard filters on when somebody arrives from one of its panels.
-        div.dataset['category'] = row.category;
-        div.dataset['departments'] = row.responsibleDepartments.join('');
-
-        const sev = document.createElement('span');
-        sev.className = 'sev';
-        sev.dataset['level'] = row.severity;
-        // The word carries the meaning; the colour only repeats it (INV-04). "Unassessed"
-        // is spelled out rather than shown as a level nobody chose.
-        sev.textContent = row.assessed ? row.severity : 'unassessed';
-
-        const cat = document.createElement('span');
-        cat.className = 'cat';
-        cat.textContent = categoryWords(row.category);
-        if (row.overriddenFrom !== null) {
-          const note = document.createElement('span');
-          note.className = 'meta';
-          note.textContent = ` (overridden from ${row.overriddenFrom})`;
-          cat.append(note);
-        }
-
-        const state = document.createElement('span');
-        state.className = 'state';
-        state.textContent =
-          row.acknowledgedAt !== null
-            ? row.status
-            : row.overdue
-              ? `unacknowledged · ${duration(row.overdueByMinutes)} past deadline`
-              : 'unacknowledged';
-        if (row.overdue) state.classList.add('flag');
-
-        const meta = document.createElement('span');
-        meta.className = 'meta';
-        // Whose incident it is, by name (M0-51). "Not yet routed" is said out loud rather
-        // than left blank — an unrouted emergency is a state somebody has to act on.
-        const who =
-          row.responsibleDepartments.length > 0
-            ? row.responsibleDepartments.join(', ')
-            : 'not yet routed';
-        meta.textContent = `${who} · ${ago(row.occurredAt, at)}${
-          row.escalationCount > 0 ? ` · escalated ${row.escalationCount}×` : ''
-        }`;
-
-        div.append(sev, cat, state, meta);
-
-        // Spelled out, on the row, next to the incident it concerns. A count in a corner
-        // tells you the district has a problem; this tells you which incident nobody is
-        // coming to (INV-03).
-        if (row.notificationsFailed > 0 || row.notificationsUndelivered > 0) {
-          const unmet = document.createElement('span');
-          unmet.className = 'flag unmet';
-          unmet.textContent =
-            row.notificationsFailed > 0
-              ? `could not notify the duty seat (${row.notificationsFailed})`
-              : `notified, nobody has picked it up (${row.notificationsUndelivered})`;
-          div.append(unmet);
-        }
-        return div;
-      }),
-    );
+    boardRows.replaceChildren(...data.incidents.map((row) => incidentRow(row, at)));
 
     boardEmpty.hidden = data.incidents.length > 0;
     boardFetchedAt = Date.now();
@@ -740,7 +670,17 @@ async function boot(): Promise<void> {
   }
 
   function showView(
-    view: 'report' | 'board' | 'detail' | 'inbox' | 'admin' | 'mine' | 'shift' | 'dashboard' | 'status',
+    view:
+      | 'report'
+      | 'board'
+      | 'detail'
+      | 'inbox'
+      | 'admin'
+      | 'mine'
+      | 'shift'
+      | 'dashboard'
+      | 'status'
+      | 'search',
   ): void {
     dashboardView.hidden = view !== 'dashboard';
     statusView.hidden = view !== 'status';
@@ -751,6 +691,7 @@ async function boot(): Promise<void> {
     adminView.hidden = view !== 'admin';
     mineView.hidden = view !== 'mine';
     shiftView.hidden = view !== 'shift';
+    searchView.hidden = view !== 'search';
 
     // Detail is reached from the board or the inbox, so whichever tab you came from stays
     // current while reading one.
@@ -762,6 +703,7 @@ async function boot(): Promise<void> {
     navShift.setAttribute('aria-current', view === 'shift' ? 'page' : 'false');
     navDashboard.setAttribute('aria-current', view === 'dashboard' ? 'page' : 'false');
     navStatus.setAttribute('aria-current', view === 'status' ? 'page' : 'false');
+    navSearch.setAttribute('aria-current', view === 'search' ? 'page' : 'false');
 
     // Polling stops the moment the operator leaves. A background refresh against a screen
     // nobody is looking at is a request the district's one server did not need to serve.
@@ -772,6 +714,8 @@ async function boot(): Promise<void> {
     }
     if (view === 'dashboard') void dashboard.show();
     if (view === 'status') void statusPanel.show();
+    if (view === 'search') searchPanel.show();
+    if (view !== 'search') searchPanel.reset();
     if (view === 'shift' && identity !== null) {
       void shift.show({
         departmentId: identity.departmentId,
@@ -953,6 +897,9 @@ async function boot(): Promise<void> {
     boardFilter = null;
     applyBoardFilter();
   });
+  const searchPanel = mountSearch({ onOpen: (id) => void openDetail(id) });
+
+  navSearch.addEventListener('click', () => showView('search'));
   navStatus.addEventListener('click', () => showView('status'));
   el('back').addEventListener('click', () => showView('board'));
 

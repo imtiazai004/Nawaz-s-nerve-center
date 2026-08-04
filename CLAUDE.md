@@ -149,7 +149,7 @@ that blocks release on failure.
 
 - **Milestone:** M4/M5 — **the product now looks and behaves like the district's own
   prototype**, on every size of screen.
-- **Phase:** Implementation. 708 tests pass on every push.
+- **Phase:** Implementation. 715 tests pass on every push.
 - **A cross-department read leak was found and closed by the M5 security review
   (2026-08-04).** `/dashboard` and `/status` decided their scope from `departmentId === null`,
   which is true both of a control-room seat *and* of somebody holding **no post at all** — so
@@ -374,7 +374,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **708 tests passing** across 45 files, including **17 backup/restore tests that run a real
+- **715 tests passing** across 46 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -733,6 +733,14 @@ after the 2026-08-04 review, recorded here because the obvious fix is the harmfu
   0019 indexes it. Board, export and search now share **one** projection (`projectIncidents`)
   and differ only in which incidents they select, so no two of them can describe the same
   emergency differently.
+- **Both got a screen the next day, and shipping without one was the mistake.** `/search` and
+  `/export/incidents.csv` existed for a day with **nothing in the client calling either** —
+  fully tested, CI green, and unreachable by any officer. **An endpoint with no door is not a
+  capability**, and "it's in the API" is the shape that lets a scope list look complete while
+  the district cannot do the thing. Search is a tab; export is a plain download link on the
+  board. The row renderer is now shared too (`web/src/incidentRow.ts`) — one projection on the
+  server deserves one renderer on the client, or an incident found in March reads differently
+  from the same incident live.
 
 **Immediate next actions**
 
@@ -824,6 +832,8 @@ Build with Claude/
 │   │   └── src/status.ts      ← where the district states its own condition (M4)
 │   │   └── src/contact.ts     ← "Reach them" (M5). Opens WhatsApp/dialler/SMS. Sends nothing
 │   │   └── src/words.ts       ← category names and durations, in one place
+│   │   └── src/incidentRow.ts ← ONE row renderer. Board and search, never two
+│   │   └── src/search.ts      ← the search screen. Always says what window it looked at
 │   │   └── src/workspace.ts   ← the shift screen (M1-01)
 │   │   └── src/admin.ts       ← the administration console (M1a). No authority lives here
 │   │   └── src/roster.ts      ← the roster (M1a-10). One component, two doors
