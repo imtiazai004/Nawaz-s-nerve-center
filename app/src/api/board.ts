@@ -23,6 +23,7 @@ import {
   isAssessed,
   severityRank,
   type AssessedSeverity,
+  type IncidentEvent,
   type Instant,
   type Severity,
   type Uuid,
@@ -86,6 +87,24 @@ export interface BoardRow {
   readonly unassigned: boolean;
   /** The acknowledgement deadline actually applied to this row, in minutes. */
   readonly targetMinutes: number;
+
+  /**
+   * The three flags the dashboard's district counters are clickable through.
+   *
+   * **Decided here, on the server, and never recomputed by a screen.** Each of these answers
+   * exactly the question one counter asks, and the counter and the rows it leads to are folded
+   * from the same events in the same pass — so a counter reading 5 lands on 5 rows, always.
+   *
+   * A client-side predicate would be a second implementation of each rule, and the first one
+   * to drift would put a number on the district's home screen that its own board disagrees
+   * with. `occurredToday` in particular cannot be redone safely on a client at all: it is
+   * measured against **the server's midnight**, and a handset with a different timezone would
+   * quietly answer a different question.
+   */
+  readonly held: boolean;
+  readonly acknowledged: boolean;
+  readonly occurredToday: boolean;
+  readonly notificationsUnmet: boolean;
 }
 
 export interface Board {
@@ -208,7 +227,34 @@ function toRow(
     notificationsUndelivered: unmet.filter((u) => u.why === 'undelivered').length,
     unassigned: state.unassigned,
     targetMinutes: targets[severity],
+
+    /**
+     * The flags the dashboard's counters lead through. Same predicates the counters use, on
+     * the same fold, in the same pass — see the note on `BoardRow`.
+     *
+     * `held` is "some department has this", which is **not** the negation of `unassigned`:
+     * that one means routing ran and matched nobody, while an incident nobody has routed yet
+     * is also held by nobody and has not failed at anything (ADR-0010). The counter asks the
+     * first question, so this answers the first question.
+     */
+    held: state.responsibleDepartmentIds.length > 0,
+    acknowledged: state.acknowledgedAt !== null,
+    occurredToday: state.occurredAt !== null && state.occurredAt >= startOfDay(now),
+    notificationsUnmet: unmet.length > 0,
   };
+}
+
+/**
+ * Midnight, in the server's own reckoning, as an ISO instant.
+ *
+ * The district's day is the day in the DC office. A client deciding this for itself would ask
+ * a different question on a handset whose clock is set elsewhere, and "reported today" would
+ * mean two things at once.
+ */
+function startOfDay(now: Instant): Instant {
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  return midnight.toISOString();
 }
 
 /**
@@ -247,14 +293,35 @@ export async function buildBoard(
   seat: Seat,
   options: BoardOptions = {},
 ): Promise<Board> {
+  const grouped = await loadRecentIncidents(pool, options.days ?? 7, options.limit ?? 500);
+  return projectIncidents(pool, seat, grouped, options);
+}
+
+/**
+ * Fold, scope, and project — **the half that must be identical on every surface.**
+ *
+ * Split out of `buildBoard` when search arrived. Search genuinely needs a different
+ * *selection*: the board asks for the last seven days, search asks for whatever somebody is
+ * looking for, and no single query serves both. What must not differ is everything after the
+ * selection — the fold, `evaluateRead`, and `toRow` — because that is where a second
+ * implementation would start quietly disagreeing with the screen about a district's own
+ * emergencies.
+ *
+ * So the board, the export and search now share this and differ only in which incidents they
+ * hand it. Any incident that appears on two of them says exactly the same thing on both.
+ */
+export async function projectIncidents(
+  pool: Pool,
+  seat: Seat,
+  grouped: readonly (readonly IncidentEvent[])[],
+  options: BoardOptions = {},
+): Promise<Board> {
   const now = options.now ?? new Date().toISOString();
   const config = await slaConfig(pool, options.targets);
 
   // Fetched once for the whole board, not per row. Same reason the detail endpoint returns
   // an actor directory with the events: a screen should never have to ask twice.
   const departments = await departmentDirectory(pool);
-
-  const grouped = await loadRecentIncidents(pool, options.days ?? 7, options.limit ?? 500);
 
   const visible: IncidentState[] = [];
   for (const events of grouped) {

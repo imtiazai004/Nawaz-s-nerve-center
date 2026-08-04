@@ -124,6 +124,76 @@ export async function loadIncident(
  * open** — that is the fold's answer, and expressing it here in a second language is how
  * the escalation rule nearly ended up defined twice (see `jobs/escalation.ts`).
  */
+export interface SearchCriteria {
+  /** Bounds on when the emergency **happened**, not when we learned of it. Always present. */
+  readonly from: string;
+  readonly to: string;
+  /** Matched against the reporter's own words and the place, case-insensitively. */
+  readonly text?: string | undefined;
+  readonly limit: number;
+}
+
+/**
+ * Incidents matching a search, as whole event streams ready to fold.
+ *
+ * **The range is on `occurred_at`, not `recorded_at`, and that is load-bearing.** Search asks
+ * "what happened during the floods"; the board asks "what has arrived lately". A report
+ * captured offline in March and delivered in August has `occurred_at` in March — so filtering
+ * on arrival would file it under the day the network came back, and the district's worst
+ * weeks, when devices were offline longest, would be exactly the weeks that searched emptiest
+ * (ADR-0002). Migration 0019 adds the index this needs.
+ *
+ * **Always bounded by a date range**, and the caller is not allowed to omit it. The event log
+ * is the record and grows forever; an unbounded `ILIKE` across it would scan every emergency
+ * the district has ever had, on the one machine that is also accepting new ones.
+ *
+ * **The text match is deliberately unindexed.** A trigram index would need `pg_trgm` and a
+ * migration, and at Bannu's volume — a district, not a country — a bounded range already
+ * reduces this to a scan of the window somebody asked for. If that stops being true, the fix
+ * is an index and not a smaller window: a search that silently stops looking at older
+ * emergencies is worse than a slow one.
+ *
+ * The `LIMIT` is on distinct incidents, applied before the events are fetched, so a single
+ * long-running incident cannot crowd out the rest of a page.
+ */
+export async function loadIncidentsMatching(
+  pool: Pool,
+  criteria: SearchCriteria,
+): Promise<readonly (readonly IncidentEvent[])[]> {
+  const text = criteria.text?.trim();
+  const hasText = text !== undefined && text.length > 0;
+
+  const res = await pool.query<Row>(
+    `WITH matched AS (
+       SELECT incident_id, MIN(occurred_at) AS first_seen
+         FROM incident_event
+        WHERE occurred_at >= $1::timestamptz
+          AND occurred_at <= $2::timestamptz
+          AND ($4::boolean IS FALSE OR (
+                COALESCE(payload->>'description', '') ILIKE $3
+             OR COALESCE(payload->>'place', '') ILIKE $3
+             OR COALESCE(payload->>'category', '') ILIKE $3
+          ))
+        GROUP BY incident_id
+        ORDER BY first_seen DESC
+        LIMIT $5
+     )
+     SELECT e.*
+       FROM incident_event e
+       JOIN matched m ON m.incident_id = e.incident_id
+      ORDER BY e.incident_id, e.occurred_at, e.client_seq, e.recorded_at, e.event_id`,
+    [criteria.from, criteria.to, hasText ? `%${text}%` : '%', hasText, criteria.limit],
+  );
+
+  const byIncident = new Map<string, IncidentEvent[]>();
+  for (const row of res.rows) {
+    const events = byIncident.get(row.incident_id);
+    if (events === undefined) byIncident.set(row.incident_id, [toDomain(row)]);
+    else events.push(toDomain(row));
+  }
+  return [...byIncident.values()];
+}
+
 export async function loadRecentIncidents(
   pool: Pool,
   days = 7,

@@ -24,7 +24,7 @@
 import { loadRecentIncidents } from '../db/eventStore.js';
 import type { Pool } from '../db/pool.js';
 import type { Identity } from '../auth/sessions.js';
-import type { Instant, Uuid } from '../domain/events.js';
+import type { IncidentEvent, Instant, Uuid } from '../domain/events.js';
 import { foldIncident, type IncidentState } from '../domain/incident.js';
 import { unmetObligations } from '../domain/notifications.js';
 import { checkEscalation, responseMinutes, targetsFor, type SlaConfig } from '../domain/sla.js';
@@ -158,13 +158,31 @@ export async function computePerformance(
   pool: Pool,
   options: PerformanceOptions = {},
 ): Promise<DistrictPerformance> {
+  const grouped = await loadRecentIncidents(pool, options.days ?? 30, options.limit ?? 5000);
+  return performanceOver(pool, grouped, options);
+}
+
+/**
+ * The calculation itself, over incidents somebody else selected.
+ *
+ * Split out when the arbitrary-period summary arrived, for the third time in this codebase and
+ * the same reason each time (`projectIncidents`, `incidentRow`): **two ways of selecting is
+ * fine, two ways of calculating is not.** A second median computed elsewhere would eventually
+ * disagree with this table in front of the officer it is about.
+ *
+ * The caller decides which incidents and, if it needs to, which the asking seat may see.
+ */
+export async function performanceOver(
+  pool: Pool,
+  grouped: readonly (readonly IncidentEvent[])[],
+  options: PerformanceOptions = {},
+): Promise<DistrictPerformance> {
   const now = options.now ?? new Date().toISOString();
   const windowDays = options.days ?? 30;
 
-  const [departments, config, grouped] = await Promise.all([
+  const [departments, config] = await Promise.all([
     listDepartments(pool),
     loadSlaConfiguration(pool) as Promise<SlaConfig>,
-    loadRecentIncidents(pool, windowDays, options.limit ?? 5000),
   ]);
 
   const buckets = new Map<Uuid, Bucket>();

@@ -1796,3 +1796,886 @@ collected the message, rather than a queue accepted it. Everything removed here 
 report that something had been handed to somebody else.
 
 - **Tests:** 700 → 662. Thirty-eight of them tested machinery that no longer exists.
+
+---
+
+## 2026-08-03 — CLAUDE.md's own gap list had gone stale
+
+No code changed. This entry exists because Rule 0 makes a drifted `CLAUDE.md` a bug in its
+own right, and §5's **"What does not exist yet"** had become the most misleading part of the
+file: it named four things as missing that were built, tested and recorded as done a few
+lines above it.
+
+### Changed
+
+- **§5 "What does not exist yet" rewritten.** It claimed there was no CI (M0-04, green on
+  every push), no `department` table (M0-51, migration 0005), no correlation ids (M0-03), no
+  backup at all (M0-37/53, nightly since today), no department-board screen (M0-34) and no
+  reports (M1-06) — and it listed the Place gazetteer as pending research after the owner had
+  dropped it (P-06). Replaced with what is actually missing, grouped by **what would close
+  it**: one functional gap (no department has a routing signal, R-04), placeholders awaiting
+  real values, work blocked on a bucket/a machine/a person, two code items, and a section for
+  things **decided against** so nobody "fixes" them back.
+- **§5 "Immediate next actions" rewritten.** It led with four resolved questions — Q-18
+  (ADR-0010), P-08 (ADR-0011), Q-07 (moot; the software sends nothing) and Q-08 (dropped).
+  Now four items, and it points at `backlog/for-the-district.md` rather than restating it,
+  per §5b.
+- **§6 repository map corrected to the filesystem.** It still listed **`src/channels/`** and
+  **`domain/channels.ts`**, both deleted with the provider ladder in the previous entry; it
+  listed `ops/` twice; it put `reset-test-db.mjs` and `demo-data.mjs` at the top level when
+  both live in `app/scripts/`, and omitted `sweep.mjs` entirely. Added what had never been
+  mapped: `domain/wall.ts`, `domain/notifications.ts`, `db/wallStore.ts`,
+  `db/resourceStore.ts`, `jobs/nightly.ts`, and `api/report.ts`, `resources.ts`,
+  `evidenceRoutes.ts`, `backups.ts`. Added `Department Contact Number.docx` with the note
+  that `*.docx` is what keeps it out of git.
+- **"Seven ADRs" → thirteen**, one superseded and two amended.
+- **`Last updated` 2026-08-02 → 2026-08-03**, which was itself the visible symptom: two
+  2026-08-03 decisions were recorded in the file above a line saying it was current as of the
+  day before.
+
+### Decided
+
+- **A gap list that names solved problems is worse than no gap list**, because the next
+  session works from it and rebuilds what is already there. A note saying so is left at the
+  top of the rewritten §5 block, so the next person to find it stale knows it has drifted
+  before and why that matters.
+
+### Open
+
+- Nothing new. The rewrite **resolved no question and built nothing** — it only stopped the
+  file from misreporting. R-01…R-14 are unchanged and remain in
+  `backlog/for-the-district.md`.
+
+---
+
+## 2026-08-03 — The task list had the same disease as CLAUDE.md
+
+No code changed. The previous entry fixed `CLAUDE.md`; this one fixes
+`backlog/todos.md`, which was drifting the same way and in one place contradicted
+itself outright.
+
+### Changed
+
+- **M0-53 and M0-54 each appeared twice, once `DONE` and once `TODO`.** Both duplicates
+  removed. A task list that answers "is the nightly backup built?" with both yes and no is
+  worse than one that answers wrongly, because there is nothing to correct — you cannot tell
+  which row is the claim. Replaced with one note saying what is true: **the code is done for
+  both; what is missing is a bucket (R-06) and a machine (R-07)**, and those are tracked once,
+  in `for-the-district.md`.
+- **M0-37 `DOING` → `DONE`.** Its note still read *"nothing schedules it yet"* long after
+  M0-53 scheduled it nightly.
+- **The M0 gate-check note** claimed the open item needed *"an automated backup (M0-37, which
+  does not exist yet and is code)"*. It needs only a person now (R-08).
+- **"What remains open in M0"** named M0-04 (CI), M0-03 (correlation ids) and M0-51 (the
+  department registry) as outstanding and said scheduling waited on P-08 — all four done a day
+  or more earlier. The true list is three items, two of them half-done by choice.
+- **P-11 `TODO` → `DROPPED`.** It asked the district to procure a Meta business account,
+  approved templates, an SMS gateway, a telephony provider and a GSM SIM. The software sends
+  nothing (ADR-0012 superseded). R-05 closed with it.
+- **M3-01…04 collapsed into one struck-through row marked `REMOVED`.** All four were `DONE`
+  and all four were deleted days later. **Left in place rather than deleted** so nobody reads
+  their absence as "never built" and builds them again — the failure mode this whole log
+  exists to prevent.
+- **Q-18 and Q-19 marked answered** (ADR-0010 + migration 0010; migration 0006). The file
+  still carried *"the escalation ladder cannot work until Q-18 is answered"*.
+- **Q-08 and Q-06 struck from "what M1 needs".** Q-08 was dropped by the owner; Q-06 became a
+  screen (M1a-04) rather than a number.
+- **"M1 starts next" retitled**, and "M1 and beyond" rewritten — it predicted that planning
+  far ahead produces fiction, and **M1a proved it right by not existing in any plan**. The
+  rule is kept for that reason rather than retired as out of date.
+
+### Added
+
+- **An M4/M5 section**, which the file had never had, though `CLAUDE.md` names M4/M5 as the
+  current milestone. **No `M4-xx` ids were invented** — that work landed as blocks, and the
+  section points at the four changelog entries and ADR-0013 that are its real record. Covers
+  the one-app decision, the dashboard, Status, wall safety, "Reach them", server-side weather
+  and the demo data.
+
+### Open
+
+- **`R-13` has two different meanings.** *The prototype becomes the product* raised R-13 as
+  "which point the district wants the weather taken at"; `for-the-district.md` already had
+  R-13 as "Rescue 1122's own list of response actions". **One id, two things.**
+- **`R-15` was raised in that same entry and never added to `for-the-district.md`** — real
+  values for tehsils, union councils, population and area.
+- Both are recorded in `todos.md` and **deliberately not fixed here**: §5b calls
+  `for-the-district.md` *the one list*, so renumbering a row on it is the owner's call, not
+  mine.
+
+---
+
+## 2026-08-03 — One id, two questions: R-13 resolved
+
+`R-13` had been issued twice on the same day, to two unrelated questions, and `R-15` had been
+issued and never written down. Small, and exactly the kind of thing that sends somebody to ask
+a district officer the wrong question.
+
+### Changed
+
+- **The weather-point question is now `R-16`.** It had been raised as `R-13` in *The prototype
+  becomes the product*, hours after the M1 gate entry had already given `R-13` to **Rescue
+  1122's own list of response actions**.
+- **The rule used, and the one to use again: the row numbered first keeps the number.** The
+  append-only log settles which that was without anybody having to remember. Renumbering the
+  older row would invalidate whatever the owner had already written down — and the numbers on
+  that list exist precisely so they can be quoted in a conversation this repository never sees.
+- `src/ops/weather.ts` cites `R-16`, with a note saying what it used to cite. The only code
+  change in this entry, and it is a comment.
+
+### Added
+
+- **`R-15` and `R-16` on `backlog/for-the-district.md`**, which is where they should have been
+  from the moment they were raised. `R-15` — tehsils, union councils, population and area — had
+  been referenced by **migration 0017** and by the dashboard for a day while being absent from
+  the one list a district officer is asked to work down. The list now runs **R-01…R-16, no gaps
+  and no repeats.**
+- **A second amendment on `ADR-0013`**, recording the renumber. **The `R-13` citation in its
+  Consequences section is left as it was**, with the amendment above it — the ADR log is
+  corrected by appending, not by making the past look like it always agreed. `CHANGELOG.md`
+  line 1704 likewise still reads `R-13`, because a past entry is never edited.
+
+### Open
+
+- Both questions are still unanswered — only correctly numbered. `R-15` renders as blanks in
+  the district-facts panel; `R-16` means the weather is read at Bannu city's published
+  coordinates, a **default and not a finding**, overridable by `WEATHER_LAT` / `WEATHER_LON`
+  without a release.
+
+- **Tests:** 662 pass, 42 files. Typecheck, lint and format clean.
+
+---
+
+## 2026-08-04 — The M5 security review: losing your post widened your view
+
+The adversarial review M5 asks for (`milestones.md`), run against the authority surface rather
+than a diff. It found one real cross-department read leak, reachable by an ordinary handover.
+
+### The finding
+
+**`/dashboard` and `/status` decided their scope from `departmentId === null`.** Two entirely
+different callers satisfy that null:
+
+- a **control-room seat**, which belongs to no department and should see the district, and
+- a person holding **no seat at all** — relieved of their post, or granted a login and never
+  given one — who should see nothing.
+
+The second was handed the first's answer. Proved through the real path — real person,
+department, duty assignment, `login()`, `resolveSession` — rather than a hand-built identity:
+
+```
+RELIEVED VIEW => {"scope":"District","departmentId":null,"isAdministration":false}
+```
+
+What that exposed: district counters, **every department's performance row**, live emergencies
+by kind, and — through `listPresence(pool, null)` on `/status` — **every seat in every
+department and who was on duty**.
+
+**It is reachable by an ordinary act.** A handover relieves the outgoing holder, whose session
+is deliberately not revoked because the seat is re-resolved on every request (ADR-0004). That
+design exists to *narrow* authority the moment a post changes hands. Here it widened it.
+
+### Why it survived
+
+- `/sync`, `/incidents`, `/admin`, `/roster`, `/notifications` and `/fleet` had always refused
+  a seatless caller. **The two routes that had not are the two that leaked** — the check was
+  four lines repeated at each route, and the leak was where somebody had not written them.
+- **The test encoded the bug.** `dashboard.test.ts`'s `officer()` helper defaulted to
+  `seatId: null, departmentId: null, tier: 'district'` — an identity the database cannot
+  produce — so every scoping assertion in a file whose own header warns that *getting this
+  wrong in the generous direction is a read leak* was made against precisely the shape that
+  had to be refused. Same class as the old `Outbox.sync()` test that asserted its own bug.
+
+### Changed
+
+- **`requireSeat(res, identity)`** in `api/server.ts`, applied to `/dashboard` and `/status`,
+  and `/incidents` refactored onto it. One helper rather than the same four lines at each
+  route, for the reason above.
+- **`viewerFor` keys on `tier`, not on a null department.** Tier is derived by migration
+  0010's trigger from the seat's office and cannot be asserted by a caller; it says what the
+  null department only implied. Behaviour is unchanged for every seated identity.
+- **`Viewer` gained `seated`**, so a missing seat is a value this module can refuse rather
+  than a null that reads, one branch later, as "the district".
+- **The `officer()` fixture now derives `tier` the way the database does** and is seated by
+  default, with a separate `holdsNoPost()` for the case that must be refused.
+
+### Added
+
+- Five tests. Two refuse `/dashboard` and `/status` to a seatless caller **by direct HTTP,
+  never through the UI** (INV-05); one pins that a **seat with no department still gets the
+  district**, which is the legitimate case the leak was hiding behind; two pin `viewerFor` at
+  the unit level.
+- A standing note in `CLAUDE.md` §7: **a null is not a scope.** Third time this project has
+  been bitten by an absent value read as a permissive one — after the four-value `Tier` that
+  defaulted every loaded post to `district`, and `navigator.onLine`.
+
+### Open
+
+- The review covered the authority surface — every route's session gate, scope derivation and
+  cross-department reads. **It did not cover** the evidence file path, rate limiting, or
+  session fixation; those are the next passes.
+- Nothing was deployed at the time of the finding (R-06 and R-07 are open), so this was never
+  a live exposure. It had to be closed before the pilot, not after.
+
+- **Tests:** 662 → 667, 42 files. `npm run check` green.
+
+---
+
+## 2026-08-04 — Security review, second pass: evidence, rate limiting, sessions
+
+The passes the first entry listed as not yet done. One fix, one finding left open with a
+recommendation, and one area that came back clean.
+
+### Changed
+
+- **The evidence download decides authority before touching the disk.** `download` called
+  `fetchEvidence` first — which reads the whole file and hashes it — and only then asked
+  whether the caller could read the incident. Up to 20 MB of disk read and a SHA-256 over it
+  for a request about to be refused, aimable by any signed-in officer at files they have no
+  authority for, on the single machine that is also taking emergency reports. It now looks up
+  the row with `find`, authorises, and reads bytes only once the answer is yes. **`upload` had
+  stated this rule for itself all along**; the download path had simply missed it.
+
+### Added
+
+- One test, pinned **without mocking**: delete the file from disk, request as an outsider, and
+  assert the refusal is the authority one rather than "missing from disk". Confirmed to fail
+  against the old ordering before the fix was restored — a test that passes both ways proves
+  nothing.
+
+### Open
+
+- **There is no rate limiting anywhere in the system**, and `/auth/login` is unauthenticated
+  and runs a scrypt derivation on every attempt — including for numbers with no account, which
+  is deliberate so that response time reveals nothing. `passwords.ts` sets a deliberately low
+  10-character minimum and justifies it by saying *"real protection here comes from rate
+  limiting and instant revocation"*. Revocation exists. Rate limiting does not.
+- **Recorded with the answer that must not be used: an account lockout.** The district's
+  numbers are semi-public and the roster says who holds which post, so a lockout is a denial of
+  service an attacker can aim at a named officer — ten wrong passwords against the Rescue duty
+  officer at 01:50 locks out the person the system exists to reach. INV-01 outranks a
+  failed-login counter. The shape that fits: progressive delay per number and per source, a cap
+  on concurrent scrypt work so login cannot starve intake, and attempts recorded where the
+  console can show them. **Needs a decision before it is built.**
+
+### Clean
+
+- **Session handling.** No fixation route: the token is generated server-side at login
+  (`randomBytes(32)`), never accepted from the client. `HttpOnly`, `SameSite=Strict`, `Secure`
+  in production. Only the SHA-256 is stored, compared with `timingSafeEqual` as belt and braces
+  over an already-exact lookup. Revocation is instant and `revokeAllForPerson` exists. The
+  identity — seat, tier, department, administration — is re-resolved from the roster on every
+  request and never trusted from the session row.
+- **The evidence path itself.** The client never chooses the storage path; the filename is kept
+  as a label and percent-encoded into `content-disposition`; content types are an allow-list;
+  everything is served `application/octet-stream` with `nosniff` and a sandbox CSP regardless of
+  what the device declared; the size cap is applied while reading rather than after.
+
+- **Tests:** 667 → 668, 42 files. `npm run check` green.
+
+---
+
+## 2026-08-04 — M0-05: the secret store was a decision nobody had written down
+
+The last M0 item that was code. It had sat at `DOING` for days with the note *"real secret
+store pending deployment"* — but P-08 and ADR-0011 answered the deployment weeks ago, and the
+answer makes a secrets manager the wrong tool rather than a pending one.
+
+### Decided
+
+- **The secret store is `app/.env` on the district's own machine, and that is the design.**
+  ADR-0011 puts one server in the DC office; ADR-0007 requires it be operable by one person at
+  02:00. A managed secrets service would add a network dependency, an account, and a renewal
+  nobody is watching — to protect a file that sits on the same disk as the database it
+  unlocks, behind the same door. What such a file actually needs is to be **out of git,
+  readable only by the service user, and verified at boot**, and the last of those was the
+  part that did not exist.
+
+### Added
+
+- **`src/config.ts` — one configuration check at boot.** Every value used to be read at its
+  point of use, so a mistake surfaced inside the backup job at 02:00, or in an escalation
+  pass, or on a screen. Now it surfaces in one log line before anything starts.
+- **The split between refusing and warning is the whole design.** A refusal is reserved for a
+  configuration that is broken or unsafe: no `DATABASE_URL`, or a production deployment still
+  holding the example connection string, or an example `BACKUP_PASSPHRASE` — which would
+  encrypt every off-site copy with a passphrase published in this repository. **Everything
+  that merely leaves the district less protected warns and keeps running**, because a process
+  that will not start is a district that cannot report an emergency. INV-01 outranks a missing
+  bucket exactly as it outranks a stale backup on `/health`.
+- 11 tests, and the ones that matter assert the *warnings*: a district with no cloud bucket
+  starts perfectly well, and a bucket set without a passphrase warns rather than refuses. One
+  asserts the boot line carries no secret **and nothing derived from one** — not the value, not
+  its length — because `obs/log.ts` redacting by key name is the second line of defence, not
+  the first.
+
+### Changed
+
+- **`.env.example` rewritten.** It documented **5 of the 16** values the code actually reads,
+  omitted **both secrets** (`BACKUP_PASSPHRASE`, `GCS_TOKEN`), still opened with *"Nothing here
+  is used yet: the domain core is pure logic with no database and no network"*, described
+  `DATABASE_URL` as *"not provisioned yet — gated on Q-03"*, and advertised `SMS_PROVIDER_KEY`
+  and `WHATSAPP_PROVIDER_KEY` — machinery deleted with the provider ladder, which would have
+  sent an operator off to procure accounts that R-05 closed as not needed. Now every value,
+  grouped, each saying what happens when it is absent, with the `chmod 600` the file needs.
+
+### What was already right
+
+- The runbook already covers the passphrase properly — where to keep it, that a lost one makes
+  every off-site copy unreadable, and how to decrypt a dump before restoring. No change needed.
+- `obs/log.ts` already redacts secrets by key name at any depth, and bodies are never logged.
+
+- **Tests:** 668 → 679, 43 files. `npm run check` green.
+
+---
+
+## 2026-08-04 — The export that independence was promised on
+
+Capability group 9 named an export and there was none. This is not a feature from a list: it
+is the mitigation the district was promised when Q-01 and Q-02 settled that the system would
+integrate with **nothing** government-issued. The stated price of that independence is double
+entry — which `CLAUDE.md` calls the top adoption risk — and the stated compensation was
+export. The risk had been live for weeks with its mitigation unbuilt.
+
+### Added
+
+- **`GET /export/incidents.csv`** — every incident the caller may see, as a spreadsheet.
+  `?days=` between 1 and 366, default 30.
+- **`src/api/exportCsv.ts`**, and it deliberately has no query of its own. It is
+  `buildBoard`, with the caller's seat and `includeClosed`. A second query would eventually
+  disagree with the board about a district's own emergencies, and then two documents would
+  disagree about what happened — the same rule that stopped M0-34 becoming a second endpoint.
+- **19 tests.** 17 on the file itself, and two on the board's own integration suite —
+  written there on purpose, because the risk is not that the formatting is wrong, it is that a
+  file departments email to each other might answer a wider question than the screen does. A
+  department gets its own incidents in the CSV and **not** its neighbour's, asserted over HTTP.
+
+### What it refuses to do
+
+- **It never truncates quietly.** Past `EXPORT_LIMIT` it returns 413 and says to ask for a
+  shorter period. A short file is worse than no file: nobody counts rows before submitting a
+  report upward, so the numbers would simply be wrong and nothing would say so. Same reasoning
+  as a `pg_dump` holding fewer events than the live database being recorded as a **failure**
+  rather than a warning.
+- **It carries no citizen contact detail** (capability 12) — true by construction rather than
+  by filtering, because `BoardRow` has never held a reporter's name, number or location. The
+  test asserts it against the column list anyway, matched on whole name parts rather than
+  substrings, so that adding one to the board for a good reason cannot quietly add it here.
+- **It cannot be turned into a payload.** Every text field originates as something typed into
+  the administration console, and Excel, LibreOffice and Sheets all execute a leading `=`, `+`,
+  `-` or `@`. A department named `=HYPERLINK(...)` would otherwise become a live formula in
+  whatever office opened the file — the district's own data, weaponised by the export that
+  exists to be trusted. Fields are prefixed with an apostrophe; the cell still reads correctly.
+- **It says `unassessed` in words** (ADR-0009). A spreadsheet has no colour to fall back on,
+  which is the case that rule was always really about.
+- Written with a byte order mark and CRLF, so Excel reads Urdu and Pashto department names
+  instead of mojibake. The literal U+FEFF is written as an escape — lint caught it as
+  irregular whitespace, correctly: an invisible character in source is invisible in review too.
+
+### Open
+
+- **R-17 added to `backlog/for-the-district.md`:** what each department actually submits
+  upward, and on what form. The generic file is the 80% case; matching a real form is the rest,
+  and it is domain knowledge that cannot be invented here. One example of each is enough.
+
+- **Tests:** 679 → 698, 44 files. `npm run check` green.
+
+### A note on the run
+
+One test run in this session failed with `ECONNREFUSED 127.0.0.1:5433` across a whole file.
+That was the local Postgres having stopped, not the code — `scripts/dev-db.ps1 start` and the
+suite went green. Recorded because a whole-file failure that names a port is worth recognising
+on sight rather than debugging.
+
+---
+
+## 2026-08-04 — The CI job's name had been wrong for 400 tests
+
+Found while verifying that CI had genuinely run the suite rather than a fraction of it — the
+check `CLAUDE.md` insists on, because *"if CI and local can disagree about what green means,
+the one nobody is watching wins."*
+
+### Changed
+
+- **The CI job was named `typecheck · lint · format · 297 tests`.** The run it was attached to
+  had just executed **698**. The number is hand-written in `ci.yml` and had not been touched
+  since the suite was a little over a third of its current size.
+- **Removed the count rather than corrected it.** A number that has to be edited by hand every
+  time somebody adds a test is wrong by default and right only by accident. The job is now
+  `typecheck · lint · format · tests`, and the run's own summary is the honest count.
+
+### Why this was worth stopping for
+
+The workflow exists because a green build that quietly ran fewer tests than it should is the
+failure this project fears most — `loadEnv.ts` makes a missing `TEST_DATABASE_URL` a hard
+failure under CI for exactly that reason. **A job label that overstates coverage is that same
+failure wearing a different hat**: somebody glancing at a passing check would have concluded
+the suite was a third of its real size, or — worse, in the other direction — that 297 was the
+number to expect and 698 meant something had gone wrong.
+
+Verified on this run: **44 files, 698 tests, all passed**, read out of the job log rather than
+taken from the label.
+
+---
+
+## 2026-08-04 — Full-history search, and the timestamp it nearly used
+
+Capability group 9 named "full-history search". The board shows the last seven days, so
+everything older was reachable **only by already knowing its incident id** — a post-incident
+report about something from March could be produced by whoever had written the id down, and by
+nobody else. A record you cannot look anything up in is a filing cabinet with no drawer labels.
+
+### Added
+
+- **`GET /search`** — `?q=` free text, `?from=` `?to=`, `?status=`, `?limit=`. Matches the
+  reporter's own words, the place, and the category, case-insensitively.
+- **`src/api/search.ts`**, and **`projectIncidents` split out of `buildBoard`.** Search needs a
+  different *selection* — the board asks "what arrived lately", search asks "what happened
+  during the floods", and no one query serves both. What must not differ is everything after
+  the selection: the fold, `evaluateRead`, `toRow`. Board, export and search now share that
+  one projection, so no two of them can describe the same emergency differently.
+- **Migration 0019** — `incident_event (occurred_at, incident_id)`.
+- 10 tests.
+
+### The mistake this nearly shipped with
+
+**The first implementation ranged on `recorded_at`**, because that is what the board's loader
+uses and it is the indexed column. It passed its tests.
+
+It was wrong, and the tests were wrong with it. `append` assigns `recorded_at` server-side and
+**ignores whatever a client sends** — correctly, since a device with a wrong clock must not be
+able to misreport when we *learned* of something. So every incident a test seeds has
+`recorded_at` of now, whatever date it claims to have happened. **Every "find something old"
+assertion was passing because the data was not old in the column being filtered.**
+
+The real failure is worse than a bad test. A report captured on a handset with no signal in
+March and delivered in August has `occurred_at` in March and `recorded_at` in August. Ranging
+on arrival files that emergency under the day the network came back — so **the district's worst
+weeks, the ones where devices were offline longest, would be exactly the weeks that searched
+emptiest.** That is ADR-0002 inverted by a column name.
+
+The project's own rule already said which to use: *measurement uses `occurred_at`, escalation
+firing uses `recorded_at`*. Search is measurement.
+
+Fixed, indexed, and pinned by a test that seeds an incident which happened 200 days ago and
+arrived seconds ago, then asserts a one-week window **does not** contain it. Confirmed to fail
+against the `recorded_at` version before the fix was restored.
+
+### Two things it refuses to do
+
+- **It will not let an absence read as a fact** (ADR-0005, applied to a query). The response
+  echoes the resolved window, because "no results" and "no results in the fortnight you
+  happened to search" are different statements and only the response can tell them apart.
+- **Truncation is its own field**, not implied by a full page: "exactly 200 results" and "at
+  least 200 results" are different answers, and only one means somebody should narrow.
+
+An over-wide range is **clamped, not refused** — somebody asking for ten years wants everything
+there is, and an error teaches them to stop using search rather than to pick a better date.
+
+- **Tests:** 698 → 708, 45 files. `npm run check` green.
+
+---
+
+## 2026-08-04 — Two capabilities that no officer could reach
+
+`/search` and `/export/incidents.csv` had shipped the day before: written, tested, CI green —
+and with **nothing in the client calling either of them.** No tab, no button, no link. Every
+test passed and no officer in Bannu could do either thing.
+
+**An endpoint with no door is not a capability.** It is the shape that lets a scope list look
+complete while the district still cannot do the work, and it was mine to notice before
+declaring capability 9 answered rather than after.
+
+### Added
+
+- **A Search tab**, with the words box, a happened-after/happened-before range and a status
+  filter. The dates say *happened*, not *recorded*, on the label as well as in the query.
+- **An export link on the board** — a plain `<a download>`, because the browser already knows
+  how to download a file and a fetch-and-blob would only take that away from it. It says what
+  it is next to it: opens in Excel, carries no reporter's name, number or location.
+- **`web/src/incidentRow.ts` — one row renderer**, moved out of `main.ts` and now used by the
+  board and by search. The same reason `projectIncidents` was split out of `buildBoard`: one
+  projection on the server deserves one renderer on the client. Two would drift within a month
+  and then an emergency would read `unassessed` on one screen and something else on the other
+  (INV-04), or show its unmet notification on the board and silently not in the search result
+  somebody found it through (INV-03). A browser test asserts the two rows are **byte-identical**.
+- **7 browser tests**, in real Chromium. The one that matters most is that a search finding
+  nothing **says what window it looked at** — "nothing matched" and "nothing matched in the
+  fortnight you happened to pick" are different statements about the district, and an operator
+  reading the first when the truth is the second concludes an emergency never happened.
+  ADR-0005, applied to a query.
+
+### Changed
+
+- **`/search` and `/export` added to the service worker's `NEVER_CACHE`** — from the day they
+  shipped, unlike `/dashboard` and `/status`, which had to be added after the fact. A cached
+  search is a cached board arriving by a route that looks harmless, and it is often the *last*
+  look somebody takes before writing a post-incident report, so a stale one becomes a stale
+  document. A cached CSV is worse: it leaves the building, gets emailed on, and is read months
+  later by somebody with no way to know when it was true.
+
+### Open
+
+- The Search tab is offered to everybody signed in and scoped server-side, like the board. It
+  has no results-per-page control and no sort — deliberate for now; both are guesses about how
+  people will use it, and the honest way to settle them is to watch somebody try.
+
+- **Tests:** 708 → 715, 46 files. `npm run check` green.
+
+---
+
+## 2026-08-04 — Guessing is slowed. Nobody is ever locked out.
+
+The gap the security review left open, and the one where the obvious answer is the harmful one.
+
+`passwords.ts` sets a deliberately low ten-character minimum and justifies it by saying *"real
+protection here comes from rate limiting and instant revocation"*. Revocation existed. Rate
+limiting did not.
+
+### Decided — what this deliberately is not
+
+**An account lockout.** The district's numbers are semi-public and the roster says who holds
+which post. A lockout is a denial of service an attacker can aim at a **named officer**: ten
+wrong passwords against the Rescue duty officer's number at 01:50 would lock out precisely the
+person the system exists to reach, and they would find out at the moment it mattered. **INV-01
+outranks a failed-login counter**, exactly as it outranks a stale backup on `/health`.
+
+So nothing added here ever refuses. It delays, and the delay is **capped at five seconds** —
+because an uncapped backoff is a lockout wearing a different name. An officer facing four
+minutes at 02:00 has been locked out in every sense that matters.
+
+### Added
+
+- **`src/auth/throttle.ts`.** Four attempts free, then each costs more, to a hard ceiling.
+- **Two keys, because there are two attacks.** Per number catches somebody working on one
+  officer; per source catches one password sprayed across all 79 offices, where no single
+  number ever accumulates enough failures to be noticed. **A success clears the number and
+  deliberately not the source** — an attacker who finally guesses one weak password must not
+  have the evidence of the spray erased by the attack working.
+- **A cap on concurrent scrypt work.** The real exposure was never guessing, it was CPU:
+  `/auth/login` is unauthenticated and burns a deliberately-expensive derivation per request,
+  *including for numbers with no account* — which is on purpose, so response time reveals
+  nothing. On one machine in the DC office that is also accepting emergency reports, that is a
+  cheap way to make the district stop answering. Login can now queue for the CPU; intake never
+  waits behind it (INV-01). Saturation answers 503 with `Retry-After` — transient, about the
+  server, never a state attached to anybody's account.
+- 15 tests. The ones that matter assert **bounds**, not speed: the throttle never refuses
+  however many failures pile up, the delay is capped, an honest fumble is not slowed at all,
+  and — over real HTTP — **the real officer still signs in after a sustained run of wrong
+  passwords**, in under eight seconds, asserted where somebody changing a constant will see it.
+
+### Two things that would have quietly broken it
+
+- **The source is taken from the socket, never from `X-Forwarded-For`.** That header is written
+  by whoever is asking, so trusting it would let an attacker send a different value on every
+  request and never accumulate a single failure. **A rate limiter an attacker can opt out of is
+  worse than none, because it is believed.** If a reverse proxy is ever put in front of this,
+  that is the line to change, deliberately, with the proxy's address pinned.
+- **`withScryptSlot` returns a discriminated result, not `T | null`.** `login` already returns
+  null for a wrong password, so collapsing the two would make "the server is busy" and "that
+  password is wrong" the same value — and the caller would have to guess, which ends with a
+  failed sign-in counted as an attack or an attack counted as a typo. Caught while wiring it,
+  after a first version that used a `null` sentinel and a load heuristic to tell them apart.
+
+### Housekeeping
+
+- **The local test database was reset.** It had drifted to 333 departments; Bannu has 79. The
+  suite runs in 111s rather than 205s as a result — the drift had been quietly doubling it.
+
+- **Tests:** 715 → 730, 47 files. `npm run check` green.
+
+---
+
+## 2026-08-04 — Summaries, the report on paper, and the budget that caught it
+
+Three of the four things left on the list, and one finding that mattered more than any of them.
+
+### Added — "how did we do in July"
+
+- **`GET /summary?from=&to=`** and `src/api/summary.ts`. The console's performance table is a
+  rolling window of recent arrivals for the two offices; nobody could ask about a *period*.
+- It reuses all three moving parts rather than growing its own: **`loadIncidentsMatching`** for
+  the occurred-at window (a summary of July means emergencies that *happened* in July —
+  counting by arrival would move the district's worst nights into whichever month the network
+  came back), **`performanceOver`** for the medians, and **`evaluateRead`** per incident for the
+  scoping. `computePerformance` was split into selection and calculation to allow that — the
+  third time in this codebase, after `projectIncidents` and `incidentRow`, and the same reason
+  each time: **two ways of selecting is fine, two ways of calculating is not.**
+- **Scoped before anything is counted**, not filtered afterwards — a total built from the
+  district's numbers and then narrowed leaks through any aggregate somebody forgot (INV-05).
+- 5 tests. A first version asserted district totals were zero and found **199 incidents left
+  by other suites**: the local database is shared and never cleaned, so the assertions now sit
+  on freshly-created departments, whose rows contain only what these tests put in them.
+
+### Added — the post-incident report, on a screen and on paper
+
+- **`web/src/report.ts`.** M1-06 built the report and served it; **nothing in the client ever
+  called it** — the third endpoint this week with no door. Reached from the incident it is
+  about rather than from a tab, because nobody wants "a report", they want the report for the
+  emergency in front of them.
+- **The PDF is the browser's own print dialogue**, driven by `report.css`. ADR-0007 asks of
+  every dependency *who restarts this when it fails* — a PDF library is a rendering engine, a
+  font stack and a layout implementation that drifts from what the operator saw. A stylesheet
+  has none of those, works offline, and prints by construction the document that was on screen.
+- Printed white-on-black-text regardless of the control-room palette, headings kept with their
+  sections, entries kept off page breaks, and the navigation marked `noPrint` — a filed report
+  carrying a tab bar is one somebody has to explain.
+
+### The finding: the shell had one kilobyte of headroom and nothing had said so
+
+The M1 gate holds the shell — `app.js` + `index.html`, the artefact a field officer downloads
+at a scene — to **160 KB**, from `docs/00-thesis.md`. Adding the report screen took it to
+**167 KB** and the gate failed.
+
+Checking why showed the more useful fact: **it was already at 159 KB.** The search and export
+screens shipped the day before had quietly eaten almost all of it.
+
+**The answer was not a bigger budget.** CLAUDE.md already warns that a budget failing on
+something nobody downloads teaches everybody to raise it — but this one was measuring exactly
+the right thing, and it was right. An officer at a road accident has no use for a post-incident
+report or for full-history search, and **both need a connection to do anything at all**.
+
+So both became **their own entry points with their own stylesheets**, fetched on first use.
+The shell is back to **159 KB with two more screens in the product than before**.
+
+Deliberately **not** `splitting: true`: that needs ESM output and hashed chunk names, and the
+service worker names the shell's files explicitly so the app opens with no network (INV-01). A
+tidier build config is not worth trading a known offline boot for.
+
+- **The next 40 KB is `admin.ts`, `dashboard.ts`, `status.ts` and `roster.ts`** — every one an
+  office screen, every one still in the shell. That is the follow-up, and it is more than one
+  session's work.
+
+### Housekeeping
+
+- **The local test database was reset** — it had drifted to 333 departments against Bannu's 79.
+
+- **Tests:** 730 → 738, 48 files. Shell 159 KB / 160 KB. Rapid intake 1.9s / 15s. `npm run
+  check` green.
+
+---
+
+## 2026-08-04 — The office moves out of the field officer's bundle
+
+The follow-up the last entry called "more than one session's work", done the same day. The
+shell — what a field officer downloads at a scene — goes from **159 KB to 131 KB** against a
+160 KB budget, with four more screens in the product than two days ago.
+
+### Changed
+
+- **`web/src/office.ts`** — a barrel re-exporting `mountAdmin`, `mountRoster` and `mountStatus`,
+  built as one `office.js` and fetched the first time somebody opens one of the three.
+- **One bundle rather than three**, because `admin.ts` already imports `roster.ts`: the console
+  reaches every department's roster and "My department" is the same component through its
+  other door (M1a-10). Three entry points would have put a **second copy of the roster** in one
+  of them, and the point of this is fewer bytes rather than tidier filenames.
+- The shell now imports those three **as types only**, which esbuild erases — so the type
+  safety is unchanged and the code is not there.
+- A screen that fails to arrive says so **on the screen the operator asked for**, rather than
+  leaving a tab that does nothing. Same rule every other screen here follows when it cannot
+  reach the server.
+
+### Decided — `dashboard.ts` stays in the shell
+
+It is the **landing** screen: the client reads the viewport in exactly one place and sends
+anybody not holding a phone straight to it (ADR-0013). Making it lazy would put a fetch in
+front of the first screen every office user sees, on every sign-in, to reclaim 10 KB of a
+budget that now has 29 KB spare.
+
+**Lazy-loading is for screens somebody chooses to open, not the one they land on.** Recorded
+because the mechanical version of this exercise would have taken it too, and the numbers alone
+would have said yes.
+
+### Open
+
+- One flaky run appeared during this work: `Cannot use a pool after calling end on the pool`,
+  from a `/dashboard` poll firing after a browser test closed its pool. It is a **teardown
+  ordering** issue in the test, not in the product — the page keeps polling until the browser
+  closes, and the pool closes first. Two consecutive clean runs afterwards. Noted rather than
+  chased, because an error in a log that everybody learns to ignore is exactly what this
+  project keeps arguing against, and this one deserves a proper fix rather than a retry.
+
+- **Tests:** 738, 48 files, unchanged — this moved code between files rather than adding
+  behaviour. Shell **131 KB / 160 KB**. Rapid intake 2.2s / 15s. `npm run check` green.
+
+---
+
+## 2026-08-04 — The dashboard had not gone anywhere. The cache had.
+
+The owner opened the app and asked where the dashboard was, and why it looked like the old
+software. Nothing was wrong with the code — every responsive breakpoint, every panel and every
+card was in the shell being served. **The browser was serving a cached shell from four commits
+ago**, and that was mine.
+
+### What happened
+
+`sw.ts` caches `/`, `/index.html` and `/app.js` under a version string. Its own comment says:
+
+> A browser holding an older cache keeps serving the stale shell until this version changes.
+
+Over four commits the shell changed a great deal — the office screens, search and the
+post-incident report left `app.js` for their own files, and their styling left `index.html` —
+and the string stayed `dnc-shell-v3` throughout.
+
+**Had this reached Bannu, every handset that had ever opened the app would have kept the
+previous one, and no amount of deploying would have changed that.** It was found by somebody
+opening the app, which is the worst way to find it.
+
+### Changed
+
+- **`CACHE` bumped to `dnc-shell-v4`**, with the reasoning recorded above the line.
+
+### Added — because the comment was already there and did not work
+
+- **`src/__tests__/shellVersion.test.ts`.** It hashes the production shell and fails when those
+  bytes change while `CACHE` does not, printing both steps to take. **Confirmed to fail** by
+  appending one line to `index.html` before restoring it.
+- **`npm run shell:record`** writes `web/shell-version.json`. Deliberately a separate command
+  rather than something the test does for itself: **a check that silently repairs what it is
+  checking is not a check.**
+- It fails on a CSS tweak too, and that is correct — a CSS tweak is a shell change, and a
+  stale cache hides it exactly as thoroughly as it hides a missing dashboard.
+
+### Why a comment was not enough, stated plainly
+
+The comment was correct and it was read. The mistake happened because **the shell changes in
+files `sw.ts` never mentions**, so nothing connected editing `index.html` to editing a string
+somewhere else. That connection lived only in somebody's memory — the same place INV-05
+refuses to put authorisation, and for the same reason.
+
+### Not reproduced
+
+The owner also saw *"Could not reach the server. Nothing was saved."* on the Status screen.
+Driven in real Chromium — sign in, open Status, save — the screen answers **"Saved."**, and the
+endpoint answers 201 directly. The service worker does not touch it (it returns early for any
+non-GET). **Most likely the dev server was being restarted underneath the open page**, a
+window of about forty seconds while the client rebuilt and the server recompiled.
+
+Recorded as unexplained rather than fixed. What the app did was correct either way: it did not
+claim to have saved anything.
+
+- **Tests:** 738 → 739, 49 files. `npm run check` green.
+
+---
+
+## 2026-08-04 — The district counters became clickable, and had to be exact
+
+The owner, on the DC and AC Headquarter dashboard: the District panel's numbers are not
+clickable, and they should be — *"jese k agar Unassigned 5 likha hua hai tou ye clickable hona
+chaye but straight to those unassigned, naa k randomly cliakable ho"*.
+
+The requirement is the second half. Making a number clickable is nothing; making it land on
+**exactly what it counted** is the work.
+
+### Added
+
+- All five district counters now lead somewhere: **Unassigned**, **Not acknowledged**,
+  **Open now**, **Reported today**, **Nobody reached**.
+- **Each filters on a flag the server put on the row** — `held`, `acknowledged`,
+  `occurredToday`, `notificationsUnmet` on `BoardRow`, decided in the same fold that produced
+  the count. A predicate re-derived in the browser would be a second implementation of each
+  rule, and the first to drift would put a number on the district's home screen that its own
+  board disagrees with. **`occurredToday` could not be redone on a client at all**: it is
+  measured against the *server's* midnight, and a handset set elsewhere would answer a
+  different question.
+- **`GET /incidents?closed=1`**, for "Reported today" alone. That counter counts everything
+  that happened today whether or not it is still open — an emergency dealt with by lunchtime
+  still happened today — and the board's default view hides closed incidents. Without it the
+  counter would have said 8 and led to 5. Off by default: the board is a working screen, and a
+  shift does not need yesterday's closed incidents in the way.
+- **A counter reading zero is not clickable**, and carries no affordance. A zero that opens a
+  board saying "nothing matches" answers a question the counter had already answered, and
+  teaches that these numbers lead somewhere unreliable — which is expensive for `Unassigned`,
+  in red, at 02:00.
+- The underline marking a counter as a link is on the **label**, not the number: the number is
+  what is read at a glance, and decorating it would make a quiet district look like a link farm.
+
+### Tests, and one that was measuring the wrong thing
+
+- **7 new tests.** Six in a browser, one at the API.
+- The browser tests assert **set membership, not a total**: every visible row carries the flag
+  and every hidden row does not. A first version compared the counter's number to the row count
+  and failed with **129 against 127** — because the shared test database is being written by
+  other suites while this one runs, and the dashboard's fetch and the board's fetch are moments
+  apart. The numbers were right; the assertion was measuring the clock. Membership is also the
+  stronger property, and the one actually asked for.
+- The API test guards the other half: that the counter's predicate and the row's flag are the
+  **same rule**. They live in different files — `districtSummary` in `api/dashboard.ts`,
+  `toRow` in `api/board.ts` — so nothing else stops one being edited without the other.
+
+### The cache test earned itself
+
+The shell changed, so `shellVersion.test.ts` failed and named both steps. **First real outing,
+and it caught the change before anybody had to notice it by opening the app.** `CACHE` is now
+`dnc-shell-v5`.
+
+### Not a code failure — the machine ran out of disk
+
+Two backup tests and one Status browser test failed mid-session with `No space left on
+device`. **C: had 60 MB free.** The restore round trips create a database each and clean up in
+`afterAll`, but a run that dies mid-way leaves them behind — a consequence of the full disk,
+not its cause. Leftovers dropped; the suites this change touches pass. **The machine needs
+space freed before the whole suite can run locally again**, and that is not something to fix
+by deleting things on somebody's computer.
+
+- **Tests:** 739 → 746, 50 files.
+
+---
+
+## 2026-08-04 — Why the disk kept filling, and a long chase that ended in the runbook
+
+The owner: *"mai sirf tujhe sai coding karwata hon but mera c drive Q bar bar full ho raha hai?"*
+
+A fair question, and the answer was this project.
+
+### The disk — a test suite that littered
+
+**287 `dnc-*` directories in the system temp folder, 840 MB**, dating from the day the project
+started. Six test files create a temp directory for dumps or evidence; **only one deleted it
+afterwards.** Every `npm run check` left another handful behind, and this session ran the suite
+many times over.
+
+Fixed in the five that leaked. Verified: a full run now leaves **zero**.
+
+For the record, the rest of what development costs on this machine and does **not** grow:
+PostgreSQL's portable binaries 848 MB, its data 143 MB, Playwright's browsers 701 MB. Those are
+one-time and necessary. The litter was the only thing accumulating.
+
+### The chase, and what it was actually worth
+
+A Status browser test — *an office issues an advisory, and it reaches the dashboard* — failed
+locally and passed on CI. Hours went into it. The findings, in the order they were disproved:
+
+- **Not the endpoint.** `POST /status/alerts` answers 201 and the advisory appears on a
+  freshly-driven dashboard.
+- **Not a 400 seen in the logs.** That was a different test deliberately checking the server
+  refuses an advisory with no end date.
+- **Not the pool size.** `max: 10` against a nine-way fan-out *looked* like a self-deadlock, and
+  the change was written with a confident comment explaining it — then reverted, because three
+  concurrent requests never deadlocked and raising it fixed nothing. **A justification that
+  cannot be demonstrated does not get to ship**, however plausible it reads.
+
+**It was the local test database.** Bloated from a session of repeated runs, its queries had
+slowed until `/dashboard` could not answer inside the test's window — so `tick()` sat at its
+`await fetch` and every panel stayed blank. `npm run test:reset`, and the whole suite went green
+in **114 seconds** instead of failing after seven hundred.
+
+`CLAUDE.md` already says exactly this, in a paragraph written after it happened twice before:
+*"`npm run test:reset` when the local run goes red for no reason you changed."* **The remedy was
+written down and the hours were spent anyway.** That is the note worth leaving.
+
+### Kept, because it was demonstrated
+
+- **The dashboard no longer starts a second fetch while one is in flight.** Instrumenting the
+  client showed **three overlapping `tick()`s** — arriving at the dashboard calls `show()`, and
+  issuing an advisory calls it again through `onChanged`. Each build of that feed runs about ten
+  queries; three at once on one machine is the failure mode the module's own comment says it
+  wants to avoid, and it had only guarded the timer. `show()` now joins the fetch already
+  running.
+- **`CACHE` → `dnc-shell-v6`**, since the client changed.
+
+### Reverted, because it was not
+
+- The connection-pool size. See above.
+
+- **Tests:** 746, 50 files, green in 114s on a reset database.

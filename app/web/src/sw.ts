@@ -15,7 +15,21 @@ declare const self: ServiceWorkerGlobalScope;
 /** Bump to ship a new shell. Old caches are deleted on activate. */
 // v3: the responsive shell (M4), and `/dashboard` and `/status` joining NEVER_CACHE. A
 // browser holding an older cache keeps serving the stale shell until this version changes.
-const CACHE = 'dnc-shell-v3';
+//
+// v4: the office screens, search and the post-incident report left `app.js` for their own
+// files, and their styling left `index.html`. **Both halves of the shell changed and this
+// line did not**, so every browser that had ever opened the app kept serving the old one —
+// the exact failure the note above describes, committed four times in a row without anybody
+// noticing, and found by somebody opening the app and asking where the dashboard had gone.
+//
+// The lesson is not "remember to bump it". It is that **nothing enforced it**: the shell can
+// change in a file this one never mentions, so `sw.e2e.test.ts` now fails when the built
+// shell's bytes change and this string does not.
+// v5: the district counters became clickable, so `index.html` gained their styling and
+// `app.js` gained the filters they lead through. Caught by `shellVersion.test.ts` on its
+// first real outing — it failed this change before anybody had to notice it by hand.
+// v6: the dashboard stopped starting a second fetch while one was in flight.
+const CACHE = 'dnc-shell-v6';
 
 const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest'];
 
@@ -65,6 +79,20 @@ const NEVER_CACHE = [
   '/dashboard',
   '/status',
   '/contacts',
+  /**
+   * `/search` and `/export` — here from the day they shipped, unlike the two above.
+   *
+   * A cached search is the same failure as a cached board, arriving by a route that looks
+   * harmless: somebody searches for an incident, gets last week's answer, and reads it as the
+   * state of the district today. Worse, a search is often the *last* look somebody takes
+   * before writing a post-incident report, so a stale one becomes a stale document.
+   *
+   * The export is the same argument with a longer life. A cached CSV is a stale file that
+   * leaves the building, gets emailed on, and is read months later by somebody with no way to
+   * know when it was actually true.
+   */
+  '/search',
+  '/export',
 ];
 
 function isNeverCache(url: URL): boolean {

@@ -22,7 +22,7 @@ work. See `docs/06-open-questions.md`.
 | P-06 | Ask whether a Bannu place gazetteer already exists (Q-08) | `DROPPED` | Owner: do not go to that depth. Location capture already works without it (M0-48) |
 | P-07 | Identify a **named technical person** in the DC/AC office, or designate one | `DONE` | **Allah Nawaz Khan, AC Headquarter Bannu.** Owner, 2026-08-02. He is also the M0-38 restore-drill candidate — M5 asks that he has fixed something himself under supervision, which is a training obligation, not a naming one |
 | P-08 | Where does the application run? | `DONE` | **On-premise, DC office primary + AC Headquarter standby, Google Cloud for off-site backups.** Owner, 2026-08-02. See **ADR-0011**. Rented database rejected — it would take the control room down with the district's internet line. Weekly cloud upload rejected in favour of **nightly**: weekly means losing up to seven days of emergency record. Unblocks M0-37 scheduling; creates M0-53 and M0-54 |
-| P-11 | Procure the notification channels (Q-07, ADR-0012) | `TODO` | **Longest lead time in the project.** WhatsApp Business API needs a Meta business account, a verified number and **pre-approved templates** — Meta must approve the alert wording before a single alert can be sent. Plus an SMS gateway account, a telephony provider, and a **GSM modem + SIM** for the DC server. Adapters build against fakes meanwhile, so this gates delivery, not development |
+| P-11 | Procure the notification channels (Q-07, ADR-0012) | `DROPPED` | **Not needed. 2026-08-03, owner.** This was the longest lead time in the project — a Meta business account, pre-approved templates, an SMS gateway, a telephony provider, a GSM modem and SIM. ADR-0012 is superseded: the software sends nothing and hands an officer the number instead. **R-05 closed with it.** What replaces it is R-04 — the numbers on the roster kept current, because those are what an officer now dials |
 | P-12 | Google Cloud Storage bucket + service account for backups (ADR-0011) | `TODO` | Small cost, real prerequisite. **The bucket must be private and dumps encrypted before upload** — a dump holds every reporter's phone number in the district |
 | P-10 | Purge the contact list from git history? | `DONE` | **No — owner decided it is fine; the repo is private.** 2026-08-02. Recorded so nobody reopens it as an oversight. `1d15b77` still contains the document |
 | P-09 | Where does the repository live? | `DONE` | GitHub, private: `imtiazai004/Nawaz-s-nerve-center`. Resolved 2026-08-02. **Separate from P-08** — the code being on GitHub says nothing about where the application runs, and on-premise remains a live and arguably better option |
@@ -46,7 +46,7 @@ the spine.
 | M0-02 | Postgres + migration framework + local dev setup | `DONE` | — | Portable PG 17.10 on :5433, `scripts/dev-db.ps1`, forward-only migration runner |
 | M0-03 | Structured logging with correlation ids; health endpoint | `DONE` | M0-02 | `src/obs/log.ts`. One JSON line per request with a correlation id, echoed in `x-correlation-id` and carried through background passes via `AsyncLocalStorage`. Sensitive fields never reach a log; bodies are never logged at all. Routine 200s (`/health`, static assets) are filtered so the signal survives. 15 tests |
 | M0-04 | CI: lint, typecheck, test on every commit | `DONE` | M0-01 | `.github/workflows/ci.yml`. Real PostgreSQL 17 and real Chromium — the suite is not worth running against a fake. **A missing `TEST_DATABASE_URL` under CI is a hard failure, not a skip**, so a broken secret cannot produce a green build that ran fifty tests instead of 297 |
-| M0-05 | Secret handling: env template, secret store, nothing in repo | `DOING` | M0-01 | `.env.example`, `.env` gitignored and verified unstaged. Real secret store pending deployment |
+| M0-05 | Secret handling: env template, secret store, nothing in repo | `DONE` | M0-01 | **The secret store is `app/.env` on the district's own machine, and that is the decision rather than a gap** (ADR-0007, ADR-0011): one server in the DC office, operable by one person at 02:00. A secrets manager would add a network dependency, an account and a renewal nobody watches, to protect a file sitting on the same disk as the database it unlocks. What the file needed was to be out of git, `chmod 600`, and **verified at boot** — `src/config.ts`. The template had documented 5 of 16 variables, omitted **both secrets**, still said "nothing here is used yet", and advertised the deleted provider keys; rewritten in full. 11 tests |
 
 ### The event core — `ADR-0001`
 
@@ -153,18 +153,52 @@ question that was "waiting on the district" turned into a screen where they ente
 
 | # | Task | Status | Depends on | Acceptance |
 |---|---|---|---|---|
-| M3-01 | The notification ladder as configuration | `DONE` | ADR-0012 | Migration 0013. WhatsApp → voice → SMS → the two GSM rungs, edited on **Administration → Alerts**. A seat's own ladder replaces the district default rather than merging — "stop phoning this post at night" has to be sayable. The in-app inbox is deliberately not a rung: it always happens |
-| M3-02 | Provider adapters, against fakes | `DONE` | M3-01 | `src/channels/providers.ts`. WhatsApp, SMS and voice behind one interface. **An unconfigured provider fails rather than quietly succeeding**, and an unconfigured *rung* is skipped rather than recorded — see D-07 for why those differ. Swapping in real credentials is configuration, not code |
-| M3-03 | The GSM modem rung | `DONE` | M3-02 | The only channel that survives the district's internet going down, which is the whole reason ADR-0011 puts the server in the DC office. Built against a fake serial device; the hardware is R-05 |
-| M3-04 | WhatsApp templates, drafted | `DONE` | — | `docs/09-notification-templates.md`. Four `UTILITY` templates for Meta approval. **The longest lead time in the project**, and the clock does not start until the district submits them |
+| M3-01…04 | ~~The notification ladder, provider adapters, the GSM rung, the WhatsApp templates~~ | **`REMOVED 2026-08-03`** | ADR-0012 | **Built, then deleted the same week — ~1,900 lines.** All four were `DONE` and are gone: `src/channels/`, `domain/channels.ts`, `db/channelStore.ts`, migration 0013's `channel_ladder` (dropped by 0018), the Administration → Alerts tab, and `docs/09-notification-templates.md`. **The owner had never asked for any of it** — see the ADR-0012 supersession. This row is kept rather than deleted so nobody rebuilds it thinking it was simply never done. **What survives is the right part:** the in-app inbox and the obligation ledger (M0-32), which need no provider and are what INV-03 is measured against |
 | M0-53 | Nightly backup, encrypted, off-site | `DONE` | ADR-0011 | `src/jobs/nightly.ts` + `src/ops/offsite.ts`. Nightly, not weekly. AES-256-GCM before it leaves; **refuses to upload without a passphrase** rather than sending the district's record out in the clear. Polls every ten minutes instead of sleeping until 02:00, so a server that was off still takes tonight's backup. 23 tests |
 | M0-54 | Replication lag on `/health` | `DONE` | ADR-0011 | `src/ops/replication.ts`. One node reports `standalone` and says why, rather than staying quiet. Reported, never enforced: a 503 because a standby is behind would stop the district reporting emergencies |
 | M0-55 | Backups on the console | `DONE` | M0-53 | **Administration → Backups**: local freshness and off-site freshness as **two separate questions**, replication state, the last twenty runs, and a take-one-now button. No restore-over-live button — see D-06 |
-| M0-37 | Automated backup | `DOING` | M0-02 | Backup, restore, verification and the ledger are **built and tested** — a real `pg_dump` → `psql` round trip, 17 tests. `/health` reports staleness. **Nothing schedules it yet** — but P-08 is answered now (ADR-0011), so this is unblocked and split into M0-53 |
-| M0-53 | Schedule the nightly backup; encrypt and upload to Google Cloud Storage | `TODO` | M0-37, P-12 | ADR-0011. Nightly, not weekly. Encrypted before it leaves the district. Upload failure is **loud** — a silent backup failure is worse than no backup, because it buys false confidence |
-| M0-54 | Streaming replication to the AC Headquarter standby | `TODO` | ADR-0011 | One record, two machines. **`/health` must report replication lag**, or the standby is a comforting fiction rather than a standby |
+| M0-37 | Automated backup | `DONE` | M0-02 | Backup, restore, verification and the ledger are built and tested — a real `pg_dump` → `psql` round trip, 17 tests, and `/health` reports staleness as `degraded` rather than a failing status code. **Was `DOING` with the note "nothing schedules it yet" long after M0-53 scheduled it** — corrected 2026-08-03 |
+
 | M0-38 | **Restore drill, actually performed** | `TODO` | M0-37 | No longer blocked on code. `docs/08-runbook.md` is written for someone who did not build this, and the path in it has been executed by the test suite. **Needs a second person**, timed, with what actually happened written down |
 | M0-39 | Invariant test suite scaffold (INV-01…08) | `DONE` | M0-04 | **All eight covered.** INV-04, 06, 07, 08 at the domain layer; INV-01 by `spine.e2e.test.ts`; INV-05 by 25 direct-HTTP refusals; INV-02 by `board.e2e.test.ts` 5–6; INV-03 by 6 domain tests plus `notify.test.ts`. Where each lives is named in the invariant file's header |
+
+> **M0-53 and M0-54 were listed twice in this table, once `DONE` and once `TODO`.** Both
+> duplicates are removed (2026-08-03). The code for each is done; what is missing is a thing
+> the district buys, and that is tracked once, in `for-the-district.md`, not as a second task
+> here:
+>
+> - **M0-53** ships nightly encrypted dumps and refuses to upload without a passphrase. It has
+>   **no bucket to upload to — R-06**. Backups exist and have never left the building.
+> - **M0-54** reports `role: "standalone"` on `/health` and says why. There is **no second
+>   machine — R-07**. One node holds Bannu's entire record.
+
+### M4/M5 — the product's shape
+
+**These landed as blocks of work, not as numbered tasks, and there are no `M4-xx` ids to
+invent.** The record is `CHANGELOG.md` — *The prototype becomes the product*, *Alerts that
+leave the building*, *Notifications: the software does not make the call*, and *The provider
+ladder removed*, all 2026-08-03 — plus **ADR-0013**.
+
+| Work | Status | Notes |
+|---|---|---|
+| **One application, every screen** (ADR-0013) | `DONE` | Same markup, laid out by CSS at three widths. The viewport is read in exactly one place — which screen you *land* on after signing in — and that picks a starting screen, never a layout. A separate `/display` wall screen existed for half a day; the owner reversed it and migration 0016 removed it |
+| **The dashboard** (`api/dashboard.ts`, `web/src/dashboard.ts`) | `DONE` | The home of the product. Every panel the owner's prototype had, plus the ones this system grew. **Scoped to whoever asked** — the two offices see the district, a department sees its own work, same panels. Every panel leads to an existing screen; the dashboard grows no detail view of its own |
+| **The Status screen** (`api/status.ts`, `web/src/status.ts`) | `DONE` | Where everything the dashboard shows is typed. Utility and service reports, presence, advisories, district facts (migrations 0015, 0017). **Advisories are the two offices' only** — a board any department can post to is a board nobody trusts |
+| **Wall safety** (`domain/wall.ts`) | `DONE` | Nothing private reaches the dashboard, because a room can read it. Checked on **every** response and a violation **fails the request** rather than stripping the field — a leak that ships minus one column is a leak nobody finds |
+| **"Reach them"** (`api/contacts.ts`, `web/src/contact.ts`) | `DONE` | The replacement for the whole provider ladder. Hands an officer the number and opens WhatsApp, the dialler or messages **on their own handset**. Sends nothing, records nothing, and says so rather than implying otherwise. A stand-in number renders struck through with its channels disabled |
+| **Live weather** (`ops/weather.ts`) | `DONE` | Fetched server-side from Open-Meteo every fifteen minutes: one fetch serves every screen, no key in a kiosk browser, and a district with no line shows one honest "last fetched" instead of each screen failing differently |
+| **`npm run demo` / `demo:clear`** | `DONE` | Plausible data behind every panel, everything marked `(demo)` and the mark visible on screen. Added because eleven panels reading "not reported" were honest and impossible to judge a design on |
+| **R-15 / R-16 raised** | `OPEN` | Real values for tehsils, union councils, population and area (R-15), and which point the weather should be taken at (R-16). Both are on `for-the-district.md` since 2026-08-03 |
+
+> **Two bookkeeping faults found and fixed 2026-08-03.** The *R-13* raised for the weather
+> point collided with the `R-13` already on `for-the-district.md` (Rescue 1122's response
+> actions), and `R-15` had been raised and never added to that file at all.
+>
+> **Resolved by the rule that the row numbered first keeps the number** — the append-only
+> log shows Rescue's row was given `R-13` hours earlier, in the M1 gate entry. So Rescue
+> keeps `R-13`, the weather question became **`R-16`**, and `R-15` was added. The list is
+> now `R-01…R-16`, no gaps, no repeats. `ADR-0013` carries an amendment recording it, and
+> `src/ops/weather.ts` cites `R-16`.
 
 ---
 
@@ -180,13 +214,18 @@ question that was "waiting on the district" turned into a screen where they ente
 - [x] **Every mutation refuses unauthorised direct API calls** — M0-19, 25 tests
 - [ ] Restore from backup performed successfully, end to end — M0-38
 
-Eight of nine. The open item needs **both** an automated backup (M0-37, which does not exist
-yet and is code) and a second person to perform the restore — a restore procedure that has
-only ever been performed by the person who wrote it is not a backup strategy.
+Eight of nine. **The open item now needs only a person.** The earlier note here said it also
+needed an automated backup "which does not exist yet and is code" — that stopped being true
+when M0-37 and M0-53 landed. Nightly verified dumps have run since 2026-08-03 and the runbook
+is written for someone who did not build this. What remains is that a restore procedure only
+ever performed by the person who wrote it is not a backup strategy (**R-08**).
 
 ---
 
-## M1 starts next
+## How M0 closed out — and what M1a changed under it
+
+*(Header was "M1 starts next" until 2026-08-03. M1 has since been built and its gate passed
+on my half; M1a, M4 and M5 landed after it. Kept for the reasoning, not the schedule.)*
 
 M0's **architecture gate** has passed, which is what unblocks M1 — but the gate proves the
 spine, it does not mean the M0 task list is finished.
@@ -196,26 +235,35 @@ triage, routing, acknowledgement, reassignment, resolution, closure, and an auth
 read — every one of them gated by the policy table and tested by direct HTTP call, never
 through a browser. That was the largest open block and it is closed.
 
-What remains open in M0, eleven of forty-nine:
-
 **All eight invariants now have permanent tests** (M0-39), which was not true of any previous
 milestone report. The lifecycle is complete: capture, route, notify, acknowledge, escalate,
 override, close — every step reachable, authorised and observable.
 
-- ~~The department board (M0-34).~~ **Done.**
-- **Operations.** M0-04 CI, M0-03 correlation ids. Backup and restore are built (M0-37);
-  scheduling waits on P-08, and the drill (M0-38) waits on a person.
-- **M0-51**, a department registry. Departments have no table and render as uuids.
-- **Half-done:** M0-05 secrets, M0-11 payload versioning.
+**What remains open in M0 — corrected 2026-08-03.** This list previously named M0-04 (CI),
+M0-03 (correlation ids) and M0-51 (the department registry) as outstanding, and said backup
+scheduling waited on P-08. All four had been done for a day or more. The true list is short:
+
+- ~~**M0-05 secrets**~~ — **done 2026-08-04.** The store is `app/.env` on the district's own
+  machine by decision, checked at boot by `src/config.ts`.
+- **M0-11 payload versioning** — half-done, and deliberately so. `payload_version` is on
+  every row; there is no v2 reader because there is no v2 payload for one to read.
+- **M0-38 the restore drill** — needs a person, not code (**R-08**).
+
+**With M0-05 closed, there is one code item left in M0 and it is deliberately parked.**
+Everything else waits on the district — see `for-the-district.md`.
+
+That is the whole of it. ~~M0-34 department board~~, ~~M0-04 CI~~, ~~M0-03 correlation ids~~,
+~~M0-51 department registry~~, ~~M0-37 backup~~ — all done.
 
 **The repository is on GitHub and CI runs on every push** (P-09, M0-04). That also gives the
 intermittent `Worker exited unexpectedly` — twice in roughly twelve local runs — somewhere to
 be observed properly, rather than depending on one person noticing.
 
 **The district's contact list is loaded** (M0-51): 79 offices, 81 posts, 39 officers, 38 of
-those posts vacant. Every remaining M0 item now waits on a person or a decision rather than
-on code — see **Q-18** (how Bannu is organised, and what tier each seat is: the escalation
-ladder cannot work until that is answered) and **Q-19** (two officers sharing one number).
+those posts vacant. **Q-18 and Q-19 are both answered** — Q-18 by ADR-0010 and migration 0010,
+which derives tier from `is_administration` in the database so it cannot drift, and Q-19 by
+migration 0006, where a phone number identifies an account rather than a person. The note that
+used to sit here — *"the escalation ladder cannot work until Q-18 is answered"* — is obsolete.
 
 **Every M0 task that is code is now done.** What remains needs a person (M0-38 restore
 drill), a deployment decision (M0-37 scheduling and M0-05 secrets, both on P-08), or a thing
@@ -235,9 +283,10 @@ on its own card.
 someone who did not build this, and every step in it has been executed by the test suite
 against a real cluster. What it needs is a second person, an hour, and a stopwatch.
 
-Before M1 gets far it needs two answers: **Q-08** (does a Bannu place gazetteer already
-exist — weeks of work versus a phone call) and **Q-06** (real SLA targets, since the
-escalation loop is live on guessed ones).
+The two answers this section used to say M1 needed are both settled: **Q-08** (the gazetteer)
+was **dropped by the owner** — location capture works without one (M0-48, P-06) — and **Q-06**
+became a screen rather than a number (M1a-04). Real SLA targets are still worth having, but as
+data the district types in, not as a thing that blocks the build: **R-03**.
 
 ## Where M0 stands
 
@@ -290,8 +339,15 @@ matters — that an emergency is never lost.
 
 ## M1 and beyond
 
-Decomposed when M0's gate passes — not before. Task lists written far ahead of the code
-they describe are fiction, and they encourage building to a stale plan instead of to what
-M0 actually taught us.
+This section used to read *"Decomposed when M0's gate passes — not before"*. It was right,
+and the thing it predicted is what happened: **M1a did not exist in any plan.** It fell out of
+ADR-0010 once the district said there were two offices and not four tiers, and it delivered
+M2's gate a milestone early. M4 and M5 likewise came from an owner's prototype and an owner's
+correction, neither of which a task list written in advance could have named.
+
+So the rule stands rather than being retired: task lists written far ahead of the code they
+describe are fiction, and they encourage building to a stale plan instead of to what the last
+milestone actually taught. **What is left is in `for-the-district.md`, not here** — and almost
+none of it is code.
 
 Milestone definitions and gates: [`milestones.md`](milestones.md).

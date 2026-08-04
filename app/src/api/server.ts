@@ -24,6 +24,10 @@ import {
   type CommandKind,
 } from './lifecycle.js';
 import { buildBoard } from './board.js';
+import { buildExport, EXPORT_LIMIT } from './exportCsv.js';
+import { search } from './search.js';
+import { districtSummaryFor } from './summary.js';
+import { LoginThrottle, sleep, withScryptSlot } from '../auth/throttle.js';
 import { inbox, markSeen } from './notifications.js';
 import {
   addDepartment,
@@ -191,6 +195,30 @@ function json(res: ServerResponse, status: number, body: unknown): void {
     'cache-control': 'no-store',
   });
   res.end(text);
+}
+
+/**
+ * Authenticated, but holding no post: they may look at nothing and do nothing.
+ *
+ * Authority comes from the seat, never from the person (ADR-0004), and the seat is
+ * re-resolved from the roster on every request so that relieving somebody takes effect
+ * immediately. **The gap this closes is that "no seat" and "a seat with no department" both
+ * arrive here as a null department**, and the dashboard treated the pair as one thing — so a
+ * relieved officer was handed the district view instead of nothing. Losing a post widened
+ * what its former holder could see.
+ *
+ * One helper rather than the same four lines at each route, because the endpoints that were
+ * leaking are exactly the ones where somebody had not written those lines. Returns false
+ * having already answered the request.
+ */
+function requireSeat(res: ServerResponse, identity: Identity): boolean {
+  if (identity.seatId === null) {
+    json(res, 403, {
+      error: 'no current duty assignment; you hold no seat and cannot act',
+    });
+    return false;
+  }
+  return true;
 }
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -829,6 +857,7 @@ async function handleIncidents(
   identity: Identity,
   evidenceRoot: string,
   wantsText = false,
+  includeClosed = false,
 ): Promise<void> {
   const readJson = async (): Promise<Record<string, unknown> | null> => bodyOf(req);
 
@@ -841,7 +870,18 @@ async function handleIncidents(
         json(res, 403, { error: 'no current duty assignment; you hold no seat' });
         return;
       }
-      json(res, 200, await buildBoard(pool, seat));
+      /**
+       * `?closed=1` includes what has already been resolved or closed.
+       *
+       * Added for the dashboard's **Reported today** counter, which counts everything that
+       * happened today whether or not it is still open — an emergency dealt with by lunchtime
+       * still happened today. Without this the counter would say 8 and lead to 5 rows, and a
+       * number that disagrees with the screen it leads to is worse than one nobody can click.
+       *
+       * Off by default: the board is a working screen, and a shift does not need yesterday's
+       * closed incidents in the way.
+       */
+      json(res, 200, await buildBoard(pool, seat, includeClosed ? { includeClosed: true } : {}));
       return;
     }
 
@@ -1035,6 +1075,17 @@ export function createSyncServer(options: ServerOptions): Server {
   const backupDirectory = options.backupDirectory ?? join(process.cwd(), 'var', 'backups');
 
   /**
+   * Per server, not per module.
+   *
+   * A module-level singleton would be shared by every server a test file starts, so one
+   * suite's failed sign-ins would slow another's — and a test that mysteriously got slower
+   * depending on what ran before it is a test people delete.
+   */
+  const throttle = new LoginThrottle();
+  const throttleSweep = setInterval(() => throttle.sweep(), 5 * 60 * 1000);
+  throttleSweep.unref();
+
+  /**
    * Read at request time, never at construction.
    *
    * `main.ts` builds the server before it builds the backup job, so it passes a getter — and
@@ -1117,13 +1168,49 @@ export function createSyncServer(options: ServerOptions): Server {
             return;
           }
 
-          const result = await login(pool, body.phone, body.password);
+          /**
+           * The source, taken from the socket and **never from a header**.
+           *
+           * `X-Forwarded-For` is written by whoever is asking. Trusting it here would let an
+           * attacker send a different value on every request and never accumulate a single
+           * failure — a rate limiter that an attacker can opt out of is worse than none,
+           * because it is believed. ADR-0011 puts this on one machine in the DC office; if a
+           * reverse proxy is ever put in front of it, this is the line that has to change,
+           * deliberately and with the proxy's own address pinned.
+           */
+          const source = req.socket.remoteAddress ?? 'unknown';
+
+          // Read *before* the password is checked, so the delay attaches to the attempt and
+          // cannot depend on whether the account exists. A delay that appeared only for real
+          // numbers would be exactly the timing oracle `login` avoids by always hashing.
+          const { delayMs } = throttle.decide(body.phone, source);
+          await sleep(delayMs);
+
+          // Bounded scrypt work. An emergency report must never queue behind a flood of
+          // sign-in attempts on the district's one machine (INV-01).
+          const phone = body.phone;
+          const password = body.password;
+          const slot = await withScryptSlot(() => login(pool, phone, password));
+
+          if (!slot.ran) {
+            // Transient, and about the server rather than about anybody's account. Never a
+            // state that follows an officer around — that is the lockout this design refuses.
+            res.setHeader('retry-after', '5');
+            json(res, 503, { error: 'too many sign-in attempts at once — try again in a moment' });
+            return;
+          }
+
+          const result = slot.value;
+
           if (result === null) {
+            throttle.fail(phone, source);
             // One message for every failure. Distinguishing "no such number" from "wrong
             // password" hands an attacker the list of real officers.
             json(res, 401, { error: 'invalid credentials' });
             return;
           }
+
+          throttle.succeed(phone);
 
           res.setHeader(
             'set-cookie',
@@ -1210,6 +1297,143 @@ export function createSyncServer(options: ServerOptions): Server {
           return;
         }
 
+        /**
+         * What happened over a chosen period (capability 9).
+         *
+         * The console's performance table is a rolling window of recent arrivals, for the two
+         * offices. This answers "how did we do in July", for whoever asks, scoped to what
+         * their seat may see — same medians, same authority, a window they choose.
+         */
+        if (url.pathname === '/summary') {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+          if (!requireSeat(res, identity)) return;
+          if (req.method !== 'GET') {
+            json(res, 405, { error: 'method not allowed' });
+            return;
+          }
+
+          const seat = seatOf(identity);
+          if (seat === null) {
+            json(res, 403, { error: 'no current duty assignment; you hold no seat' });
+            return;
+          }
+
+          json(
+            res,
+            200,
+            await districtSummaryFor(pool, seat, {
+              from: url.searchParams.get('from') ?? undefined,
+              to: url.searchParams.get('to') ?? undefined,
+            }),
+          );
+          return;
+        }
+
+        /**
+         * Finding an old emergency (capability 9).
+         *
+         * The board is the last seven days; everything before that was reachable only by
+         * already knowing its incident id. Same seat, same projection as the board — search
+         * decides which incidents, never what they say.
+         */
+        if (url.pathname === '/search') {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+          if (!requireSeat(res, identity)) return;
+          if (req.method !== 'GET') {
+            json(res, 405, { error: 'method not allowed' });
+            return;
+          }
+
+          const seat = seatOf(identity);
+          if (seat === null) {
+            json(res, 403, { error: 'no current duty assignment; you hold no seat' });
+            return;
+          }
+
+          const limitParam = Number(url.searchParams.get('limit'));
+
+          json(
+            res,
+            200,
+            await search(pool, seat, {
+              text: url.searchParams.get('q') ?? undefined,
+              from: url.searchParams.get('from') ?? undefined,
+              to: url.searchParams.get('to') ?? undefined,
+              status: url.searchParams.get('status') ?? undefined,
+              limit: Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined,
+            }),
+          );
+          return;
+        }
+
+        /**
+         * Incidents out, as a spreadsheet (capability 9).
+         *
+         * The mitigation for the double entry that Q-01/Q-02 chose when the district decided
+         * to integrate with nothing. Same seat, same `buildBoard`, same authority — a second
+         * query would eventually disagree with the board about a district's own emergencies.
+         */
+        if (url.pathname === '/export/incidents.csv') {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+          if (!requireSeat(res, identity)) return;
+          if (req.method !== 'GET') {
+            json(res, 405, { error: 'method not allowed' });
+            return;
+          }
+
+          const seat = seatOf(identity);
+          if (seat === null) {
+            json(res, 403, { error: 'no current duty assignment; you hold no seat' });
+            return;
+          }
+
+          // Bounded rather than free: a range nobody chose is a range that grows until the
+          // export starts refusing, and 366 keeps a full year reachable.
+          const requested = Number(url.searchParams.get('days') ?? 30);
+          const days = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 366) : 30;
+
+          const board = await buildBoard(pool, seat, {
+            days,
+            // One more than the cap, so hitting it is detectable rather than assumed.
+            limit: EXPORT_LIMIT + 1,
+            includeClosed: true,
+          });
+
+          const reply = buildExport(board, days, board.incidents.length > EXPORT_LIMIT);
+
+          if (reply.status !== 200) {
+            json(res, reply.status, { error: reply.error });
+            return;
+          }
+
+          res.writeHead(200, {
+            'content-type': reply.contentType,
+            'content-length': Buffer.byteLength(reply.body),
+            'content-disposition': `attachment; filename="${reply.filename ?? 'incidents.csv'}"`,
+            'cache-control': 'no-store',
+          });
+          res.end(reply.body);
+          return;
+        }
+
         if (url.pathname === '/dashboard') {
           const token = readToken(req);
           const identity = token === null ? null : await resolveSession(pool, token);
@@ -1218,6 +1442,8 @@ export function createSyncServer(options: ServerOptions): Server {
             json(res, 401, { error: 'authentication required' });
             return;
           }
+
+          if (!requireSeat(res, identity)) return;
 
           writeDashboard(res, await handleDashboard(pool, req, identity));
           return;
@@ -1238,6 +1464,8 @@ export function createSyncServer(options: ServerOptions): Server {
             json(res, 401, { error: 'authentication required' });
             return;
           }
+
+          if (!requireSeat(res, identity)) return;
 
           const body = req.method === 'POST' ? await bodyOf(req) : null;
 
@@ -1323,14 +1551,7 @@ export function createSyncServer(options: ServerOptions): Server {
             return;
           }
 
-          // Authenticated but holding no seat: they may look at nothing and do nothing.
-          // Authority comes from the seat, never from the person (ADR-0004).
-          if (identity.seatId === null) {
-            json(res, 403, {
-              error: 'no current duty assignment; you hold no seat and cannot act',
-            });
-            return;
-          }
+          if (!requireSeat(res, identity)) return;
 
           await handleIncidents(
             pool,
@@ -1340,6 +1561,7 @@ export function createSyncServer(options: ServerOptions): Server {
             identity,
             evidenceRoot,
             url.searchParams.get('format') === 'text',
+            url.searchParams.get('closed') === '1',
           );
           return;
         }

@@ -144,6 +144,74 @@ describe.skipIf(dbUrl === undefined)('the central board (integration)', () => {
       expect(rowFor(view.body, a)).toBeDefined();
       expect(rowFor(view.body, b)).toBeDefined();
     });
+
+    /**
+     * The export is the board, so its scoping has to be the board's — capability 9.
+     *
+     * Written here rather than beside the CSV unit tests on purpose: the risk is not that the
+     * formatting is wrong, it is that a *file departments email to each other* is built from a
+     * different query than the screen and quietly answers a wider question. Same `buildBoard`,
+     * same seat, therefore the same answer — asserted rather than assumed.
+     */
+    it('scopes the spreadsheet export exactly as it scopes the board', async () => {
+      const mine = await incident(rescueDept, 'high');
+      const theirs = await incident(policeDept, 'high');
+
+      const res = await fetch(`${base}/export/incidents.csv?days=7`, {
+        headers: { authorization: `Bearer ${rescueToken}` },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toMatch(/text\/csv/);
+      expect(res.headers.get('content-disposition')).toMatch(/attachment; filename="incidents-/);
+
+      const csv = await res.text();
+      expect(csv).toContain(mine);
+      // Never sent, exactly as on the board.
+      expect(csv).not.toContain(theirs);
+    });
+
+    it('refuses the export without a session', async () => {
+      expect((await fetch(`${base}/export/incidents.csv`)).status).toBe(401);
+    });
+  });
+
+  /**
+   * The dashboard's counters and the board's flags must be the same rule.
+   *
+   * The browser test proves clicking a counter selects exactly the rows carrying its flag.
+   * This proves the other half: that the flag means what the counter counted. The two live in
+   * different files — `districtSummary` in `api/dashboard.ts` and `toRow` in `api/board.ts` —
+   * so nothing but this stops one being edited without the other, and a counter that says 5
+   * while the board holds 4 matching rows is the failure the owner asked to be rid of.
+   *
+   * Fetched back to back, because the district moves: this is the tightest window available,
+   * and a mismatch of one is still a mismatch of one.
+   */
+  describe('the district counters and the board agree on what they mean', () => {
+    it('counts the same unassigned, unacknowledged and today as the rows carry', async () => {
+      await incident(rescueDept, 'high');
+
+      const [dash, board] = await Promise.all([
+        fetch(`${base}/dashboard`, {
+          headers: { authorization: `Bearer ${controlRoomToken}` },
+        }).then((r) => r.json() as Promise<Record<string, never>>),
+        fetch(`${base}/incidents?closed=1`, {
+          headers: { authorization: `Bearer ${controlRoomToken}` },
+        }).then((r) => r.json() as Promise<Board>),
+      ]);
+
+      const district = (dash as unknown as { district: Record<string, number> }).district;
+      const live = board.incidents.filter((r) => r.status !== 'closed' && r.status !== 'resolved');
+
+      expect(live.filter((r) => !r.held).length).toBe(district['unassigned']);
+      expect(live.filter((r) => !r.acknowledged).length).toBe(district['overdueUnacknowledged']);
+      expect(live.length).toBe(district['openIncidents']);
+
+      // "Reported today" is the one that counts closed incidents too — an emergency dealt
+      // with by lunchtime still happened today.
+      expect(board.incidents.filter((r) => r.occurredToday).length).toBe(district['today']);
+    });
   });
 
   describe('an unassessed report is never dressed as a level (ADR-0009, INV-04)', () => {

@@ -21,7 +21,8 @@
     "test:reset": "npm run build:server && node scripts/reset-test-db.mjs",
     "sweep": "npm run build:server && node scripts/sweep.mjs",
     "demo": "npm run build:server && node scripts/demo-data.mjs",
-    "demo:clear": "npm run build:server && node scripts/demo-data.mjs --clear"
+    "demo:clear": "npm run build:server && node scripts/demo-data.mjs --clear",
+    "shell:record": "npm run build:server && node scripts/record-shell.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

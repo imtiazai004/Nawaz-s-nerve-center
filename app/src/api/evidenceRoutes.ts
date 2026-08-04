@@ -22,6 +22,7 @@ import type { Identity } from '../auth/sessions.js';
 import { readIncident } from './lifecycle.js';
 import {
   fetch as fetchEvidence,
+  find as findEvidence,
   isAcceptedType,
   listFor,
   store,
@@ -134,11 +135,27 @@ export async function download(
   evidenceId: string,
   identity: Identity,
 ): Promise<EvidenceReply | null> {
+  /**
+   * Authority first, bytes second — the same rule `upload` states above, applied in the
+   * direction it had been missed.
+   *
+   * This used to call `fetchEvidence` first, which reads the whole file off disk and hashes
+   * it, and only then asked whether the caller was allowed to see the incident. Up to 20 MB
+   * of disk read and a SHA-256 over it, for a request that was about to be refused — on the
+   * one machine in the DC office that is also taking emergency reports. Any signed-in officer
+   * could aim that at files they had no authority for.
+   *
+   * `find` is the row on its own: enough to learn which incident this belongs to, and nothing
+   * touched on disk until the answer is yes.
+   */
+  const row = await findEvidence(pool, evidenceId);
+  if (row === null) return { ok: false, status: 404, error: 'no such evidence' };
+
+  const readable = await readIncident(pool, row.incidentId, identity);
+  if (!readable.ok) return { ok: false, status: readable.status, error: readable.error };
+
   const found = await fetchEvidence(pool, root, evidenceId);
   if (!found.ok) return { ok: false, status: 404, error: found.why };
-
-  const readable = await readIncident(pool, found.value.evidence.incidentId, identity);
-  if (!readable.ok) return { ok: false, status: readable.status, error: readable.error };
 
   const { evidence, bytes, intact } = found.value;
 

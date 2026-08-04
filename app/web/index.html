@@ -461,6 +461,12 @@
         background: var(--card2); border-left: 3px solid var(--primary); border-radius: 4px;
         font-size: 0.85rem; font-weight: 600;
       }
+
+      #boardExport {
+        display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap;
+        margin-top: 1rem; padding-top: 0.8rem; border-top: 1px solid var(--line);
+        font-size: 0.85rem;
+      }
       #boardFilterClear {
         font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer;
         background: none; border: 1px solid var(--line); border-radius: 4px;
@@ -474,17 +480,26 @@
        * only reveals itself on hover is invisible to somebody using a keyboard and to anybody
        * on a touchscreen, which is most of this district.
        */
-      .pitem.go, .sit.go {
+      .pitem.go, .sit.go, .key.go {
         cursor: pointer;
         border-radius: 4px;
         transition: background 120ms;
       }
-      .pitem.go:hover, .sit.go:hover,
-      .pitem.go:focus-visible, .sit.go:focus-visible {
+      .pitem.go:hover, .sit.go:hover, .key.go:hover,
+      .pitem.go:focus-visible, .sit.go:focus-visible, .key.go:focus-visible {
         background: var(--card2);
         outline: 2px solid var(--primary);
         outline-offset: -2px;
       }
+      /*
+        A counter that leads somewhere says so before it is clicked.
+
+        The underline is on the label rather than the number: the number is the thing being
+        read at a glance, and decorating it would make a quiet district look like a link farm.
+        A counter reading zero is not clickable and carries none of this — see `renderKeys`.
+      */
+      .key.go .k { text-decoration: underline; text-underline-offset: 2px; }
+      .key.go:hover { background: var(--card); }
 
 
       /* ------------------------------------------------------- reaching a department (M5) */
@@ -1416,6 +1431,14 @@
         entered here. Offered to everybody signed in; what it contains is scoped server-side.
       -->
       <button type="button" id="navStatus" hidden>Status</button>
+      <!--
+        Finding an old emergency (capability 9).
+
+        The board is the last seven days. Everything before that was reachable only by
+        already knowing its incident id, which meant a post-incident report about something
+        from March could be produced by whoever had written the id down and by nobody else.
+      -->
+      <button type="button" id="navSearch">Search</button>
       <button type="button" id="navShift" hidden>My shift</button>
       <button type="button" id="navMine" hidden>My department</button>
     </nav>
@@ -1663,6 +1686,94 @@
         <div id="boardSummary"></div>
         <div id="boardRows"></div>
         <p id="boardEmpty" hidden>No open incidents in the last seven days.</p>
+        <!--
+          Out, as a spreadsheet (capability 9).
+
+          The district integrates with no government-issued system by decision (Q-01, Q-02),
+          and the price of that is double entry — the top adoption risk. This is the answer
+          that was promised in its place. A plain link, because the browser already knows how
+          to download a file and a fetch-and-blob would only take that away from it.
+
+          Scoped server-side like everything else: what lands in the file is what this seat
+          could already see on the board above.
+        -->
+        <p id="boardExport">
+          <a id="boardExportLink" href="/export/incidents.csv?days=30" download>
+            Export the last 30 days
+          </a>
+          <span class="meta">
+            Opens in Excel. Carries no reporter's name, number or location.
+          </span>
+        </p>
+      </section>
+
+      <!--
+        The post-incident report (M1-06), and the PDF the scope list asks for.
+
+        The PDF is the browser's own Print → Save as PDF, driven by the print stylesheet.
+        A PDF library would be a rendering engine, a font stack and a layout implementation
+        that drifts from the screen — and ADR-0007 asks of every dependency who restarts it at
+        02:00. A stylesheet has no such question, works offline, and produces by construction
+        the same document the operator was just reading.
+      -->
+      <section id="piReportView" hidden>
+        <p id="piReportActions" class="noPrint">
+          <button type="button" id="piReportPrint">Print or save as PDF</button>
+          <button type="button" id="piReportBack">Back to the incident</button>
+        </p>
+        <p id="piReportError" hidden></p>
+        <article id="piReportBody"></article>
+      </section>
+
+      <!--
+        Searching the record (capability 9).
+
+        Rows here are built by the same renderer the board uses, so an emergency found in
+        March reads exactly as it would if it were still open — including its unmet
+        notifications, which a second renderer would quietly have dropped.
+      -->
+      <section id="searchView" hidden>
+        <form id="searchForm">
+          <label for="searchText">Words in the report</label>
+          <input
+            type="search"
+            id="searchText"
+            placeholder="tanker, grain market, bypass…"
+            autocomplete="off"
+          />
+          <div class="searchRange">
+            <span>
+              <label for="searchFrom">Happened after</label>
+              <input type="date" id="searchFrom" />
+            </span>
+            <span>
+              <label for="searchTo">and before</label>
+              <input type="date" id="searchTo" />
+            </span>
+            <span>
+              <label for="searchStatus">Status</label>
+              <select id="searchStatus">
+                <option value="">Any</option>
+                <option value="reported">Reported</option>
+                <option value="acknowledged">Acknowledged</option>
+                <option value="resolved">Resolved</option>
+                <option value="closed">Closed</option>
+              </select>
+            </span>
+          </div>
+          <!--
+            The dates say "happened", not "recorded", and the difference is load-bearing: a
+            report captured on a handset with no signal in March and delivered in August
+            happened in March (ADR-0002). Searching by arrival would file the district's worst
+            weeks — the ones where devices were offline longest — under the day the network
+            came back.
+          -->
+          <button type="submit">Search</button>
+        </form>
+        <p id="searchError" hidden></p>
+        <p id="searchSummary"></p>
+        <p id="searchNote" class="note" hidden></p>
+        <div id="searchRows"></div>
       </section>
 
       <!--
@@ -1732,6 +1843,14 @@
       -->
       <section id="detailView" hidden>
         <button type="button" id="back">← Back to the board</button>
+        <!--
+          The post-incident report (M1-06), reached from the incident it is about.
+
+          Here rather than on its own tab because nobody wants "a report" — they want the
+          report for the emergency they are looking at, and a tab would ask them to find it
+          again by id, which is the gap search was built to close.
+        -->
+        <button type="button" id="detailReport">Post-incident report</button>
         <div id="detailHead"></div>
         <div id="detailValues" class="values"></div>
         <section id="timeline">

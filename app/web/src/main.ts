@@ -21,12 +21,14 @@ import { IndexedDbOutboxStore, requestPersistence } from '../../src/outbox/adapt
 import { HttpTransport } from '../../src/outbox/adapters/httpTransport.js';
 import type { IncidentEvent } from '../../src/domain/events.js';
 import { buildCapture, describeFix, startLocationWatch, type Fix } from './location.js';
-import { mountAdmin, type AdminConsole } from './admin.js';
-import { mountRoster, type RosterPanel } from './roster.js';
+// Types only — erased at build time, so naming them here does not pull the office screens
+// into the shell. The values arrive from `/office.js` when somebody opens one.
+import type { AdminConsole } from './admin.js';
+import type { RosterHost, RosterPanel } from './roster.js';
+import type { StatusPanel } from './status.js';
 import { mountWorkspace, type Workspace } from './workspace.js';
 import { createDashboard, startClock } from './dashboard.js';
-import { mountStatus } from './status.js';
-import { categoryWords, duration } from './words.js';
+import { ago, incidentRow } from './incidentRow.js';
 import { reachButton } from './contact.js';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -351,6 +353,7 @@ async function boot(): Promise<void> {
   const nav = el('nav');
   const navReport = el<HTMLButtonElement>('navReport');
   const navBoard = el<HTMLButtonElement>('navBoard');
+  const navSearch = el<HTMLButtonElement>('navSearch');
   const reportView = el('reportView');
   const boardView = el('boardView');
   const boardAsOfText = el('boardAsOfText');
@@ -366,7 +369,33 @@ async function boot(): Promise<void> {
   // rest of the app, on the screen whose whole job is to be trusted.
   const navAdmin = el<HTMLButtonElement>('navAdmin');
   const adminView = el('adminView');
-  const admin: AdminConsole = mountAdmin();
+  /**
+   * The office screens, fetched together on first use — see `web/src/office.ts`.
+   *
+   * The console, the roster and the Status screen are one bundle because `admin.ts` already
+   * imports `roster.ts` (the console reaches every department's roster, and "My department" is
+   * the same component through its other door). Splitting them would put a second copy of the
+   * roster in one of the two files, and the point of this is fewer bytes.
+   *
+   * None of the three is any use at a scene, and none works without a connection.
+   */
+  interface Office {
+    mountAdmin: () => AdminConsole;
+    mountRoster: (host: RosterHost) => RosterPanel;
+    mountStatus: (options: { onChanged?: () => void }) => StatusPanel;
+  }
+
+  let office: Office | null = null;
+
+  async function loadOffice(): Promise<Office | null> {
+    if (office !== null) return office;
+    if (!(await loadScreen('office', false))) return null;
+
+    office = (window as unknown as { DncOffice?: Office }).DncOffice ?? null;
+    return office;
+  }
+
+  let admin: AdminConsole | null = null;
 
   // A department's own roster (M1a-10) — the other door onto the same component the console
   // uses. The server resolves "my department" from the caller's seat, so a department
@@ -397,6 +426,22 @@ async function boot(): Promise<void> {
     onOpenDepartment: (name) => {
       showBoardFiltered('department', name, name);
     },
+    /**
+     * A district counter, opened on exactly what it counted.
+     *
+     * `open` is the board with no filter — everything live, which is what that counter counts.
+     * The rest filter on an attribute the **server** set, so the number and the rows agree by
+     * construction rather than by two implementations happening to match.
+     *
+     * The board is refetched rather than filtered in place, because "today" needs closed rows
+     * the current fetch did not ask for.
+     */
+    onOpenFlag: (flag) => {
+      boardFilter =
+        flag === 'open' ? null : { kind: flag, value: flag, label: flag };
+      showView('board');
+      void refreshBoard();
+    },
     // Utilities, services and presence are *changed* on the Status screen, so that is where
     // "tell me more" leads: the row, with its note and its buttons.
     onOpenStatus: () => {
@@ -414,7 +459,7 @@ async function boot(): Promise<void> {
    * `onChanged` refreshes the dashboard's numbers the next time it is opened, so an officer
    * who reports a power cut and switches tabs does not see their own report missing.
    */
-  const statusPanel = mountStatus({ onChanged: () => void dashboard.show() });
+  let statusPanel: StatusPanel | null = null;
 
   // Runs from load, on every screen, signed in or out. See `startClock`.
   startClock();
@@ -425,18 +470,54 @@ async function boot(): Promise<void> {
 
   const navMine = el<HTMLButtonElement>('navMine');
   const mineView = el('mineView');
+  const searchView = el('searchView');
+  const piReportView = el('piReportView');
   const mineError = el('mineError');
-  const mine: RosterPanel = mountRoster({
-    container: el('mineBody'),
-    fail(message) {
-      mineError.textContent = message;
-      mineError.hidden = false;
-    },
-    clearError() {
-      mineError.hidden = true;
-      mineError.textContent = '';
-    },
-  });
+  let mine: RosterPanel | null = null;
+
+  /**
+   * Open one of the office screens, fetching the bundle if this is the first.
+   *
+   * A failure to arrive is said in words on the screen the operator asked for, rather than
+   * left as a tab that does nothing — the same rule every other screen here follows when it
+   * cannot reach the server.
+   */
+  async function openOfficeScreen(which: 'admin' | 'mine' | 'status'): Promise<void> {
+    const loaded = await loadOffice();
+
+    if (loaded === null) {
+      const error = which === 'mine' ? mineError : which === 'admin' ? el('adminError') : el('statusNote');
+      error.hidden = false;
+      error.textContent =
+        'Could not load this screen. It is fetched when first needed, so it needs a connection.';
+      return;
+    }
+
+    if (which === 'admin') {
+      admin ??= loaded.mountAdmin();
+      admin.show();
+      return;
+    }
+
+    if (which === 'status') {
+      statusPanel ??= loaded.mountStatus({ onChanged: () => void dashboard.show() });
+      await statusPanel.show();
+      return;
+    }
+
+    mine ??= loaded.mountRoster({
+      container: el('mineBody'),
+      fail(message) {
+        mineError.textContent = message;
+        mineError.hidden = false;
+      },
+      clearError() {
+        mineError.hidden = true;
+        mineError.textContent = '';
+      },
+    });
+    await mine.show(null);
+  }
 
   interface BoardRow {
     incidentId: string;
@@ -456,6 +537,11 @@ async function boot(): Promise<void> {
     responsibleDepartments: string[];
     /** Routing ran and matched nothing. Nobody has this one (ADR-0010). */
     unassigned: boolean;
+    /** Server-decided flags the district counters lead through — see incidentRow.ts. */
+    held: boolean;
+    acknowledged: boolean;
+    occurredToday: boolean;
+    notificationsUnmet: boolean;
     /** The deadline actually applied to this row, set by the administration (Q-06). */
     targetMinutes: number;
   }
@@ -480,14 +566,7 @@ async function boot(): Promise<void> {
   /** Beyond this the board is openly called stale rather than shown as if it were live. */
   const BOARD_STALE_MS = 30_000;
 
-  function ago(iso: string | null, from: number): string {
-    if (iso === null) return '—';
-    const mins = Math.floor((from - Date.parse(iso)) / 60_000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    return hours < 24 ? `${hours}h ${mins % 60}m ago` : `${Math.floor(hours / 24)}d ago`;
-  }
+
 
   function tally(kind: string, label: string, value: string): HTMLElement {
     const box = document.createElement('div');
@@ -506,8 +585,25 @@ async function boot(): Promise<void> {
    * is already loaded and capped at 500 rows; a second endpoint taking a filter would be a
    * second definition of what the board contains, and the two would drift.
    */
+  /**
+   * The flags the dashboard's district counters lead through.
+   *
+   * Each names a `data-` attribute the **server** set on the row, so a counter reading 5 lands
+   * on 5 rows. None of these is a predicate this file works out for itself — that would be a
+   * second implementation of a rule the counter already applied, and the first one to drift
+   * would put a number on the district's home screen that its own board disagrees with.
+   */
+  const FLAG_FILTERS = {
+    unassigned: { attr: 'held', want: 'false', label: 'emergencies with nobody' },
+    unacknowledged: { attr: 'acknowledged', want: 'false', label: 'not yet acknowledged' },
+    today: { attr: 'today', want: 'true', label: 'reported today' },
+    unmet: { attr: 'unmet', want: 'true', label: 'where nobody was reached' },
+  } as const;
+
+  type FlagKind = keyof typeof FLAG_FILTERS;
+
   let boardFilter: {
-    kind: 'category' | 'department';
+    kind: 'category' | 'department' | FlagKind;
     /** What the rows are matched on — the stored code, e.g. `rta`. */
     value: string;
     /** What the operator is told, e.g. "Road accident". Never the code. */
@@ -525,17 +621,25 @@ async function boot(): Promise<void> {
     }
 
     bar.hidden = false;
+
+    const flag =
+      boardFilter.kind in FLAG_FILTERS ? FLAG_FILTERS[boardFilter.kind as FlagKind] : null;
+
     el('boardFilterText').textContent =
-      boardFilter.kind === 'category'
-        ? `Showing only: ${boardFilter.label}`
-        : `Showing only what is with: ${boardFilter.label}`;
+      flag !== null
+        ? `Showing only: ${flag.label}`
+        : boardFilter.kind === 'category'
+          ? `Showing only: ${boardFilter.label}`
+          : `Showing only what is with: ${boardFilter.label}`;
 
     let shown = 0;
     for (const row of rows) {
       const match =
-        boardFilter.kind === 'category'
-          ? row.dataset['category'] === boardFilter.value
-          : (row.dataset['departments'] ?? '').split('').includes(boardFilter.value);
+        flag !== null
+          ? row.dataset[flag.attr] === flag.want
+          : boardFilter.kind === 'category'
+            ? row.dataset['category'] === boardFilter.value
+            : (row.dataset['departments'] ?? '').split('').includes(boardFilter.value);
 
       row.hidden = !match;
       if (match) shown += 1;
@@ -605,73 +709,7 @@ async function boot(): Promise<void> {
 
     // Applied again at the end of this function: the board polls every ten seconds, and a
     // repaint that forgot the filter would silently widen the view under somebody's eye.
-    boardRows.replaceChildren(
-      ...data.incidents.map((row) => {
-        const div = document.createElement('div');
-        div.className = 'row';
-        div.dataset['overdue'] = String(row.overdue);
-        div.dataset['unassigned'] = String(row.unassigned);
-        div.dataset['incident'] = row.incidentId;
-        // What the dashboard filters on when somebody arrives from one of its panels.
-        div.dataset['category'] = row.category;
-        div.dataset['departments'] = row.responsibleDepartments.join('');
-
-        const sev = document.createElement('span');
-        sev.className = 'sev';
-        sev.dataset['level'] = row.severity;
-        // The word carries the meaning; the colour only repeats it (INV-04). "Unassessed"
-        // is spelled out rather than shown as a level nobody chose.
-        sev.textContent = row.assessed ? row.severity : 'unassessed';
-
-        const cat = document.createElement('span');
-        cat.className = 'cat';
-        cat.textContent = categoryWords(row.category);
-        if (row.overriddenFrom !== null) {
-          const note = document.createElement('span');
-          note.className = 'meta';
-          note.textContent = ` (overridden from ${row.overriddenFrom})`;
-          cat.append(note);
-        }
-
-        const state = document.createElement('span');
-        state.className = 'state';
-        state.textContent =
-          row.acknowledgedAt !== null
-            ? row.status
-            : row.overdue
-              ? `unacknowledged · ${duration(row.overdueByMinutes)} past deadline`
-              : 'unacknowledged';
-        if (row.overdue) state.classList.add('flag');
-
-        const meta = document.createElement('span');
-        meta.className = 'meta';
-        // Whose incident it is, by name (M0-51). "Not yet routed" is said out loud rather
-        // than left blank — an unrouted emergency is a state somebody has to act on.
-        const who =
-          row.responsibleDepartments.length > 0
-            ? row.responsibleDepartments.join(', ')
-            : 'not yet routed';
-        meta.textContent = `${who} · ${ago(row.occurredAt, at)}${
-          row.escalationCount > 0 ? ` · escalated ${row.escalationCount}×` : ''
-        }`;
-
-        div.append(sev, cat, state, meta);
-
-        // Spelled out, on the row, next to the incident it concerns. A count in a corner
-        // tells you the district has a problem; this tells you which incident nobody is
-        // coming to (INV-03).
-        if (row.notificationsFailed > 0 || row.notificationsUndelivered > 0) {
-          const unmet = document.createElement('span');
-          unmet.className = 'flag unmet';
-          unmet.textContent =
-            row.notificationsFailed > 0
-              ? `could not notify the duty seat (${row.notificationsFailed})`
-              : `notified, nobody has picked it up (${row.notificationsUndelivered})`;
-          div.append(unmet);
-        }
-        return div;
-      }),
-    );
+    boardRows.replaceChildren(...data.incidents.map((row) => incidentRow(row, at)));
 
     boardEmpty.hidden = data.incidents.length > 0;
     boardFetchedAt = Date.now();
@@ -706,7 +744,19 @@ async function boot(): Promise<void> {
 
   async function refreshBoard(): Promise<void> {
     try {
-      const res = await fetch('/incidents', { headers: { accept: 'application/json' } });
+      /**
+       * Closed rows are asked for only when the filter in force is about a day rather than a
+       * queue.
+       *
+       * "Reported today" counts everything that happened today, including what was dealt with
+       * by lunchtime — so arriving from that counter and being shown only what is still open
+       * would land on fewer rows than the number that was clicked. Every other view is a
+       * working queue, where yesterday's closed incidents are in the way.
+       */
+      const wantsClosed = boardFilter?.kind === 'today';
+      const res = await fetch(wantsClosed ? '/incidents?closed=1' : '/incidents', {
+        headers: { accept: 'application/json' },
+      });
       if (!res.ok) {
         // Signed out or holding no seat. Say so rather than showing an empty district.
         boardAsOf.dataset['stale'] = 'true';
@@ -740,7 +790,18 @@ async function boot(): Promise<void> {
   }
 
   function showView(
-    view: 'report' | 'board' | 'detail' | 'inbox' | 'admin' | 'mine' | 'shift' | 'dashboard' | 'status',
+    view:
+      | 'report'
+      | 'board'
+      | 'detail'
+      | 'inbox'
+      | 'admin'
+      | 'mine'
+      | 'shift'
+      | 'dashboard'
+      | 'status'
+      | 'search'
+      | 'piReport',
   ): void {
     dashboardView.hidden = view !== 'dashboard';
     statusView.hidden = view !== 'status';
@@ -751,6 +812,8 @@ async function boot(): Promise<void> {
     adminView.hidden = view !== 'admin';
     mineView.hidden = view !== 'mine';
     shiftView.hidden = view !== 'shift';
+    searchView.hidden = view !== 'search';
+    piReportView.hidden = view !== 'piReport';
 
     // Detail is reached from the board or the inbox, so whichever tab you came from stays
     // current while reading one.
@@ -762,6 +825,7 @@ async function boot(): Promise<void> {
     navShift.setAttribute('aria-current', view === 'shift' ? 'page' : 'false');
     navDashboard.setAttribute('aria-current', view === 'dashboard' ? 'page' : 'false');
     navStatus.setAttribute('aria-current', view === 'status' ? 'page' : 'false');
+    navSearch.setAttribute('aria-current', view === 'search' ? 'page' : 'false');
 
     // Polling stops the moment the operator leaves. A background refresh against a screen
     // nobody is looking at is a request the district's one server did not need to serve.
@@ -771,7 +835,9 @@ async function boot(): Promise<void> {
       el('ticker').hidden = true;
     }
     if (view === 'dashboard') void dashboard.show();
-    if (view === 'status') void statusPanel.show();
+    if (view === 'status') void openOfficeScreen('status');
+    if (view === 'search') void openSearchScreen();
+    if (view !== 'search') searchPanel?.reset();
     if (view === 'shift' && identity !== null) {
       void shift.show({
         departmentId: identity.departmentId,
@@ -780,8 +846,8 @@ async function boot(): Promise<void> {
       });
     }
 
-    if (view === 'admin') admin.show();
-    if (view === 'mine') void mine.show(null);
+    if (view === 'admin') void openOfficeScreen('admin');
+    if (view === 'mine') void openOfficeScreen('mine');
 
     if (view === 'inbox') void refreshInbox();
 
@@ -953,6 +1019,136 @@ async function boot(): Promise<void> {
     boardFilter = null;
     applyBoardFilter();
   });
+  /**
+   * Search, fetched on first use — the same reasoning as the report screen below.
+   *
+   * An officer standing at a scene is reporting an emergency, not looking one up. Search needs
+   * a connection to be of any use at all, so nothing is lost by fetching it when somebody
+   * actually opens it, and the shell stays small enough to arrive on a weak one.
+   */
+  let searchPanel: { show(): void; reset(): void } | null = null;
+
+  async function openSearchScreen(): Promise<void> {
+    if (searchPanel === null) {
+      const ok = await loadScreen('search', true);
+      const factory = (
+        window as unknown as {
+          DncSearch?: {
+            mountSearch: (o: { onOpen: (id: string) => void }) => {
+              show(): void;
+              reset(): void;
+            };
+          };
+        }
+      ).DncSearch;
+
+      if (!ok || factory === undefined) {
+        const error = el('searchError');
+        error.hidden = false;
+        error.textContent =
+          'Could not load the search screen. It is fetched when first needed, so it needs a ' +
+          'connection — as does searching the record.';
+        return;
+      }
+      searchPanel = factory.mountSearch({ onOpen: (id) => void openDetail(id) });
+    }
+    searchPanel.show();
+  }
+
+  /**
+   * Which incident the detail screen is showing.
+   *
+   * The screen had never needed this: it renders what it fetched and nothing asked it
+   * afterwards. The post-incident report does — it is reached *from* an incident, and it
+   * has to know which one to fold and which one Back returns to.
+   */
+  let openIncidentId: string | null = null;
+
+  /**
+   * The report screen, fetched the first time somebody asks for one.
+   *
+   * **Not imported.** It is built as its own file (see `build.mjs`) and kept out of the shell,
+   * because the shell is what a field officer downloads at a scene and an officer at a scene
+   * has no use for a post-incident report. The shell stood at **159 KB against a 160 KB
+   * budget** when this screen was written — the budget existed to make that visible and did,
+   * and the answer to it is not a bigger number.
+   *
+   * A failure to load is said plainly rather than left as a dead button. This screen needs a
+   * connection, and so does the report it folds.
+   */
+  let piReport: { show(incidentId: string): Promise<void> } | null = null;
+
+  /**
+   * Fetch a screen that is not part of the shell.
+   *
+   * Each of these is office work that always has a connection, so nothing is lost by fetching
+   * it on first use — and the shell stays the thing a field officer can download at a scene.
+   *
+   * Returns false rather than throwing. A screen that failed to arrive is a message, not a
+   * dead button: the caller says so in words, which is the same rule every other screen here
+   * follows when it cannot reach the server.
+   */
+  async function loadScreen(name: string, withCss: boolean): Promise<boolean> {
+    if (withCss && document.getElementById(`${name}Css`) === null) {
+      const css = document.createElement('link');
+      css.id = `${name}Css`;
+      css.rel = 'stylesheet';
+      css.href = `/${name}.css`;
+      document.head.append(css);
+    }
+
+    return new Promise<boolean>((resolve) => {
+      const tag = document.createElement('script');
+      tag.src = `/${name}.js`;
+      tag.onload = () => resolve(true);
+      tag.onerror = () => resolve(false);
+      document.head.append(tag);
+    });
+  }
+
+  async function loadReportScreen(): Promise<boolean> {
+    if (piReport !== null) return true;
+    if (!(await loadScreen('report', true))) return false;
+
+    const factory = (
+      window as unknown as {
+        DncReport?: { mountReport: () => { show(incidentId: string): Promise<void> } };
+      }
+    ).DncReport;
+
+    piReport = factory?.mountReport() ?? null;
+    return piReport !== null;
+  }
+
+  /** The incident whose report is on screen, so Back knows where to return. */
+  let piReportFor: string | null = null;
+
+  el('detailReport').addEventListener('click', () => {
+    if (openIncidentId === null) return;
+    const forIncident = openIncidentId;
+    piReportFor = forIncident;
+    showView('piReport');
+
+    void (async () => {
+      const ready = await loadReportScreen();
+      const error = el('piReportError');
+      if (!ready || piReport === null) {
+        error.hidden = false;
+        error.textContent =
+          'Could not load the report screen. It is fetched when first needed, so it needs a ' +
+          'connection — as does the report it folds.';
+        return;
+      }
+      await piReport.show(forIncident);
+    })();
+  });
+  el('piReportPrint').addEventListener('click', () => window.print());
+  el('piReportBack').addEventListener('click', () => {
+    if (piReportFor !== null) void openDetail(piReportFor);
+    else showView('board');
+  });
+
+  navSearch.addEventListener('click', () => showView('search'));
   navStatus.addEventListener('click', () => showView('status'));
   el('back').addEventListener('click', () => showView('board'));
 
@@ -1260,6 +1456,7 @@ async function boot(): Promise<void> {
   }
 
   async function openDetail(incidentId: string): Promise<void> {
+    openIncidentId = incidentId;
     showView('detail');
     detailHead.textContent = 'Loading…';
     try {

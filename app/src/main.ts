@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { checkConfiguration } from './config.js';
 import { createSyncServer } from './api/server.js';
 import { createPool, migrate } from './db/pool.js';
 import { createScheduler } from './jobs/scheduler.js';
@@ -37,6 +38,26 @@ if (existsSync(envPath)) process.loadEnvFile(envPath);
 async function start(): Promise<void> {
   const nodeEnv = process.env['NODE_ENV'] ?? 'development';
   const port = Number(process.env['PORT'] ?? 3000);
+
+  /**
+   * Check the configuration before anything is started (M0-05).
+   *
+   * Every one of these values used to be read at the point of use, which meant a mistake
+   * surfaced in the backup job at 02:00, or in an escalation pass, or on a screen — none of
+   * which anybody is watching. One line at boot instead.
+   *
+   * Warnings never stop the process. A district that cannot report an emergency because a
+   * backup bucket is missing would be this system failing at the one thing it exists for.
+   */
+  const config = checkConfiguration(process.env, nodeEnv);
+  log('info', 'configuration', config.summary);
+  for (const warning of config.warnings) log('warn', 'configuration', { warning });
+
+  if (config.refusals.length > 0) {
+    for (const refusal of config.refusals) log('error', 'configuration', { refusal });
+    log('error', 'refusing to start', { refusals: config.refusals.length });
+    process.exit(1);
+  }
 
   const pool = createPool();
   const applied = await migrate(pool, join(here, '..', 'db', 'migrations'));

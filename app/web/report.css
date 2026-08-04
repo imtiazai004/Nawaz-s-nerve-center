@@ -1,0 +1,70 @@
+/*
+  The post-incident report's styling, and the print rules that make the PDF.
+
+  Kept out of index.html for the same reason report.js is kept out of app.js: the shell is
+  what a field officer downloads at a scene on a weak connection, and none of this is of any
+  use there. Fetched by the report screen the first time somebody asks for a report.
+
+  The shell stood at 159 KB against a 160 KB budget when this screen was written. The budget
+  exists to make that visible, and it did — the answer to it is not a bigger number.
+*/
+
+/* The post-incident report, on screen. */
+.reportPairs {
+  display: grid; grid-template-columns: minmax(9rem, 14rem) 1fr;
+  gap: 0.35rem 1rem; margin: 0 0 1rem;
+}
+.reportPairs dt { font-weight: 600; opacity: 0.75; }
+.reportPairs dd { margin: 0; }
+.reportNarrative { margin: 0 0 1rem; padding-left: 1.2rem; }
+.reportNarrative li { margin-bottom: 0.5rem; }
+.reportGaps { margin: 0 0 1rem; padding-left: 1.2rem; }
+#piReportBody h3 {
+  margin: 1.4rem 0 0.6rem; padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.95rem; letter-spacing: 0.02em; text-transform: uppercase;
+}
+
+/*
+  The PDF, and there is no library behind it.
+  ------------------------------------------
+  ADR-0007 asks of every dependency: who restarts this when it fails, and how do they
+  know it failed? A PDF library answers that badly — it is a rendering engine, a font
+  stack and a layout implementation, all of which drift from what the operator saw. The
+  browser's own Print → Save as PDF has none of those questions, works with no network,
+  and produces by construction the same document that was on the screen.
+
+  Printed on white with black text regardless of the control-room palette: the district
+  prints on ordinary office paper, and a dark background would empty a toner cartridge
+  per report while reading worse than the screen it came from.
+*/
+@media print {
+  @page { margin: 18mm 15mm; }
+
+  /* Everything that is not the report. A printed page has no navigation. */
+  header, #nav, #status, #ticker, .noPrint,
+  #boardView, #searchView, #dashboardView, #statusView, #adminView,
+  #shiftView, #mineView, #inboxView, #detailView, #reportView, #loginView {
+    display: none !important;
+  }
+
+  body, #piReportView, #piReportBody {
+    background: #fff !important; color: #000 !important;
+    max-width: none !important; padding: 0 !important; margin: 0 !important;
+  }
+
+  #piReportBody h2 { font-size: 16pt; margin: 0 0 0.2rem; }
+  #piReportBody h3 {
+    font-size: 11pt; border-bottom: 1px solid #999; color: #000;
+    /* A heading alone at the foot of a page sends the reader to look for its section. */
+    break-after: avoid; page-break-after: avoid;
+  }
+  #piReportBody, .reportPairs dd, .reportNarrative li { font-size: 10pt; }
+  .reportPairs dt { color: #444; opacity: 1; }
+  .meta, .note { color: #333 !important; }
+  .note { border-left: 2px solid #666; padding-left: 0.5rem; }
+
+  /* An entry split across a page break reads as two half-events. */
+  .reportNarrative li, .reportGaps li { break-inside: avoid; page-break-inside: avoid; }
+}
+

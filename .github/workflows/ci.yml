@@ -28,7 +28,11 @@ concurrency:
 
 jobs:
   check:
-    name: typecheck · lint · format · 297 tests
+    # No count in this name, deliberately. It read "297 tests" while the suite ran 698, because
+    # a number here has to be edited by hand every time somebody adds a test — so it is wrong
+    # by default and right only by accident. A label that overstates what CI covers is the
+    # same failure this workflow exists to prevent; the run's own summary is the honest count.
+    name: typecheck · lint · format · tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
 

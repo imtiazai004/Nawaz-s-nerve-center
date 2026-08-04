@@ -22,6 +22,7 @@ import { createPool, migrate, type Pool } from '../../db/pool.js';
 import { buildDashboard, handleDashboard, viewerFor } from '../dashboard.js';
 import { wallSafetyViolations } from '../../domain/wall.js';
 import type { Identity } from '../../auth/sessions.js';
+import type { Tier } from '../../domain/authority.js';
 
 const dbUrl = process.env['TEST_DATABASE_URL'];
 
@@ -29,22 +30,58 @@ function request(method = 'GET'): IncomingMessage {
   return { method, headers: {} } as unknown as IncomingMessage;
 }
 
+/**
+ * A signed-in officer **holding a post**, which is what almost every case here is about.
+ *
+ * This used to default to `seatId: null` with `tier: 'district'` — an identity that cannot
+ * exist in the database, and precisely the shape that had to be refused. Every scoping test
+ * below was therefore asserting the district view for a caller holding no post, which is how
+ * the leak survived a file whose own header says getting this wrong in the generous direction
+ * is a read leak. **Fixtures that drift from the database prove nothing.**
+ *
+ * `tier` is derived the way migration 0010's trigger derives it — district exactly when the
+ * office is administrative or the seat belongs to no department — rather than set by hand.
+ */
 function officer(overrides: Partial<Identity> = {}): Identity {
+  const departmentId = overrides.departmentId ?? null;
+  const isAdministration = overrides.isAdministration ?? false;
+  const tier: Tier = isAdministration || departmentId === null ? 'district' : 'department';
+
   return {
     personId: randomUUID(),
     fullName: 'An Officer',
-    seatId: null,
-    seatTitle: null,
-    departmentId: null,
+    seatId: randomUUID(),
+    seatTitle: 'A Post',
+    departmentId,
     departmentName: null,
-    tier: 'district',
+    tier,
     canBreakGlass: false,
-    isAdministration: false,
+    isAdministration,
     ...overrides,
   } as unknown as Identity;
 }
 
-const DISTRICT = { scope: 'District', departmentId: null, isAdministration: true };
+/** Somebody with an account and no post: relieved, or never assigned one. */
+function holdsNoPost(): Identity {
+  return {
+    personId: randomUUID(),
+    fullName: 'Relieved Of Their Post',
+    seatId: null,
+    seatTitle: null,
+    departmentId: null,
+    departmentName: null,
+    tier: null,
+    canBreakGlass: false,
+    isAdministration: false,
+  } as unknown as Identity;
+}
+
+const DISTRICT = {
+  scope: 'District',
+  departmentId: null,
+  isAdministration: true,
+  seated: true,
+};
 
 describe.skipIf(dbUrl === undefined)('the dashboard', () => {
   let pool: Pool;
@@ -67,10 +104,16 @@ describe.skipIf(dbUrl === undefined)('the dashboard', () => {
     await pool.end();
   });
 
-  const asDepartment = (): { scope: string; departmentId: string; isAdministration: boolean } => ({
+  const asDepartment = (): {
+    scope: string;
+    departmentId: string;
+    isAdministration: boolean;
+    seated: boolean;
+  } => ({
     scope: departmentName,
     departmentId,
     isAdministration: false,
+    seated: true,
   });
 
   describe('whose dashboard it is', () => {
@@ -93,8 +136,37 @@ describe.skipIf(dbUrl === undefined)('the dashboard', () => {
       // technically consistent and useless — the district *is* its work.
       const viewer = viewerFor(officer({ departmentId: null }));
 
+      expect(viewer.seated).toBe(true);
       expect(viewer.departmentId).toBeNull();
       expect(viewer.scope).toBe('District');
+    });
+
+    /**
+     * The leak this file exists to prevent, from the direction nobody checked.
+     *
+     * A person keeps their login when they are relieved of a post — the session is not
+     * revoked, the seat is simply re-resolved as null on the next request, which is the
+     * design (ADR-0004). They and a control-room seat both arrive with a null department,
+     * and the viewer used to answer both with **District**. Handing a post over therefore
+     * *widened* what its former holder could see: district counters, every department's
+     * performance row, and who was on duty across Bannu.
+     */
+    it('gives somebody holding no post nothing — losing a seat must never widen a view', () => {
+      const viewer = viewerFor(holdsNoPost());
+
+      expect(viewer.seated).toBe(false);
+      expect(viewer.scope).not.toBe('District');
+      expect(viewer.isAdministration).toBe(false);
+    });
+
+    it('never lets a seatless caller look like an administrative office', () => {
+      // Belt and braces: `isAdministration` is read straight from the joined department row,
+      // which is null for somebody with no seat. If that ever changes, this fails here rather
+      // than in a response somebody is reading on an office wall.
+      const viewer = viewerFor(holdsNoPost());
+
+      expect(viewer.departmentId).toBeNull();
+      expect(viewer.seated).toBe(false);
     });
   });
 

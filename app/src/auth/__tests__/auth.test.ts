@@ -302,6 +302,64 @@ describe.skipIf(dbUrl === undefined)('authentication (integration)', () => {
     });
   });
 
+  /**
+   * The guarantee the throttle exists to keep, asserted over real HTTP.
+   *
+   * `throttle.test.ts` proves the arithmetic. This proves the thing that matters at 02:00:
+   * after a sustained run of wrong passwords against a named officer's number, **that officer
+   * can still sign in.** If this ever fails, somebody has turned the delay into a lockout, and
+   * the district's semi-public numbers have become a way to take duty officers offline one at
+   * a time.
+   */
+  describe('guessing is slowed, never blocked', () => {
+    it('lets the real officer in after a sustained run of wrong passwords', async () => {
+      // Ten, not a hundred. Each further failure costs more, so a longer run in a test
+      // measures the delay curve rather than the property under test — and the property is
+      // binary: does the officer still get in.
+      for (let i = 0; i < 10; i += 1) {
+        const wrong = await fetch(`${base}/auth/login`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ phone: rescuePhone, password: `wrong-${String(i)}` }),
+        });
+        expect(wrong.status).toBe(401);
+      }
+
+      const started = Date.now();
+      const real = await fetch(`${base}/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ phone: rescuePhone, password: PASSWORD }),
+      });
+      const waited = Date.now() - started;
+
+      expect(real.status).toBe(200);
+      expect(((await real.json()) as { token: string }).token.length).toBeGreaterThan(0);
+
+      /**
+       * "Not a lockout", stated as a number.
+       *
+       * A delay with no ceiling is a lockout wearing a different name — an officer facing four
+       * minutes at 02:00 has been locked out in every sense that matters. This is the ceiling,
+       * asserted where somebody changing the constants will see it fail.
+       */
+      expect(waited).toBeLessThan(8_000);
+    }, 60_000);
+
+    it('still says nothing about which numbers are real', async () => {
+      // The delay attaches to the attempt, never to whether the account exists — so a
+      // throttled unknown number and a throttled real one answer identically.
+      const unknown = await fetch(`${base}/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ phone: '+920000000000', password: 'nope' }),
+      });
+
+      expect(unknown.status).toBe(401);
+      expect((await unknown.json()) as { error: string }).toEqual({ error: 'invalid credentials' });
+    });
+  });
+
   describe('authority comes from the seat, not the person (ADR-0004)', () => {
     it('an authenticated person holding no seat may sign in but not act', async () => {
       const token = await tokenFor(seatlessPhone);
@@ -314,6 +372,56 @@ describe.skipIf(dbUrl === undefined)('authentication (integration)', () => {
 
       const res = await push(token, [reportEvent(randomUUID())]);
       expect(res.status).toBe(403);
+    });
+
+    /**
+     * The same rule, on the two screens that were not applying it.
+     *
+     * `/sync` and `/incidents` had always refused a seatless caller. `/dashboard` and
+     * `/status` had not, and both decided their scope from `departmentId === null` — which is
+     * true of a control-room seat *and* of somebody holding no post at all. The second was
+     * therefore handed the first's answer: the whole district. Relieving an officer widened
+     * what they could see, which inverts the reason the seat is re-resolved every request.
+     *
+     * Asserted by direct HTTP, never through the UI (INV-05).
+     */
+    it('refuses a seatless caller the dashboard, rather than showing them the district', async () => {
+      const token = await tokenFor(seatlessPhone);
+
+      const res = await fetch(`${base}/dashboard`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toMatch(/no current duty assignment/);
+    });
+
+    it('refuses a seatless caller the status screen, which lists every seat on duty', async () => {
+      const token = await tokenFor(seatlessPhone);
+
+      const res = await fetch(`${base}/status`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('still serves the dashboard to a seat that holds no department', async () => {
+      // The case the leak was hiding behind, and it must keep working: a control-room post
+      // belongs to no department and the district *is* its work. What separates it from the
+      // caller above is that it holds a seat at all.
+      const phone = `+92300777${randomUUID().slice(0, 6)}`;
+      const personId = await makePerson('Control Room Officer', phone);
+      await assign(dcSeat, personId);
+
+      const res = await fetch(`${base}/dashboard`, {
+        headers: { authorization: `Bearer ${await tokenFor(phone)}` },
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { scope: string };
+      expect(body.scope).toBe('District');
     });
 
     it('losing the duty assignment removes authority on the very next request', async () => {
