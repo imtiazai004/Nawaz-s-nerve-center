@@ -426,6 +426,22 @@ async function boot(): Promise<void> {
     onOpenDepartment: (name) => {
       showBoardFiltered('department', name, name);
     },
+    /**
+     * A district counter, opened on exactly what it counted.
+     *
+     * `open` is the board with no filter — everything live, which is what that counter counts.
+     * The rest filter on an attribute the **server** set, so the number and the rows agree by
+     * construction rather than by two implementations happening to match.
+     *
+     * The board is refetched rather than filtered in place, because "today" needs closed rows
+     * the current fetch did not ask for.
+     */
+    onOpenFlag: (flag) => {
+      boardFilter =
+        flag === 'open' ? null : { kind: flag, value: flag, label: flag };
+      showView('board');
+      void refreshBoard();
+    },
     // Utilities, services and presence are *changed* on the Status screen, so that is where
     // "tell me more" leads: the row, with its note and its buttons.
     onOpenStatus: () => {
@@ -521,6 +537,11 @@ async function boot(): Promise<void> {
     responsibleDepartments: string[];
     /** Routing ran and matched nothing. Nobody has this one (ADR-0010). */
     unassigned: boolean;
+    /** Server-decided flags the district counters lead through — see incidentRow.ts. */
+    held: boolean;
+    acknowledged: boolean;
+    occurredToday: boolean;
+    notificationsUnmet: boolean;
     /** The deadline actually applied to this row, set by the administration (Q-06). */
     targetMinutes: number;
   }
@@ -564,8 +585,25 @@ async function boot(): Promise<void> {
    * is already loaded and capped at 500 rows; a second endpoint taking a filter would be a
    * second definition of what the board contains, and the two would drift.
    */
+  /**
+   * The flags the dashboard's district counters lead through.
+   *
+   * Each names a `data-` attribute the **server** set on the row, so a counter reading 5 lands
+   * on 5 rows. None of these is a predicate this file works out for itself — that would be a
+   * second implementation of a rule the counter already applied, and the first one to drift
+   * would put a number on the district's home screen that its own board disagrees with.
+   */
+  const FLAG_FILTERS = {
+    unassigned: { attr: 'held', want: 'false', label: 'emergencies with nobody' },
+    unacknowledged: { attr: 'acknowledged', want: 'false', label: 'not yet acknowledged' },
+    today: { attr: 'today', want: 'true', label: 'reported today' },
+    unmet: { attr: 'unmet', want: 'true', label: 'where nobody was reached' },
+  } as const;
+
+  type FlagKind = keyof typeof FLAG_FILTERS;
+
   let boardFilter: {
-    kind: 'category' | 'department';
+    kind: 'category' | 'department' | FlagKind;
     /** What the rows are matched on — the stored code, e.g. `rta`. */
     value: string;
     /** What the operator is told, e.g. "Road accident". Never the code. */
@@ -583,17 +621,25 @@ async function boot(): Promise<void> {
     }
 
     bar.hidden = false;
+
+    const flag =
+      boardFilter.kind in FLAG_FILTERS ? FLAG_FILTERS[boardFilter.kind as FlagKind] : null;
+
     el('boardFilterText').textContent =
-      boardFilter.kind === 'category'
-        ? `Showing only: ${boardFilter.label}`
-        : `Showing only what is with: ${boardFilter.label}`;
+      flag !== null
+        ? `Showing only: ${flag.label}`
+        : boardFilter.kind === 'category'
+          ? `Showing only: ${boardFilter.label}`
+          : `Showing only what is with: ${boardFilter.label}`;
 
     let shown = 0;
     for (const row of rows) {
       const match =
-        boardFilter.kind === 'category'
-          ? row.dataset['category'] === boardFilter.value
-          : (row.dataset['departments'] ?? '').split('').includes(boardFilter.value);
+        flag !== null
+          ? row.dataset[flag.attr] === flag.want
+          : boardFilter.kind === 'category'
+            ? row.dataset['category'] === boardFilter.value
+            : (row.dataset['departments'] ?? '').split('').includes(boardFilter.value);
 
       row.hidden = !match;
       if (match) shown += 1;
@@ -698,7 +744,19 @@ async function boot(): Promise<void> {
 
   async function refreshBoard(): Promise<void> {
     try {
-      const res = await fetch('/incidents', { headers: { accept: 'application/json' } });
+      /**
+       * Closed rows are asked for only when the filter in force is about a day rather than a
+       * queue.
+       *
+       * "Reported today" counts everything that happened today, including what was dealt with
+       * by lunchtime — so arriving from that counter and being shown only what is still open
+       * would land on fewer rows than the number that was clicked. Every other view is a
+       * working queue, where yesterday's closed incidents are in the way.
+       */
+      const wantsClosed = boardFilter?.kind === 'today';
+      const res = await fetch(wantsClosed ? '/incidents?closed=1' : '/incidents', {
+        headers: { accept: 'application/json' },
+      });
       if (!res.ok) {
         // Signed out or holding no seat. Say so rather than showing an empty district.
         boardAsOf.dataset['stale'] = 'true';

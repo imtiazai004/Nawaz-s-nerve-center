@@ -176,6 +176,44 @@ describe.skipIf(dbUrl === undefined)('the central board (integration)', () => {
     });
   });
 
+  /**
+   * The dashboard's counters and the board's flags must be the same rule.
+   *
+   * The browser test proves clicking a counter selects exactly the rows carrying its flag.
+   * This proves the other half: that the flag means what the counter counted. The two live in
+   * different files — `districtSummary` in `api/dashboard.ts` and `toRow` in `api/board.ts` —
+   * so nothing but this stops one being edited without the other, and a counter that says 5
+   * while the board holds 4 matching rows is the failure the owner asked to be rid of.
+   *
+   * Fetched back to back, because the district moves: this is the tightest window available,
+   * and a mismatch of one is still a mismatch of one.
+   */
+  describe('the district counters and the board agree on what they mean', () => {
+    it('counts the same unassigned, unacknowledged and today as the rows carry', async () => {
+      await incident(rescueDept, 'high');
+
+      const [dash, board] = await Promise.all([
+        fetch(`${base}/dashboard`, {
+          headers: { authorization: `Bearer ${controlRoomToken}` },
+        }).then((r) => r.json() as Promise<Record<string, never>>),
+        fetch(`${base}/incidents?closed=1`, {
+          headers: { authorization: `Bearer ${controlRoomToken}` },
+        }).then((r) => r.json() as Promise<Board>),
+      ]);
+
+      const district = (dash as unknown as { district: Record<string, number> }).district;
+      const live = board.incidents.filter((r) => r.status !== 'closed' && r.status !== 'resolved');
+
+      expect(live.filter((r) => !r.held).length).toBe(district['unassigned']);
+      expect(live.filter((r) => !r.acknowledged).length).toBe(district['overdueUnacknowledged']);
+      expect(live.length).toBe(district['openIncidents']);
+
+      // "Reported today" is the one that counts closed incidents too — an emergency dealt
+      // with by lunchtime still happened today.
+      expect(board.incidents.filter((r) => r.occurredToday).length).toBe(district['today']);
+    });
+  });
+
   describe('an unassessed report is never dressed as a level (ADR-0009, INV-04)', () => {
     it('marks the row unassessed rather than giving it a severity', async () => {
       const id = await incident(rescueDept); // no severity stated

@@ -480,17 +480,26 @@
        * only reveals itself on hover is invisible to somebody using a keyboard and to anybody
        * on a touchscreen, which is most of this district.
        */
-      .pitem.go, .sit.go {
+      .pitem.go, .sit.go, .key.go {
         cursor: pointer;
         border-radius: 4px;
         transition: background 120ms;
       }
-      .pitem.go:hover, .sit.go:hover,
-      .pitem.go:focus-visible, .sit.go:focus-visible {
+      .pitem.go:hover, .sit.go:hover, .key.go:hover,
+      .pitem.go:focus-visible, .sit.go:focus-visible, .key.go:focus-visible {
         background: var(--card2);
         outline: 2px solid var(--primary);
         outline-offset: -2px;
       }
+      /*
+        A counter that leads somewhere says so before it is clicked.
+
+        The underline is on the label rather than the number: the number is the thing being
+        read at a glance, and decorating it would make a quiet district look like a link farm.
+        A counter reading zero is not clickable and carries none of this — see `renderKeys`.
+      */
+      .key.go .k { text-decoration: underline; text-underline-offset: 2px; }
+      .key.go:hover { background: var(--card); }
 
 
       /* ------------------------------------------------------- reaching a department (M5) */

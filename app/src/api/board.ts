@@ -87,6 +87,24 @@ export interface BoardRow {
   readonly unassigned: boolean;
   /** The acknowledgement deadline actually applied to this row, in minutes. */
   readonly targetMinutes: number;
+
+  /**
+   * The three flags the dashboard's district counters are clickable through.
+   *
+   * **Decided here, on the server, and never recomputed by a screen.** Each of these answers
+   * exactly the question one counter asks, and the counter and the rows it leads to are folded
+   * from the same events in the same pass — so a counter reading 5 lands on 5 rows, always.
+   *
+   * A client-side predicate would be a second implementation of each rule, and the first one
+   * to drift would put a number on the district's home screen that its own board disagrees
+   * with. `occurredToday` in particular cannot be redone safely on a client at all: it is
+   * measured against **the server's midnight**, and a handset with a different timezone would
+   * quietly answer a different question.
+   */
+  readonly held: boolean;
+  readonly acknowledged: boolean;
+  readonly occurredToday: boolean;
+  readonly notificationsUnmet: boolean;
 }
 
 export interface Board {
@@ -209,7 +227,34 @@ function toRow(
     notificationsUndelivered: unmet.filter((u) => u.why === 'undelivered').length,
     unassigned: state.unassigned,
     targetMinutes: targets[severity],
+
+    /**
+     * The flags the dashboard's counters lead through. Same predicates the counters use, on
+     * the same fold, in the same pass — see the note on `BoardRow`.
+     *
+     * `held` is "some department has this", which is **not** the negation of `unassigned`:
+     * that one means routing ran and matched nobody, while an incident nobody has routed yet
+     * is also held by nobody and has not failed at anything (ADR-0010). The counter asks the
+     * first question, so this answers the first question.
+     */
+    held: state.responsibleDepartmentIds.length > 0,
+    acknowledged: state.acknowledgedAt !== null,
+    occurredToday: state.occurredAt !== null && state.occurredAt >= startOfDay(now),
+    notificationsUnmet: unmet.length > 0,
   };
+}
+
+/**
+ * Midnight, in the server's own reckoning, as an ISO instant.
+ *
+ * The district's day is the day in the DC office. A client deciding this for itself would ask
+ * a different question on a handset whose clock is set elsewhere, and "reported today" would
+ * mean two things at once.
+ */
+function startOfDay(now: Instant): Instant {
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  return midnight.toISOString();
 }
 
 /**

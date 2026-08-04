@@ -2555,3 +2555,67 @@ Recorded as unexplained rather than fixed. What the app did was correct either w
 claim to have saved anything.
 
 - **Tests:** 738 → 739, 49 files. `npm run check` green.
+
+---
+
+## 2026-08-04 — The district counters became clickable, and had to be exact
+
+The owner, on the DC and AC Headquarter dashboard: the District panel's numbers are not
+clickable, and they should be — *"jese k agar Unassigned 5 likha hua hai tou ye clickable hona
+chaye but straight to those unassigned, naa k randomly cliakable ho"*.
+
+The requirement is the second half. Making a number clickable is nothing; making it land on
+**exactly what it counted** is the work.
+
+### Added
+
+- All five district counters now lead somewhere: **Unassigned**, **Not acknowledged**,
+  **Open now**, **Reported today**, **Nobody reached**.
+- **Each filters on a flag the server put on the row** — `held`, `acknowledged`,
+  `occurredToday`, `notificationsUnmet` on `BoardRow`, decided in the same fold that produced
+  the count. A predicate re-derived in the browser would be a second implementation of each
+  rule, and the first to drift would put a number on the district's home screen that its own
+  board disagrees with. **`occurredToday` could not be redone on a client at all**: it is
+  measured against the *server's* midnight, and a handset set elsewhere would answer a
+  different question.
+- **`GET /incidents?closed=1`**, for "Reported today" alone. That counter counts everything
+  that happened today whether or not it is still open — an emergency dealt with by lunchtime
+  still happened today — and the board's default view hides closed incidents. Without it the
+  counter would have said 8 and led to 5. Off by default: the board is a working screen, and a
+  shift does not need yesterday's closed incidents in the way.
+- **A counter reading zero is not clickable**, and carries no affordance. A zero that opens a
+  board saying "nothing matches" answers a question the counter had already answered, and
+  teaches that these numbers lead somewhere unreliable — which is expensive for `Unassigned`,
+  in red, at 02:00.
+- The underline marking a counter as a link is on the **label**, not the number: the number is
+  what is read at a glance, and decorating it would make a quiet district look like a link farm.
+
+### Tests, and one that was measuring the wrong thing
+
+- **7 new tests.** Six in a browser, one at the API.
+- The browser tests assert **set membership, not a total**: every visible row carries the flag
+  and every hidden row does not. A first version compared the counter's number to the row count
+  and failed with **129 against 127** — because the shared test database is being written by
+  other suites while this one runs, and the dashboard's fetch and the board's fetch are moments
+  apart. The numbers were right; the assertion was measuring the clock. Membership is also the
+  stronger property, and the one actually asked for.
+- The API test guards the other half: that the counter's predicate and the row's flag are the
+  **same rule**. They live in different files — `districtSummary` in `api/dashboard.ts`,
+  `toRow` in `api/board.ts` — so nothing else stops one being edited without the other.
+
+### The cache test earned itself
+
+The shell changed, so `shellVersion.test.ts` failed and named both steps. **First real outing,
+and it caught the change before anybody had to notice it by opening the app.** `CACHE` is now
+`dnc-shell-v5`.
+
+### Not a code failure — the machine ran out of disk
+
+Two backup tests and one Status browser test failed mid-session with `No space left on
+device`. **C: had 60 MB free.** The restore round trips create a database each and clean up in
+`afterAll`, but a run that dies mid-way leaves them behind — a consequence of the full disk,
+not its cause. Leftovers dropped; the suites this change touches pass. **The machine needs
+space freed before the whole suite can run locally again**, and that is not something to fix
+by deleting things on somebody's computer.
+
+- **Tests:** 739 → 746, 50 files.

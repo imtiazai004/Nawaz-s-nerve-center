@@ -31,6 +31,17 @@ export interface IncidentRowData {
   notificationsUndelivered: number;
   responsibleDepartments: string[];
   unassigned: boolean;
+  /**
+   * Server-decided, so the dashboard's counters land on exactly what they counted.
+   *
+   * Not recomputed here. Each of these is the same predicate the counter used, on the same
+   * fold — `occurredToday` especially, which is measured against the *server's* midnight and
+   * would ask a different question if a handset decided it locally.
+   */
+  held: boolean;
+  acknowledged: boolean;
+  occurredToday: boolean;
+  notificationsUnmet: boolean;
 }
 
 /** How long ago, in words. `—` for an incident with no stated time rather than a fake one. */
@@ -49,9 +60,14 @@ export function incidentRow(row: IncidentRowData, at: number): HTMLElement {
   div.dataset['overdue'] = String(row.overdue);
   div.dataset['unassigned'] = String(row.unassigned);
   div.dataset['incident'] = row.incidentId;
-  // What the dashboard filters on when somebody arrives from one of its panels.
+  // What the dashboard filters on when somebody arrives from one of its panels. Every one of
+  // these is a value the server decided; nothing here re-derives a rule the counters used.
   div.dataset['category'] = row.category;
   div.dataset['departments'] = row.responsibleDepartments.join('');
+  div.dataset['held'] = String(row.held);
+  div.dataset['acknowledged'] = String(row.acknowledged);
+  div.dataset['today'] = String(row.occurredToday);
+  div.dataset['unmet'] = String(row.notificationsUnmet);
 
   const sev = document.createElement('span');
   sev.className = 'sev';

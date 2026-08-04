@@ -149,7 +149,7 @@ that blocks release on failure.
 
 - **Milestone:** M4/M5 — **the product now looks and behaves like the district's own
   prototype**, on every size of screen.
-- **Phase:** Implementation. 739 tests pass on every push.
+- **Phase:** Implementation. 746 tests pass on every push.
 - **A cross-department read leak was found and closed by the M5 security review
   (2026-08-04).** `/dashboard` and `/status` decided their scope from `departmentId === null`,
   which is true both of a control-room seat *and* of somebody holding **no post at all** — so
@@ -204,6 +204,21 @@ that blocks release on failure.
   — and that picks a starting screen, never a layout. There is no second page for large
   screens; there was, for half a day, and reversing it is recorded in the ADR.
 
+- **The district counters lead to exactly what they counted (2026-08-04).** `Unassigned 5`
+  opens the board on **those five** — not on the board generally. Each of the five filters on a
+  flag the **server** put on the row (`held`, `acknowledged`, `occurredToday`,
+  `notificationsUnmet`), decided in the same fold that produced the count. **A predicate
+  re-derived in the browser would be a second implementation of each rule**, and the first to
+  drift would put a number on the district's home screen that its own board disagrees with.
+  `occurredToday` especially cannot be redone on a client at all: it is measured against the
+  **server's** midnight, and a handset set elsewhere would answer a different question.
+  - **"Reported today" asks the board for closed rows** (`/incidents?closed=1`). It counts
+    everything that happened today whether or not it is still open — an emergency dealt with by
+    lunchtime still happened today — and the board's default view hides closed incidents, so
+    without this the counter would say 8 and land on 5.
+  - **A counter reading zero is not clickable.** A zero that opens a board saying "nothing
+    matches" answers a question the counter had already answered, and teaches that these
+    numbers lead somewhere unreliable — expensive for the one that matters at 02:00.
 - **The dashboard is the home of the product, not an add-on.** It carries every panel the
   prototype had and the ones this system grew that it never had. It is **scoped to whoever
   asked**: the two offices see the district, a department sees its own work — the same panels,
@@ -376,7 +391,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **739 tests passing** across 49 files, including **17 backup/restore tests that run a real
+- **746 tests passing** across 50 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the

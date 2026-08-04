@@ -857,6 +857,7 @@ async function handleIncidents(
   identity: Identity,
   evidenceRoot: string,
   wantsText = false,
+  includeClosed = false,
 ): Promise<void> {
   const readJson = async (): Promise<Record<string, unknown> | null> => bodyOf(req);
 
@@ -869,7 +870,18 @@ async function handleIncidents(
         json(res, 403, { error: 'no current duty assignment; you hold no seat' });
         return;
       }
-      json(res, 200, await buildBoard(pool, seat));
+      /**
+       * `?closed=1` includes what has already been resolved or closed.
+       *
+       * Added for the dashboard's **Reported today** counter, which counts everything that
+       * happened today whether or not it is still open — an emergency dealt with by lunchtime
+       * still happened today. Without this the counter would say 8 and lead to 5 rows, and a
+       * number that disagrees with the screen it leads to is worse than one nobody can click.
+       *
+       * Off by default: the board is a working screen, and a shift does not need yesterday's
+       * closed incidents in the way.
+       */
+      json(res, 200, await buildBoard(pool, seat, includeClosed ? { includeClosed: true } : {}));
       return;
     }
 
@@ -1549,6 +1561,7 @@ export function createSyncServer(options: ServerOptions): Server {
             identity,
             evidenceRoot,
             url.searchParams.get('format') === 'text',
+            url.searchParams.get('closed') === '1',
           );
           return;
         }

@@ -25,7 +25,10 @@ declare const self: ServiceWorkerGlobalScope;
 // The lesson is not "remember to bump it". It is that **nothing enforced it**: the shell can
 // change in a file this one never mentions, so `sw.e2e.test.ts` now fails when the built
 // shell's bytes change and this string does not.
-const CACHE = 'dnc-shell-v4';
+// v5: the district counters became clickable, so `index.html` gained their styling and
+// `app.js` gained the filters they lead through. Caught by `shellVersion.test.ts` on its
+// first real outing — it failed this change before anybody had to notice it by hand.
+const CACHE = 'dnc-shell-v5';
 
 const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest'];
 

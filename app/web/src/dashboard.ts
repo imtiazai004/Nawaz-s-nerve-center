@@ -107,6 +107,14 @@ export interface DashboardLinks {
   /** `category` is the stored code the rows carry; `label` is what a person is shown. */
   onOpenCategory?: (category: string, label: string) => void;
   onOpenDepartment?: (name: string) => void;
+  /**
+   * A district counter, opened on exactly what it counted.
+   *
+   * The flag is the *server's* name for the set — the board filters on an attribute the
+   * server put on each row, so a counter reading 5 lands on 5 rows. `open` means "everything
+   * live", which is the board with no filter at all.
+   */
+  onOpenFlag?: (flag: 'unassigned' | 'unacknowledged' | 'today' | 'unmet' | 'open') => void;
   onOpenStatus?: () => void;
   onOpenAdmin?: () => void;
   canAdmin?: () => boolean;
@@ -215,23 +223,41 @@ function renderKeys(feed: DashboardFeed): void {
   const target = el('dashKeys');
   clear(target);
 
-  const keys: { k: string; n: number; tone?: 'alarm' | 'warn' }[] = [
+  type Flag = 'unassigned' | 'unacknowledged' | 'today' | 'unmet' | 'open';
+  const keys: { k: string; n: number; tone?: 'alarm' | 'warn'; flag: Flag; goes: string }[] = [
     // The one number that means an emergency is with nobody at all. Red whenever it is not
     // zero, and never folded into "open".
-    { k: 'Unassigned', n: d.unassigned, ...(d.unassigned > 0 ? { tone: 'alarm' as const } : {}) },
+    {
+      k: 'Unassigned',
+      n: d.unassigned,
+      flag: 'unassigned' as const,
+      goes: 'the emergencies with nobody',
+      ...(d.unassigned > 0 ? { tone: 'alarm' as const } : {}),
+    },
     {
       k: 'Not acknowledged',
       n: d.overdueUnacknowledged,
+      flag: 'unacknowledged' as const,
+      goes: 'the ones nobody has acknowledged',
       ...(d.overdueUnacknowledged > 0 ? { tone: 'warn' as const } : {}),
     },
-    { k: 'Open now', n: d.openIncidents },
-    { k: 'Reported today', n: d.today },
+    { k: 'Open now', n: d.openIncidents, flag: 'open' as const, goes: 'everything open' },
+    {
+      k: 'Reported today',
+      n: d.today,
+      flag: 'today' as const,
+      // Everything that happened today, including what has already been closed — which is
+      // why the board is asked for closed rows too when arriving here.
+      goes: "today's emergencies, closed ones included",
+    },
     // INV-03 on the home screen: somebody was owed an alert and demonstrably did not get one.
     // Counted per emergency, not per attempt — three failed rungs against one duty officer is
     // one emergency nobody is coming to.
     {
       k: 'Nobody reached',
       n: feed.notificationsUnmet,
+      flag: 'unmet' as const,
+      goes: 'the emergencies nobody was reached about',
       ...(feed.notificationsUnmet > 0 ? { tone: 'alarm' as const } : {}),
     },
   ];
@@ -240,6 +266,19 @@ function renderKeys(feed: DashboardFeed): void {
     const node = box(`key${key.tone === undefined ? '' : ` ${key.tone}`}`);
     node.appendChild(span('n', String(key.n)));
     node.appendChild(span('k', key.k));
+
+    /**
+     * Clickable only when it counted something.
+     *
+     * A zero that opens a board saying "nothing matches" is a click that answers a question
+     * the counter had already answered. Worse, it teaches that these numbers lead somewhere
+     * unreliable, and the one that matters — `Unassigned`, in red — is the one that must be
+     * trusted at 02:00.
+     */
+    if (key.n > 0 && links.onOpenFlag !== undefined) {
+      leadsTo(node, `Show ${key.goes}`, () => links.onOpenFlag?.(key.flag));
+    }
+
     target.appendChild(node);
   }
 
