@@ -14,7 +14,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
@@ -47,7 +47,11 @@ describe.skipIf(dbUrl === undefined)('the post-incident report (integration)', (
   let rescueDept: string;
   let outsiderToken: string;
 
+  /** Named rather than passed inline, so `afterAll` has something to delete. */
+  let evidenceRoot: string;
+
   beforeAll(async () => {
+    evidenceRoot = await mkdtemp(join(tmpdir(), 'dnc-report-'));
     pool = createPool(dbUrl);
     await migrate(pool, migrationsDir);
 
@@ -55,7 +59,7 @@ describe.skipIf(dbUrl === undefined)('the post-incident report (integration)', (
       pool,
       authMode: 'stub',
       nodeEnv: 'test',
-      evidenceRoot: await mkdtemp(join(tmpdir(), 'dnc-report-')),
+      evidenceRoot,
     });
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -81,6 +85,11 @@ describe.skipIf(dbUrl === undefined)('the post-incident report (integration)', (
   afterAll(async () => {
     await new Promise<void>((r) => server?.close(() => r()));
     await pool?.end();
+    // The directory this suite made, removed. Five suites created one and only one deleted
+    // it, so every full run left its dumps and evidence behind in the system temp folder —
+    // 287 directories and 840 MB of them by the time somebody's disk filled up. A test that
+    // litters is a test that eventually stops the machine it runs on.
+    if (evidenceRoot !== undefined) await rm(evidenceRoot, { recursive: true, force: true });
   });
 
   async function call(

@@ -8,7 +8,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtemp, readdir } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +62,11 @@ describe.skipIf(dbUrl === undefined)('the nightly backup (integration)', () => {
 
   afterAll(async () => {
     await pool?.end();
+    // The directory this suite made, removed. Five suites created one and only one deleted
+    // it, so every full run left its dumps and evidence behind in the system temp folder —
+    // 287 directories and 840 MB of them by the time somebody's disk filled up. A test that
+    // litters is a test that eventually stops the machine it runs on.
+    await rm(directory, { recursive: true, force: true });
   });
 
   function nightly(at: Date, store: OffsiteStore, over: { hour?: number } = {}): Nightly {

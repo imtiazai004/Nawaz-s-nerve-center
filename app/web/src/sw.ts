@@ -28,7 +28,8 @@ declare const self: ServiceWorkerGlobalScope;
 // v5: the district counters became clickable, so `index.html` gained their styling and
 // `app.js` gained the filters they lead through. Caught by `shellVersion.test.ts` on its
 // first real outing — it failed this change before anybody had to notice it by hand.
-const CACHE = 'dnc-shell-v5';
+// v6: the dashboard stopped starting a second fetch while one was in flight.
+const CACHE = 'dnc-shell-v6';
 
 const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest'];
 

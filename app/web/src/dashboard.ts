@@ -836,11 +836,35 @@ export function createDashboard(
     }
   }
 
+  /**
+   * A fetch already in flight, so a second `show()` joins it instead of starting another.
+   *
+   * `tick` was already careful not to let a *timer* pile requests up on a slow server — "the
+   * failure mode where the monitoring makes the outage worse". It was not careful about being
+   * **shown twice**, and that turned out to be easy: arriving at the dashboard calls `show()`,
+   * and issuing an advisory calls it again through `onChanged`.
+   *
+   * Each build of this feed runs about ten queries at once. Three overlapping builds want
+   * thirty connections from a pool of ten, and the ones holding connections wait for ones that
+   * will never come — so every request hangs, the browser's `fetch` never settles, and the
+   * screen sits blank with no error anywhere. Found exactly that way: a test where three
+   * `show()` calls overlapped and all three ticks stopped at the fetch, with the catch never
+   * running because nothing ever failed.
+   *
+   * A blank dashboard that is not even trying is worse than one saying it cannot reach the
+   * server, which is the whole of INV-02.
+   */
+  let inFlight: Promise<void> | null = null;
+
   return {
     async show(): Promise<void> {
       open = true;
       if (timer !== null) clearTimeout(timer);
-      await tick();
+      if (inFlight !== null) return inFlight;
+      inFlight = tick().finally(() => {
+        inFlight = null;
+      });
+      await inFlight;
     },
     stop(): void {
       open = false;

@@ -16,7 +16,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -118,6 +118,11 @@ describe.skipIf(dbUrl === undefined)('uploading it (integration)', () => {
 
   afterAll(async () => {
     await pool?.end();
+    // The directory this suite made, removed. Five suites created one and only one deleted
+    // it, so every full run left its dumps and evidence behind in the system temp folder —
+    // 287 directories and 840 MB of them by the time somebody's disk filled up. A test that
+    // litters is a test that eventually stops the machine it runs on.
+    await rm(directory, { recursive: true, force: true });
   });
 
   async function aRun(): Promise<string> {

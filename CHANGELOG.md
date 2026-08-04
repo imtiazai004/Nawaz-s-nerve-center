@@ -2619,3 +2619,63 @@ space freed before the whole suite can run locally again**, and that is not some
 by deleting things on somebody's computer.
 
 - **Tests:** 739 → 746, 50 files.
+
+---
+
+## 2026-08-04 — Why the disk kept filling, and a long chase that ended in the runbook
+
+The owner: *"mai sirf tujhe sai coding karwata hon but mera c drive Q bar bar full ho raha hai?"*
+
+A fair question, and the answer was this project.
+
+### The disk — a test suite that littered
+
+**287 `dnc-*` directories in the system temp folder, 840 MB**, dating from the day the project
+started. Six test files create a temp directory for dumps or evidence; **only one deleted it
+afterwards.** Every `npm run check` left another handful behind, and this session ran the suite
+many times over.
+
+Fixed in the five that leaked. Verified: a full run now leaves **zero**.
+
+For the record, the rest of what development costs on this machine and does **not** grow:
+PostgreSQL's portable binaries 848 MB, its data 143 MB, Playwright's browsers 701 MB. Those are
+one-time and necessary. The litter was the only thing accumulating.
+
+### The chase, and what it was actually worth
+
+A Status browser test — *an office issues an advisory, and it reaches the dashboard* — failed
+locally and passed on CI. Hours went into it. The findings, in the order they were disproved:
+
+- **Not the endpoint.** `POST /status/alerts` answers 201 and the advisory appears on a
+  freshly-driven dashboard.
+- **Not a 400 seen in the logs.** That was a different test deliberately checking the server
+  refuses an advisory with no end date.
+- **Not the pool size.** `max: 10` against a nine-way fan-out *looked* like a self-deadlock, and
+  the change was written with a confident comment explaining it — then reverted, because three
+  concurrent requests never deadlocked and raising it fixed nothing. **A justification that
+  cannot be demonstrated does not get to ship**, however plausible it reads.
+
+**It was the local test database.** Bloated from a session of repeated runs, its queries had
+slowed until `/dashboard` could not answer inside the test's window — so `tick()` sat at its
+`await fetch` and every panel stayed blank. `npm run test:reset`, and the whole suite went green
+in **114 seconds** instead of failing after seven hundred.
+
+`CLAUDE.md` already says exactly this, in a paragraph written after it happened twice before:
+*"`npm run test:reset` when the local run goes red for no reason you changed."* **The remedy was
+written down and the hours were spent anyway.** That is the note worth leaving.
+
+### Kept, because it was demonstrated
+
+- **The dashboard no longer starts a second fetch while one is in flight.** Instrumenting the
+  client showed **three overlapping `tick()`s** — arriving at the dashboard calls `show()`, and
+  issuing an advisory calls it again through `onChanged`. Each build of that feed runs about ten
+  queries; three at once on one machine is the failure mode the module's own comment says it
+  wants to avoid, and it had only guarded the timer. `show()` now joins the fetch already
+  running.
+- **`CACHE` → `dnc-shell-v6`**, since the client changed.
+
+### Reverted, because it was not
+
+- The connection-pool size. See above.
+
+- **Tests:** 746, 50 files, green in 114s on a reset database.
