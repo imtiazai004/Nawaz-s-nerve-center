@@ -149,7 +149,7 @@ that blocks release on failure.
 
 - **Milestone:** M4/M5 — **the product now looks and behaves like the district's own
   prototype**, on every size of screen.
-- **Phase:** Implementation. 738 tests pass on every push.
+- **Phase:** Implementation. 739 tests pass on every push.
 - **A cross-department read leak was found and closed by the M5 security review
   (2026-08-04).** `/dashboard` and `/status` decided their scope from `departmentId === null`,
   which is true both of a control-room seat *and* of somebody holding **no post at all** — so
@@ -376,7 +376,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **738 tests passing** across 48 files, including **17 backup/restore tests that run a real
+- **739 tests passing** across 49 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -601,6 +601,26 @@ passing shuffle test, and was **causally wrong**: an offline batch shares a mill
 `triaged` folded after `overridden` and silently discarded a district override. Determinism
 was never the hard part. Events now carry `clientSeq`, and the SQL `ORDER BY` and the
 TypeScript comparator are tested against each other directly.
+
+**Bump `CACHE` in `sw.ts` whenever the shell changes — and a test now makes you.** Found on
+2026-08-04 by the owner opening the app and asking where the dashboard had gone.
+
+- The service worker caches `/`, `/index.html` and `/app.js` under a version string, and its
+  own comment already said a browser holding an older cache keeps serving the stale shell
+  until that string changes. **The comment was right, was read, and the mistake happened
+  anyway** — across four commits that moved the office screens, search and the report out of
+  `app.js` and their styling out of `index.html`, while the string stayed `dnc-shell-v3`.
+- Every browser that had ever opened the app kept serving the old one. **Had it reached Bannu,
+  every installed handset would have kept the previous app and no amount of deploying would
+  have changed it.**
+- **The lesson is not "remember". It is that nothing enforced it**: the shell changes in files
+  `sw.ts` never mentions, so the connection lived only in somebody's memory — the same place
+  INV-05 refuses to put authorisation. `src/__tests__/shellVersion.test.ts` now fails when the
+  built shell's bytes change and `CACHE` does not, naming both steps. `npm run shell:record`
+  stores the new hash, deliberately as a separate command: **a check that silently repairs
+  what it is checking is not a check.**
+- It fails on a CSS tweak too. That is correct — a CSS tweak is a shell change, and a stale
+  cache hides it exactly as thoroughly as it hides a missing dashboard.
 
 **Never trust `navigator.onLine`, and never cache `/sync`.** Two rules from M0-12, both
 learned from tests rather than reasoning:
@@ -867,6 +887,7 @@ Build with Claude/
 │   │   ├── index.html         ← app shell + all CSS. The palette is one block at the top
 │   │   ├── theme.css          ← shared tokens
 │   │   └── src/sw.ts          ← service worker. NEVER cache /sync, /dashboard, /status
+│   │   └── shell-version.json ← the shell's hash vs CACHE. A test holds the two together
 │   │   └── src/main.ts        ← boot; connectivity from sync outcomes, not navigator.onLine
 │   │   └── src/dashboard.ts   ← the dashboard (M4). Every panel leads to an existing screen
 │   │   └── src/status.ts      ← where the district states its own condition (M4). LAZY

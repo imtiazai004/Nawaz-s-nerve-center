@@ -2497,3 +2497,61 @@ would have said yes.
 
 - **Tests:** 738, 48 files, unchanged — this moved code between files rather than adding
   behaviour. Shell **131 KB / 160 KB**. Rapid intake 2.2s / 15s. `npm run check` green.
+
+---
+
+## 2026-08-04 — The dashboard had not gone anywhere. The cache had.
+
+The owner opened the app and asked where the dashboard was, and why it looked like the old
+software. Nothing was wrong with the code — every responsive breakpoint, every panel and every
+card was in the shell being served. **The browser was serving a cached shell from four commits
+ago**, and that was mine.
+
+### What happened
+
+`sw.ts` caches `/`, `/index.html` and `/app.js` under a version string. Its own comment says:
+
+> A browser holding an older cache keeps serving the stale shell until this version changes.
+
+Over four commits the shell changed a great deal — the office screens, search and the
+post-incident report left `app.js` for their own files, and their styling left `index.html` —
+and the string stayed `dnc-shell-v3` throughout.
+
+**Had this reached Bannu, every handset that had ever opened the app would have kept the
+previous one, and no amount of deploying would have changed that.** It was found by somebody
+opening the app, which is the worst way to find it.
+
+### Changed
+
+- **`CACHE` bumped to `dnc-shell-v4`**, with the reasoning recorded above the line.
+
+### Added — because the comment was already there and did not work
+
+- **`src/__tests__/shellVersion.test.ts`.** It hashes the production shell and fails when those
+  bytes change while `CACHE` does not, printing both steps to take. **Confirmed to fail** by
+  appending one line to `index.html` before restoring it.
+- **`npm run shell:record`** writes `web/shell-version.json`. Deliberately a separate command
+  rather than something the test does for itself: **a check that silently repairs what it is
+  checking is not a check.**
+- It fails on a CSS tweak too, and that is correct — a CSS tweak is a shell change, and a
+  stale cache hides it exactly as thoroughly as it hides a missing dashboard.
+
+### Why a comment was not enough, stated plainly
+
+The comment was correct and it was read. The mistake happened because **the shell changes in
+files `sw.ts` never mentions**, so nothing connected editing `index.html` to editing a string
+somewhere else. That connection lived only in somebody's memory — the same place INV-05
+refuses to put authorisation, and for the same reason.
+
+### Not reproduced
+
+The owner also saw *"Could not reach the server. Nothing was saved."* on the Status screen.
+Driven in real Chromium — sign in, open Status, save — the screen answers **"Saved."**, and the
+endpoint answers 201 directly. The service worker does not touch it (it returns early for any
+non-GET). **Most likely the dev server was being restarted underneath the open page**, a
+window of about forty seconds while the client rebuilt and the server recompiled.
+
+Recorded as unexplained rather than fixed. What the app did was correct either way: it did not
+claim to have saved anything.
+
+- **Tests:** 738 → 739, 49 files. `npm run check` green.

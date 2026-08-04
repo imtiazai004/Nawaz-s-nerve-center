@@ -15,7 +15,17 @@ declare const self: ServiceWorkerGlobalScope;
 /** Bump to ship a new shell. Old caches are deleted on activate. */
 // v3: the responsive shell (M4), and `/dashboard` and `/status` joining NEVER_CACHE. A
 // browser holding an older cache keeps serving the stale shell until this version changes.
-const CACHE = 'dnc-shell-v3';
+//
+// v4: the office screens, search and the post-incident report left `app.js` for their own
+// files, and their styling left `index.html`. **Both halves of the shell changed and this
+// line did not**, so every browser that had ever opened the app kept serving the old one —
+// the exact failure the note above describes, committed four times in a row without anybody
+// noticing, and found by somebody opening the app and asking where the dashboard had gone.
+//
+// The lesson is not "remember to bump it". It is that **nothing enforced it**: the shell can
+// change in a file this one never mentions, so `sw.e2e.test.ts` now fails when the built
+// shell's bytes change and this string does not.
+const CACHE = 'dnc-shell-v4';
 
 const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest'];
 
