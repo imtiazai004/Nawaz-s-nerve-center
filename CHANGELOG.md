@@ -2186,3 +2186,32 @@ One test run in this session failed with `ECONNREFUSED 127.0.0.1:5433` across a 
 That was the local Postgres having stopped, not the code — `scripts/dev-db.ps1 start` and the
 suite went green. Recorded because a whole-file failure that names a port is worth recognising
 on sight rather than debugging.
+
+---
+
+## 2026-08-04 — The CI job's name had been wrong for 400 tests
+
+Found while verifying that CI had genuinely run the suite rather than a fraction of it — the
+check `CLAUDE.md` insists on, because *"if CI and local can disagree about what green means,
+the one nobody is watching wins."*
+
+### Changed
+
+- **The CI job was named `typecheck · lint · format · 297 tests`.** The run it was attached to
+  had just executed **698**. The number is hand-written in `ci.yml` and had not been touched
+  since the suite was a little over a third of its current size.
+- **Removed the count rather than corrected it.** A number that has to be edited by hand every
+  time somebody adds a test is wrong by default and right only by accident. The job is now
+  `typecheck · lint · format · tests`, and the run's own summary is the honest count.
+
+### Why this was worth stopping for
+
+The workflow exists because a green build that quietly ran fewer tests than it should is the
+failure this project fears most — `loadEnv.ts` makes a missing `TEST_DATABASE_URL` a hard
+failure under CI for exactly that reason. **A job label that overstates coverage is that same
+failure wearing a different hat**: somebody glancing at a passing check would have concluded
+the suite was a third of its real size, or — worse, in the other direction — that 297 was the
+number to expect and 698 meant something had gone wrong.
+
+Verified on this run: **44 files, 698 tests, all passed**, read out of the job log rather than
+taken from the label.
