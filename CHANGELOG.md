@@ -2215,3 +2215,61 @@ number to expect and 698 meant something had gone wrong.
 
 Verified on this run: **44 files, 698 tests, all passed**, read out of the job log rather than
 taken from the label.
+
+---
+
+## 2026-08-04 — Full-history search, and the timestamp it nearly used
+
+Capability group 9 named "full-history search". The board shows the last seven days, so
+everything older was reachable **only by already knowing its incident id** — a post-incident
+report about something from March could be produced by whoever had written the id down, and by
+nobody else. A record you cannot look anything up in is a filing cabinet with no drawer labels.
+
+### Added
+
+- **`GET /search`** — `?q=` free text, `?from=` `?to=`, `?status=`, `?limit=`. Matches the
+  reporter's own words, the place, and the category, case-insensitively.
+- **`src/api/search.ts`**, and **`projectIncidents` split out of `buildBoard`.** Search needs a
+  different *selection* — the board asks "what arrived lately", search asks "what happened
+  during the floods", and no one query serves both. What must not differ is everything after
+  the selection: the fold, `evaluateRead`, `toRow`. Board, export and search now share that
+  one projection, so no two of them can describe the same emergency differently.
+- **Migration 0019** — `incident_event (occurred_at, incident_id)`.
+- 10 tests.
+
+### The mistake this nearly shipped with
+
+**The first implementation ranged on `recorded_at`**, because that is what the board's loader
+uses and it is the indexed column. It passed its tests.
+
+It was wrong, and the tests were wrong with it. `append` assigns `recorded_at` server-side and
+**ignores whatever a client sends** — correctly, since a device with a wrong clock must not be
+able to misreport when we *learned* of something. So every incident a test seeds has
+`recorded_at` of now, whatever date it claims to have happened. **Every "find something old"
+assertion was passing because the data was not old in the column being filtered.**
+
+The real failure is worse than a bad test. A report captured on a handset with no signal in
+March and delivered in August has `occurred_at` in March and `recorded_at` in August. Ranging
+on arrival files that emergency under the day the network came back — so **the district's worst
+weeks, the ones where devices were offline longest, would be exactly the weeks that searched
+emptiest.** That is ADR-0002 inverted by a column name.
+
+The project's own rule already said which to use: *measurement uses `occurred_at`, escalation
+firing uses `recorded_at`*. Search is measurement.
+
+Fixed, indexed, and pinned by a test that seeds an incident which happened 200 days ago and
+arrived seconds ago, then asserts a one-week window **does not** contain it. Confirmed to fail
+against the `recorded_at` version before the fix was restored.
+
+### Two things it refuses to do
+
+- **It will not let an absence read as a fact** (ADR-0005, applied to a query). The response
+  echoes the resolved window, because "no results" and "no results in the fortnight you
+  happened to search" are different statements and only the response can tell them apart.
+- **Truncation is its own field**, not implied by a full page: "exactly 200 results" and "at
+  least 200 results" are different answers, and only one means somebody should narrow.
+
+An over-wide range is **clamped, not refused** — somebody asking for ten years wants everything
+there is, and an error teaches them to stop using search rather than to pick a better date.
+
+- **Tests:** 698 → 708, 45 files. `npm run check` green.

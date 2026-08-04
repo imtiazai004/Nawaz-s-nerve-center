@@ -25,6 +25,7 @@ import {
 } from './lifecycle.js';
 import { buildBoard } from './board.js';
 import { buildExport, EXPORT_LIMIT } from './exportCsv.js';
+import { search } from './search.js';
 import { inbox, markSeen } from './notifications.js';
 import {
   addDepartment,
@@ -1232,6 +1233,49 @@ export function createSyncServer(options: ServerOptions): Server {
           }
 
           writeContacts(res, await handleContacts(pool, req, url.pathname, identity));
+          return;
+        }
+
+        /**
+         * Finding an old emergency (capability 9).
+         *
+         * The board is the last seven days; everything before that was reachable only by
+         * already knowing its incident id. Same seat, same projection as the board — search
+         * decides which incidents, never what they say.
+         */
+        if (url.pathname === '/search') {
+          const token = readToken(req);
+          const identity = token === null ? null : await resolveSession(pool, token);
+
+          if (identity === null) {
+            json(res, 401, { error: 'authentication required' });
+            return;
+          }
+          if (!requireSeat(res, identity)) return;
+          if (req.method !== 'GET') {
+            json(res, 405, { error: 'method not allowed' });
+            return;
+          }
+
+          const seat = seatOf(identity);
+          if (seat === null) {
+            json(res, 403, { error: 'no current duty assignment; you hold no seat' });
+            return;
+          }
+
+          const limitParam = Number(url.searchParams.get('limit'));
+
+          json(
+            res,
+            200,
+            await search(pool, seat, {
+              text: url.searchParams.get('q') ?? undefined,
+              from: url.searchParams.get('from') ?? undefined,
+              to: url.searchParams.get('to') ?? undefined,
+              status: url.searchParams.get('status') ?? undefined,
+              limit: Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined,
+            }),
+          );
           return;
         }
 

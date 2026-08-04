@@ -149,7 +149,7 @@ that blocks release on failure.
 
 - **Milestone:** M4/M5 — **the product now looks and behaves like the district's own
   prototype**, on every size of screen.
-- **Phase:** Implementation. 698 tests pass on every push.
+- **Phase:** Implementation. 708 tests pass on every push.
 - **A cross-department read leak was found and closed by the M5 security review
   (2026-08-04).** `/dashboard` and `/status` decided their scope from `departmentId === null`,
   which is true both of a control-room seat *and* of somebody holding **no post at all** — so
@@ -374,7 +374,7 @@ only ever read by the **test** setup. `main.ts` loads it now, if it exists.
 - **`app/src/main.ts`** — one process runs the API, the client and the escalation loop
   (ADR-0007's single deployable), with ordered shutdown: stop escalating, stop accepting,
   release the pool.
-- **698 tests passing** across 44 files, including **17 backup/restore tests that run a real
+- **708 tests passing** across 45 files, including **17 backup/restore tests that run a real
   `pg_dump` → `psql` round trip** against the real cluster and fold the restored events to
   prove the system came back, not just the rows. **Every one of the eight invariants now has a
   permanent test**, and the invariant file's header names where each lives — four at the
@@ -723,6 +723,16 @@ after the 2026-08-04 review, recorded here because the obvious fix is the harmfu
   name is operator-typed text and a spreadsheet executes a leading `=`.
 - **What that export still does not solve is R-17**: the actual forms departments submit
   upward. A generic file leaves somebody retyping, which is the risk above in a smaller form.
+- **Full-history search landed with it (2026-08-04).** `GET /search`. The board is the last
+  seven days; before this, an emergency from March could be turned into a post-incident report
+  by somebody who had written its id down and by nobody else — a record with no way to look
+  anything up in it. **It ranges on `occurred_at`, never on arrival**, and that is
+  load-bearing: a report captured offline in March and delivered in August would otherwise be
+  filed under the day the network came back, so the district's worst weeks — when devices were
+  offline longest — would be exactly the weeks that searched emptiest (ADR-0002). Migration
+  0019 indexes it. Board, export and search now share **one** projection (`projectIncidents`)
+  and differ only in which incidents they select, so no two of them can describe the same
+  emergency differently.
 
 **Immediate next actions**
 
@@ -804,7 +814,7 @@ Build with Claude/
 │   │   ├── reset-test-db.mjs  ← `npm run test:reset`. The local test DB drifts; this clears it
 │   │   ├── sweep.mjs          ← `npm run sweep` — the configuration sweep
 │   │   └── demo-data.mjs      ← `npm run demo` / `demo:clear`. All of it says "(demo)"
-│   ├── db/migrations/         ← forward-only SQL, 0001–0018. Correct a mistake by adding one
+│   ├── db/migrations/         ← forward-only SQL, 0001–0019. Correct a mistake by adding one
 │   ├── web/                   ← the PWA. ONE app: phone, laptop and office screen (ADR-0013)
 │   │   ├── index.html         ← app shell + all CSS. The palette is one block at the top
 │   │   ├── theme.css          ← shared tokens
@@ -852,6 +862,7 @@ Build with Claude/
 │       │   ├── status.ts      ← where the district states its own condition (M4)
 │       │   ├── contacts.ts    ← the numbers, so a human can ring them (M5). Sends nothing
 │       │   ├── exportCsv.ts   ← incidents out, as a spreadsheet. The board, not a 2nd query
+│       │   ├── search.ts      ← full-history search. Ranges on occurred_at, never arrival
 │       │   ├── report.ts      ← the post-incident report endpoint (M1-06)
 │       │   ├── resources.ts   ← dispatch and stand-down (M1-03)
 │       │   ├── evidenceRoutes.ts ← photographs and files (M1-05). Bytes on disk, hash in DB

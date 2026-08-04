@@ -23,6 +23,7 @@ import {
   isAssessed,
   severityRank,
   type AssessedSeverity,
+  type IncidentEvent,
   type Instant,
   type Severity,
   type Uuid,
@@ -247,14 +248,35 @@ export async function buildBoard(
   seat: Seat,
   options: BoardOptions = {},
 ): Promise<Board> {
+  const grouped = await loadRecentIncidents(pool, options.days ?? 7, options.limit ?? 500);
+  return projectIncidents(pool, seat, grouped, options);
+}
+
+/**
+ * Fold, scope, and project — **the half that must be identical on every surface.**
+ *
+ * Split out of `buildBoard` when search arrived. Search genuinely needs a different
+ * *selection*: the board asks for the last seven days, search asks for whatever somebody is
+ * looking for, and no single query serves both. What must not differ is everything after the
+ * selection — the fold, `evaluateRead`, and `toRow` — because that is where a second
+ * implementation would start quietly disagreeing with the screen about a district's own
+ * emergencies.
+ *
+ * So the board, the export and search now share this and differ only in which incidents they
+ * hand it. Any incident that appears on two of them says exactly the same thing on both.
+ */
+export async function projectIncidents(
+  pool: Pool,
+  seat: Seat,
+  grouped: readonly (readonly IncidentEvent[])[],
+  options: BoardOptions = {},
+): Promise<Board> {
   const now = options.now ?? new Date().toISOString();
   const config = await slaConfig(pool, options.targets);
 
   // Fetched once for the whole board, not per row. Same reason the detail endpoint returns
   // an actor directory with the events: a screen should never have to ask twice.
   const departments = await departmentDirectory(pool);
-
-  const grouped = await loadRecentIncidents(pool, options.days ?? 7, options.limit ?? 500);
 
   const visible: IncidentState[] = [];
   for (const events of grouped) {
